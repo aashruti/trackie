@@ -9,6 +9,7 @@ export interface ParsedCohort {
 export interface ParsedInvoice {
   category: Category;
   semester: Semester;
+  sourceCol: number; // 0-based column in the source sheet (for reconciliation)
   students: number;
   priceToUni: number;
   priceToDatagami: number;
@@ -92,6 +93,17 @@ export function parseSheet(path: string, sheetName: string): ParsedSheet {
   const priceToUni = num(totalTaxable[1]);
   const priceToDatagami = num(totalTaxable[2]);
 
+  // The advance amount (from the advance column's taxable), if this sheet has one.
+  // It is netted exactly once against the student column whose OEM transfer the
+  // Excel reduced — even when that drives the column's transfer negative.
+  let advanceAmount = 0;
+  for (let col = 3; col < hdr.length; col++) {
+    if (/advance/i.test(hdr[col] ?? "")) {
+      advanceAmount = num(totalTaxable[col]);
+      break;
+    }
+  }
+
   const invoices: ParsedInvoice[] = [];
 
   for (let col = 3; col < hdr.length; col++) {
@@ -118,6 +130,7 @@ export function parseSheet(path: string, sheetName: string): ParsedSheet {
       invoices.push({
         category,
         semester,
+        sourceCol: col,
         students: 1,
         priceToUni: advAmount,
         priceToDatagami: advAmount,
@@ -134,11 +147,15 @@ export function parseSheet(path: string, sheetName: string): ParsedSheet {
     const students = num(totalStudents[col]);
     if (students <= 0) continue;
 
-    // Advance attaches to the student column whose OEM transfer was reduced.
+    // The advance is netted against the column whose OEM transfer the Excel
+    // reduced by exactly the advance amount (handles negative-going columns).
     const expectedOut = students * priceToDatagami;
-    const actualOut = num(trfAmt[col]);
+    const hasTrf = trfAmt[col] !== undefined && trfAmt[col] !== null && trfAmt[col] !== "";
+    const reduction = hasTrf ? expectedOut - num(trfAmt[col]) : 0;
     const advanceAdj =
-      actualOut > 0 && actualOut < expectedOut ? expectedOut - actualOut : 0;
+      advanceAmount > 0 && Math.abs(reduction - advanceAmount) <= 1
+        ? advanceAmount
+        : 0;
 
     const cohorts: ParsedCohort[] =
       category === "old"
@@ -153,6 +170,7 @@ export function parseSheet(path: string, sheetName: string): ParsedSheet {
     invoices.push({
       category,
       semester,
+      sourceCol: col,
       students,
       priceToUni,
       priceToDatagami,
