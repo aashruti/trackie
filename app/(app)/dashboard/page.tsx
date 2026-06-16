@@ -3,6 +3,11 @@ import { Topbar } from "@/components/shell/topbar";
 import { getPortfolioForUser } from "@/lib/dal/portfolio";
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { ReservesStrip } from "@/components/dashboard/reserves-strip";
+import {
+  MarginByOemChart,
+  TopAccountsChart,
+  AgingChart,
+} from "@/components/dashboard/charts";
 
 const YEAR = "FY26–27";
 
@@ -52,6 +57,12 @@ export default async function DashboardPage() {
         </div>
 
         <ReservesStrip reserves={reserves} />
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <MarginByOemChart data={portfolio.marginByOem} />
+          <TopAccountsChart rows={portfolio.rows} />
+          <AgingChart aging={portfolio.aging} />
+        </div>
       </main>
     </>
   );
