@@ -8,6 +8,7 @@ import {
   TopAccountsChart,
   AgingChart,
 } from "@/components/dashboard/charts";
+import { AccountsTable } from "@/components/dashboard/accounts-table";
 
 const YEAR = "FY26–27";
 
@@ -63,6 +64,8 @@ export default async function DashboardPage() {
           <TopAccountsChart rows={portfolio.rows} />
           <AgingChart aging={portfolio.aging} />
         </div>
+
+        <AccountsTable rows={portfolio.rows} />
       </main>
     </>
   );
