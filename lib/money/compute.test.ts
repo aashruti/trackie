@@ -127,6 +127,19 @@ describe("computeAccount", () => {
   });
 });
 
+describe("computeAccount reserves", () => {
+  it("surfaces GST/TDS set-aside figures separate from profit", () => {
+    const a = computeAccount([
+      { category: "new", semester: "none", students: 180, priceToUni: 21200, priceToDatagami: 18500, gstRate: 0.18, tdsRate: 0.1, advanceAdj: 1_000_000, status: "raised", payments: [] },
+      { category: "advance", semester: "none", students: 1, priceToUni: 1_000_000, priceToDatagami: 1_000_000, gstRate: 0.18, tdsRate: 0.1, status: "raised", payments: [] },
+    ]);
+    expect(a.netGst).toBe(267_480); // gstIn − gstOut on new (advance nets to 0)
+    expect(a.advanceTdsCost).toBe(100_000); // advance × tds
+    expect(a.tdsReceivable).toBe(481_600); // 381_600 (new) + 100_000 (advance)
+    expect(a.tdsPayable).toBeGreaterThan(0);
+  });
+});
+
 describe("accountStatus", () => {
   it("paid when outstanding <= 1 and no overdue", () => {
     expect(accountStatus([{ status: "paid", outstanding: 0 }])).toBe("paid");

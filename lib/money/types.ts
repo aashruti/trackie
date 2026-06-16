@@ -49,6 +49,11 @@ export interface AccountComputed {
   payable: number;
   netMargin: number;
   gstDiff: number;
+  // Set-aside reserves (owed to / recoverable from government — NOT profit).
+  netGst: number; // GST to remit (output − input)
+  tdsReceivable: number; // TDS withheld by universities (our credit)
+  tdsPayable: number; // TDS we withhold from OEMs (deposit on their behalf)
+  advanceTdsCost: number; // TDS we front on advances (real cost, already in netMargin)
   hasNegative: boolean;
   status: Status;
 }

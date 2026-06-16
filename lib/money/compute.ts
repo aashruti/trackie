@@ -95,6 +95,11 @@ export function computeAccount(
     payable: sum("payable"),
     netMargin: sum("netMargin"),
     gstDiff: sum("gstDiff"),
+    // Set-aside reserves (owed to / recoverable from govt) — never part of profit.
+    netGst: sum("gstDiff"),
+    tdsReceivable: sum("tdsIn"),
+    tdsPayable: sum("tdsOut"),
+    advanceTdsCost: sum("advanceTdsCost"),
     // Only genuine below-cost student sales trip the red flag; the advance's
     // structural negative TDS cost does not.
     hasNegative: invoices.some((s) => s.category !== "advance" && s.netMargin < 0),
