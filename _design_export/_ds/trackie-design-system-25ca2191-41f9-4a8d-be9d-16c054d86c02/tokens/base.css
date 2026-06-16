@@ -1,0 +1,52 @@
+/* =========================================================================
+   Trackie — Base element defaults & a few primitives
+   Light-touch resets so specimens, cards, and kits render consistently.
+   ========================================================================= */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  line-height: var(--lh-body);
+  color: var(--text-primary);
+  background: var(--background);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv05" 1;  /* refined single-storey g in Hanken    */
+}
+
+/* Money & figures: always mono + tabular so columns align to the decimal.   */
+.money,
+.tabular {
+  font-family: var(--font-mono);
+  font-variant-numeric: var(--numeric-tabular);
+  font-feature-settings: "tnum" 1;
+  letter-spacing: -0.01em;
+}
+.money { text-align: right; white-space: nowrap; }
+
+/* Inline figures inside sans copy still get tabular numerals.               */
+.figure { font-variant-numeric: var(--numeric-tabular); }
+
+.money--positive { color: var(--positive-text); }
+.money--negative { color: var(--negative-text); }
+.money--muted    { color: var(--text-muted); }
+
+/* Overline label — small caps tracking, common above KPI figures.          */
+.overline {
+  font-size: var(--text-micro);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+::selection { background: var(--gold-200); color: var(--slate-950); }
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  border-radius: var(--radius-sm);
+}

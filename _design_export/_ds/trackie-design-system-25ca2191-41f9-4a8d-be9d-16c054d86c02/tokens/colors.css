@@ -1,0 +1,208 @@
+/* =========================================================================
+   Trackie — Color tokens
+   Anchored to the Datagami gold (#E5A50A–#F2B705). Slate neutrals + Tailwind-
+   aligned semantic scales so everything maps 1:1 to Tailwind / shadcn theming.
+   Gold is a DISCIPLINED ACCENT — neutrals and semantic colors carry the data.
+   ========================================================================= */
+
+:root {
+  /* ---- Brand / primary: Datagami gold ----------------------------------- */
+  --gold-50:  #FDF8EC;
+  --gold-100: #FBEFCD;
+  --gold-200: #F6DD96;
+  --gold-300: #F1C95C;
+  --gold-400: #EDB733;   /* bright family tone, near Datagami #FFC242        */
+  --gold-500: #E5A50A;   /* PRIMARY — the signature Datagami gold            */
+  --gold-600: #C5870A;   /* hover / pressed primary                          */
+  --gold-700: #9C690D;   /* AA text on white (≥4.5:1)                        */
+  --gold-800: #7A5210;   /* deep gold                                        */
+  --gold-900: #623F12;   /* darkest gold, dark-mode surfaces                 */
+
+  /* ---- Neutrals: slate (text, borders, surfaces) ------------------------ */
+  --slate-50:  #F8FAFC;
+  --slate-100: #F1F5F9;
+  --slate-200: #E2E8F0;
+  --slate-300: #CBD5E1;
+  --slate-400: #94A3B8;
+  --slate-500: #64748B;
+  --slate-600: #475569;
+  --slate-700: #334155;
+  --slate-800: #1E293B;
+  --slate-900: #0F172A;
+  --slate-950: #020617;
+
+  /* ---- Semantic: POSITIVE — received / profit / paid (green) ------------ */
+  --green-50:  #ECFDF5;
+  --green-100: #D1FAE5;
+  --green-200: #A7F3D0;
+  --green-300: #6EE7B7;
+  --green-400: #34D399;
+  --green-500: #10B981;
+  --green-600: #059669;   /* default money-in figure on light                */
+  --green-700: #047857;
+  --green-800: #065F46;
+  --green-900: #064E3B;
+
+  /* ---- Semantic: NEGATIVE — outstanding / overdue / neg. margin (red) --- */
+  --red-50:  #FEF2F2;
+  --red-100: #FEE2E2;
+  --red-200: #FECACA;
+  --red-300: #FCA5A5;
+  --red-400: #F87171;
+  --red-500: #EF4444;
+  --red-600: #DC2626;     /* default money-out / overdue figure on light     */
+  --red-700: #B91C1C;
+  --red-800: #991B1B;
+  --red-900: #7F1D1D;
+
+  /* ---- Semantic: PENDING — awaiting / partially paid (amber) ------------ */
+  /* Deliberately warmer/oranger than brand gold so "pending" never reads as
+     a brand accent. Brand gold = #E5A50A · pending amber = #F59E0B.          */
+  --amber-50:  #FFFBEB;
+  --amber-100: #FEF3C7;
+  --amber-200: #FDE68A;
+  --amber-300: #FCD34D;
+  --amber-400: #FBBF24;
+  --amber-500: #F59E0B;
+  --amber-600: #D97706;
+  --amber-700: #B45309;
+  --amber-800: #92400E;
+  --amber-900: #78350F;
+
+  /* ---- Semantic: INFO — neutral / informational (blue) ------------------ */
+  --blue-50:  #EFF6FF;
+  --blue-100: #DBEAFE;
+  --blue-200: #BFDBFE;
+  --blue-300: #93C5FD;
+  --blue-400: #60A5FA;
+  --blue-500: #3B82F6;
+  --blue-600: #2563EB;
+  --blue-700: #1D4ED8;
+  --blue-800: #1E40AF;
+  --blue-900: #1E3A8A;
+}
+
+/* =========================================================================
+   SEMANTIC ALIASES — LIGHT MODE (default)
+   Components reference THESE, not raw scale steps.
+   ========================================================================= */
+:root {
+  /* Surfaces & background */
+  --background:        var(--slate-50);    /* app canvas behind cards         */
+  --surface:           #FFFFFF;            /* default card / panel surface    */
+  --surface-raised:    #FFFFFF;            /* popovers, dialogs               */
+  --surface-sunken:    var(--slate-100);   /* wells, table headers, insets    */
+  --surface-hover:     var(--slate-100);   /* row / item hover                */
+  --surface-active:    var(--slate-200);   /* pressed / selected row          */
+
+  /* Borders & dividers */
+  --border:            var(--slate-200);   /* default hairline                */
+  --border-strong:     var(--slate-300);   /* inputs, emphasized dividers     */
+  --border-subtle:     var(--slate-100);   /* faint internal rules            */
+
+  /* Text */
+  --text-primary:      var(--slate-900);   /* headings, key figures           */
+  --text-secondary:    var(--slate-600);   /* body, labels                    */
+  --text-muted:        var(--slate-400);   /* captions, placeholders          */
+  --text-on-brand:     var(--slate-950);   /* text on gold (gold needs DARK)  */
+  --text-on-accent:    #FFFFFF;            /* text on green/red/blue fills    */
+
+  /* Brand / primary */
+  --primary:           var(--gold-500);
+  --primary-hover:     var(--gold-600);
+  --primary-active:    var(--gold-700);
+  --primary-fg:        var(--slate-950);   /* foreground ON primary fills     */
+  --primary-subtle:    var(--gold-50);     /* tinted brand background         */
+  --primary-border:    var(--gold-200);
+  --primary-text:      var(--gold-700);    /* brand-colored text, AA on white */
+
+  /* Focus ring */
+  --ring:              var(--gold-500);
+  --ring-offset:       #FFFFFF;
+
+  /* Semantic — money & status (light) */
+  --positive:          var(--green-600);
+  --positive-subtle:   var(--green-50);
+  --positive-border:   var(--green-200);
+  --positive-text:     var(--green-700);
+
+  --negative:          var(--red-600);
+  --negative-subtle:   var(--red-50);
+  --negative-border:   var(--red-200);
+  --negative-text:     var(--red-700);
+
+  --pending:           var(--amber-500);
+  --pending-subtle:    var(--amber-50);
+  --pending-border:    var(--amber-200);
+  --pending-text:      var(--amber-700);
+
+  --info:              var(--blue-600);
+  --info-subtle:       var(--blue-50);
+  --info-border:       var(--blue-200);
+  --info-text:         var(--blue-700);
+
+  --neutral-status:        var(--slate-500);
+  --neutral-status-subtle: var(--slate-100);
+  --neutral-status-border: var(--slate-200);
+  --neutral-status-text:   var(--slate-600);
+}
+
+/* =========================================================================
+   SEMANTIC ALIASES — DARK MODE
+   Activated by the `.dark` class on a root ancestor (shadcn convention).
+   Semantic hues lift to ~400 steps for legibility on dark surfaces.
+   ========================================================================= */
+.dark {
+  --background:        #0A0F1A;            /* near-black, faint blue cast     */
+  --surface:           var(--slate-900);   /* card                            */
+  --surface-raised:    #18253B;            /* popovers sit above cards        */
+  --surface-sunken:    #0C1525;            /* table headers, wells            */
+  --surface-hover:     #18253B;
+  --surface-active:    var(--slate-800);
+
+  --border:            #243549;
+  --border-strong:     var(--slate-700);
+  --border-subtle:     #1A2738;
+
+  --text-primary:      var(--slate-50);
+  --text-secondary:    var(--slate-300);
+  --text-muted:        var(--slate-500);
+  --text-on-brand:     var(--slate-950);
+  --text-on-accent:    var(--slate-950);
+
+  --primary:           var(--gold-400);    /* brighter so it sings on dark    */
+  --primary-hover:     var(--gold-300);
+  --primary-active:    var(--gold-500);
+  --primary-fg:        var(--slate-950);
+  --primary-subtle:    rgba(237, 183, 51, 0.12);
+  --primary-border:    rgba(237, 183, 51, 0.32);
+  --primary-text:      var(--gold-300);
+
+  --ring:              var(--gold-400);
+  --ring-offset:       var(--slate-950);
+
+  --positive:          var(--green-400);
+  --positive-subtle:   rgba(52, 211, 153, 0.12);
+  --positive-border:   rgba(52, 211, 153, 0.30);
+  --positive-text:     var(--green-300);
+
+  --negative:          var(--red-400);
+  --negative-subtle:   rgba(248, 113, 113, 0.12);
+  --negative-border:   rgba(248, 113, 113, 0.30);
+  --negative-text:     var(--red-300);
+
+  --pending:           var(--amber-400);
+  --pending-subtle:    rgba(251, 191, 36, 0.12);
+  --pending-border:    rgba(251, 191, 36, 0.30);
+  --pending-text:      var(--amber-300);
+
+  --info:              var(--blue-400);
+  --info-subtle:       rgba(96, 165, 250, 0.12);
+  --info-border:       rgba(96, 165, 250, 0.30);
+  --info-text:         var(--blue-300);
+
+  --neutral-status:        var(--slate-400);
+  --neutral-status-subtle: rgba(148, 163, 184, 0.12);
+  --neutral-status-border: rgba(148, 163, 184, 0.28);
+  --neutral-status-text:   var(--slate-300);
+}

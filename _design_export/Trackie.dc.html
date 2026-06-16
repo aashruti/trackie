@@ -1,0 +1,1368 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="_ds/trackie-design-system-25ca2191-41f9-4a8d-be9d-16c054d86c02/tokens/fonts.css">
+  <link rel="stylesheet" href="_ds/trackie-design-system-25ca2191-41f9-4a8d-be9d-16c054d86c02/tokens/colors.css">
+  <link rel="stylesheet" href="_ds/trackie-design-system-25ca2191-41f9-4a8d-be9d-16c054d86c02/tokens/typography.css">
+  <link rel="stylesheet" href="_ds/trackie-design-system-25ca2191-41f9-4a8d-be9d-16c054d86c02/tokens/spacing.css">
+  <link rel="stylesheet" href="_ds/trackie-design-system-25ca2191-41f9-4a8d-be9d-16c054d86c02/tokens/base.css">
+  <link rel="stylesheet" href="_ds/trackie-design-system-25ca2191-41f9-4a8d-be9d-16c054d86c02/tokens/components.css">
+  <link rel="stylesheet" href="_ds/trackie-design-system-25ca2191-41f9-4a8d-be9d-16c054d86c02/styles.css">
+  <style>
+    *{ box-sizing:border-box; }
+    .tk-scroll::-webkit-scrollbar{ width:10px; height:10px; }
+    .tk-scroll::-webkit-scrollbar-thumb{ background:var(--slate-300); border-radius:9999px; border:3px solid var(--background); }
+    .dark .tk-scroll::-webkit-scrollbar-thumb{ background:var(--slate-700); }
+    .nav-item:hover{ background:var(--surface-hover) !important; }
+    .row-link{ cursor:pointer; }
+    @keyframes tkShimmer{ 0%{ background-position:100% 0; } 100%{ background-position:-100% 0; } }
+    .sk{ background:linear-gradient(90deg, var(--surface-sunken) 25%, var(--border-subtle) 37%, var(--surface-sunken) 63%); background-size:400% 100%; animation:tkShimmer 1.4s ease infinite; border-radius:6px; }
+    .row-link:hover{ filter:brightness(0.99); }
+    table.tk-table tbody tr.row-link:hover{ background:var(--surface-hover); }
+  </style>
+</helmet>
+
+<div class="{{ rootClass }}" style="display:flex; height:100vh; width:100%; overflow:hidden; background:var(--background); font-family:var(--font-sans); color:var(--text-primary);">
+
+  <!-- ===================== SIDEBAR ===================== -->
+  <aside style="width:264px; flex:none; height:100%; display:flex; flex-direction:column; background:var(--surface); border-right:1px solid var(--border);">
+    <div style="height:60px; flex:none; display:flex; align-items:center; gap:10px; padding:0 18px; border-bottom:1px solid var(--border);">
+      <svg width="30" height="30" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <polyline points="7,33 17,24 24,29 37,13" stroke="{{ markLine }}" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"></polyline>
+        <circle cx="37" cy="13" r="5.5" fill="{{ markNode }}"></circle>
+      </svg>
+      <span style="font-weight:700; font-size:20px; letter-spacing:-0.025em; color:var(--text-primary);">Trackie</span>
+      <span class="tk-badge tk-badge--brand" style="margin-left:auto;">Datagami</span>
+    </div>
+
+    <nav class="tk-scroll" style="flex:1; overflow-y:auto; padding:14px 12px; display:flex; flex-direction:column; gap:2px;">
+      <span style="font-size:11px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-muted); padding:8px 12px 4px;">Overview</span>
+      <button class="nav-item" onClick="{{ goDashboard }}" style="display:flex; align-items:center; gap:12px; width:100%; padding:9px 12px; border:none; border-radius:8px; cursor:pointer; font-family:var(--font-sans); font-size:14px; font-weight:600; text-align:left; background:{{ nav.dashboardBg }}; color:{{ nav.dashboardFg }};">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"></rect><rect x="14" y="3" width="7" height="5" rx="1"></rect><rect x="14" y="12" width="7" height="9" rx="1"></rect><rect x="3" y="16" width="7" height="5" rx="1"></rect></svg>
+        Dashboard
+      </button>
+      <button class="nav-item" onClick="{{ goUniversities }}" style="display:flex; align-items:center; gap:12px; width:100%; padding:9px 12px; border:none; border-radius:8px; cursor:pointer; font-family:var(--font-sans); font-size:14px; font-weight:600; text-align:left; background:{{ nav.universitiesBg }}; color:{{ nav.universitiesFg }};">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"></path><path d="M5 21V7l8-4v18"></path><path d="M19 21V11l-6-4"></path><path d="M9 9v.01M9 12v.01M9 15v.01M9 18v.01"></path></svg>
+        Universities
+      </button>
+      <button class="nav-item" onClick="{{ goReports }}" style="display:flex; align-items:center; gap:12px; width:100%; padding:9px 12px; border:none; border-radius:8px; cursor:pointer; font-family:var(--font-sans); font-size:14px; font-weight:600; text-align:left; background:{{ nav.reportsBg }}; color:{{ nav.reportsFg }};">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"></path><rect x="7" y="11" width="3" height="6"></rect><rect x="12" y="7" width="3" height="10"></rect><rect x="17" y="13" width="3" height="4"></rect></svg>
+        Reports
+      </button>
+      <button class="nav-item" onClick="{{ goNewyear }}" style="display:flex; align-items:center; gap:12px; width:100%; padding:9px 12px; border:none; border-radius:8px; cursor:pointer; font-family:var(--font-sans); font-size:14px; font-weight:600; text-align:left; background:{{ nav.newyearBg }}; color:{{ nav.newyearFg }};">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M16 2v4M8 2v4M3 10h18M12 14v4M10 16h4"></path></svg>
+        New year setup
+      </button>
+
+      <span style="font-size:11px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-muted); padding:16px 12px 4px;">Workspace</span>
+      <div style="display:flex; align-items:center; gap:12px; width:100%; padding:9px 12px; border-radius:8px; font-size:14px; font-weight:600; color:var(--text-muted); opacity:0.7; cursor:not-allowed;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+        Team board
+        <span class="tk-badge tk-badge--neutral" style="margin-left:auto;">Soon</span>
+      </div>
+    </nav>
+
+    <div style="flex:none; padding:12px; border-top:1px solid var(--border);">
+      <div style="display:flex; align-items:center; gap:10px; padding:8px; border-radius:10px; background:var(--surface-sunken);">
+        <span class="tk-avatar" style="width:34px; height:34px;">RK</span>
+        <div style="min-width:0; line-height:1.2;">
+          <div style="font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Ramesh Kothari</div>
+          <div style="font-size:11px; color:var(--text-muted);">{{ role }}</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ===================== MAIN ===================== -->
+  <div style="flex:1; min-width:0; height:100%; display:flex; flex-direction:column;">
+
+    <!-- TOP BAR -->
+    <header style="height:60px; flex:none; display:flex; align-items:center; gap:16px; padding:0 24px; background:var(--surface); border-bottom:1px solid var(--border);">
+      <div style="min-width:0;">
+        <div style="font-size:11px; font-weight:600; letter-spacing:0.04em; text-transform:uppercase; color:var(--text-muted);">{{ crumb }}</div>
+        <div style="font-size:17px; font-weight:700; letter-spacing:-0.01em; line-height:1.1; white-space:nowrap;">{{ screenTitle }}</div>
+      </div>
+
+      <div style="position:relative; margin-left:24px; flex:1; max-width:420px;">
+        <svg style="position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--text-muted);" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
+        <input class="tk-input" placeholder="Search universities, invoices, OEMs…" style="padding-left:36px; height:38px; background:var(--surface-sunken);">
+        <span class="tk-badge tk-badge--neutral" style="position:absolute; right:8px; top:50%; transform:translateY(-50%);">⌘K</span>
+      </div>
+
+      <div style="margin-left:auto; display:flex; align-items:center; gap:10px;">
+        <div style="display:flex; align-items:center; gap:8px; height:38px; padding:0 12px; border:1px solid var(--border-strong); border-radius:8px; background:var(--surface);">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M16 2v4M8 2v4M3 10h18"></path></svg>
+          <span style="font-size:13px; font-weight:600; font-family:var(--font-mono);">{{ year }}</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        </div>
+
+        <button onClick="{{ toggleDark }}" title="Toggle theme" style="width:38px; height:38px; display:inline-flex; align-items:center; justify-content:center; border:1px solid var(--border-strong); border-radius:8px; background:var(--surface); color:var(--text-secondary); cursor:pointer;">
+          <span>{{ themeIcon }}</span>
+        </button>
+
+        <div style="display:flex; align-items:center; gap:8px; height:38px; padding:3px 10px 3px 4px; border:1px solid var(--border-strong); border-radius:9999px; background:var(--surface); cursor:pointer;">
+          <span class="tk-avatar" style="width:30px; height:30px;">RK</span>
+          <span class="tk-badge tk-badge--brand">{{ roleShort }}</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- SCROLL AREA -->
+    <main class="tk-scroll" style="flex:1; overflow:auto; background:var(--background);">
+
+      <!-- ============ DASHBOARD ============ -->
+      <sc-if value="{{ isDashboard }}" hint-placeholder-val="{{ true }}">
+      <div style="max-width:1320px; margin:0 auto; padding:24px 28px 64px;">
+
+        <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:20px;">
+          <div>
+            <h1 style="font-size:28px; font-weight:700; letter-spacing:-0.02em; margin:0;">Portfolio overview</h1>
+            <p style="font-size:14px; color:var(--text-secondary); margin:4px 0 0;">All money flowing through Datagami · {{ year }} · {{ uniCount }} universities · {{ oemCount }} OEMs</p>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button class="tk-btn tk-btn--secondary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg><span>Export</span></button>
+            <button class="tk-btn tk-btn--primary" onClick="{{ goNewyear }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg><span>New invoice</span></button>
+          </div>
+        </div>
+
+<!-- ERROR STATE -->
+        <sc-if value="{{ dashError }}" hint-placeholder-val="{{ false }}">
+          <div class="tk-card" style="padding:56px 40px; text-align:center;">
+            <div style="width:56px; height:56px; margin:0 auto 16px; border-radius:16px; background:var(--negative-subtle); color:var(--negative-text); display:flex; align-items:center; justify-content:center;"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg></div>
+            <h2 style="font-size:20px; font-weight:700; margin:0 0 6px;">Couldn't load the dashboard</h2>
+            <p style="font-size:14px; color:var(--text-secondary); margin:0 0 18px; max-width:380px; margin-left:auto; margin-right:auto;">We hit a problem fetching portfolio data from the ledger. Your figures are safe — nothing was changed.</p>
+            <button class="tk-btn tk-btn--primary" onClick="{{ retry }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg><span>Try again</span></button>
+          </div>
+        </sc-if>
+
+        <!-- LOADING SKELETON -->
+        <sc-if value="{{ dashLoading }}" hint-placeholder-val="{{ false }}">
+          <div style="display:grid; grid-template-columns:repeat(5,1fr); gap:16px; margin-bottom:20px;">
+            <sc-for list="{{ skFive }}" as="i" hint-placeholder-count="5"><div class="tk-card" style="padding:20px; display:flex; flex-direction:column; gap:14px;"><div class="sk" style="height:11px; width:55%;"></div><div class="sk" style="height:30px; width:78%;"></div><div class="sk" style="height:12px; width:45%;"></div></div></sc-for>
+          </div>
+          <div style="display:grid; grid-template-columns:1.4fr 1fr 1fr; gap:16px; margin-bottom:20px;">
+            <sc-for list="{{ skThree }}" as="i" hint-placeholder-count="3"><div class="tk-card" style="padding:18px 20px;"><div class="sk" style="height:14px; width:42%; margin-bottom:6px;"></div><div class="sk" style="height:11px; width:28%; margin-bottom:16px;"></div><div class="sk" style="height:120px; width:100%;"></div></div></sc-for>
+          </div>
+          <div class="tk-card" style="padding:0; overflow:hidden;">
+            <div style="padding:14px 16px; background:var(--surface-sunken); border-bottom:1px solid var(--border);"><div class="sk" style="height:11px; width:22%;"></div></div>
+            <sc-for list="{{ skRows }}" as="i" hint-placeholder-count="6"><div style="display:flex; align-items:center; gap:16px; padding:14px 16px; border-bottom:1px solid var(--border-subtle);"><div class="sk" style="height:28px; width:28px; border-radius:9999px;"></div><div class="sk" style="height:13px; width:24%;"></div><div class="sk" style="height:13px; width:80px; margin-left:auto;"></div><div class="sk" style="height:13px; width:80px;"></div><div class="sk" style="height:20px; width:90px; border-radius:9999px;"></div></div></sc-for>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ dashReady }}" hint-placeholder-val="{{ true }}">
+        <!-- KPI ROW -->
+        <div style="display:grid; grid-template-columns:repeat(5,1fr); gap:16px; margin-bottom:20px;">
+          <div class="tk-card tk-kpi">
+            <div class="tk-kpi__head"><span class="tk-kpi__label">Total billed</span><span class="tk-kpi__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16l3-2 3 2 3-2 3 2V8z"></path><path d="M14 2v6h6M8 11h6M8 15h4"></path></svg></span></div>
+            <div class="tk-kpi__value">{{ k.billed }}</div>
+            <div style="display:flex; align-items:center; gap:8px;"><span class="tk-kpi__delta tk-kpi__delta--up">▲ 12.4%</span><span style="font-size:12px; color:var(--text-muted);">vs FY23–24</span></div>
+          </div>
+          <div class="tk-card tk-kpi">
+            <div class="tk-kpi__head"><span class="tk-kpi__label">Received in bank</span><span class="tk-kpi__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 7h20v12H2z"></path><path d="M2 11h20"></path><circle cx="7" cy="15" r="1.5"></circle></svg></span></div>
+            <div class="tk-kpi__value" style="color:var(--positive-text);">{{ k.received }}</div>
+            <div style="display:flex; align-items:center; gap:8px;"><span class="tk-kpi__delta tk-kpi__delta--up">▲ 8.1%</span><span style="font-size:12px; color:var(--text-muted);">{{ k.collectedPct }} collected</span></div>
+          </div>
+          <div class="tk-card tk-kpi">
+            <div class="tk-kpi__head"><span class="tk-kpi__label">Outstanding</span><span class="tk-kpi__icon" style="background:var(--pending-subtle); color:var(--pending-text);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><polyline points="12 7 12 12 15 14"></polyline></svg></span></div>
+            <div class="tk-kpi__value" style="color:var(--pending-text);">{{ k.outstanding }}</div>
+            <div style="display:flex; align-items:center; gap:8px;"><span class="tk-kpi__delta tk-kpi__delta--down">▼ 3.2%</span><span style="font-size:12px; color:var(--text-muted);">across {{ k.openInvoices }} invoices</span></div>
+          </div>
+          <div class="tk-card tk-kpi">
+            <div class="tk-kpi__head"><span class="tk-kpi__label">Payable to OEMs</span><span class="tk-kpi__icon" style="background:var(--info-subtle); color:var(--info-text);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg></span></div>
+            <div class="tk-kpi__value" style="color:var(--info-text);">{{ k.payable }}</div>
+            <div style="display:flex; align-items:center; gap:8px;"><span style="font-size:12px; color:var(--text-muted);">IBM · AAFM net of advances</span></div>
+          </div>
+          <div class="tk-card tk-kpi" style="border-color:var(--primary-border);">
+            <div class="tk-kpi__head"><span class="tk-kpi__label">Net margin</span><span class="tk-kpi__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg></span></div>
+            <div class="tk-kpi__value">{{ k.margin }}</div>
+            <div style="display:flex; align-items:center; gap:8px;"><span class="tk-kpi__delta tk-kpi__delta--up">▲ 14.0%</span><span style="font-size:12px; color:var(--text-muted);">{{ k.marginPct }} blended</span></div>
+          </div>
+        </div>
+
+        <!-- CHARTS ROW -->
+        <div style="display:grid; grid-template-columns:1.4fr 1fr 1fr; gap:16px; margin-bottom:20px;">
+          <div class="tk-card" style="padding:18px 20px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+              <div><div style="font-size:15px; font-weight:600;">Collections vs outstanding</div><div style="font-size:12px; color:var(--text-muted);">₹ in lakh · last 6 months</div></div>
+              <div class="tk-legend"><span><i style="background:var(--positive);"></i>Collected</span><span><i style="background:var(--pending);"></i>Outstanding</span></div>
+            </div>
+            <svg viewBox="0 0 540 180" width="100%" preserveAspectRatio="xMidYMid meet" class="tk-chart">
+              <g class="tk-chart__grid"><sc-for list="{{ lineGrid }}" as="gy" hint-placeholder-count="3"><line x1="10" x2="530" y1="{{ gy }}" y2="{{ gy }}"></line></sc-for></g>
+              <sc-for list="{{ lineSeries }}" as="s" hint-placeholder-count="2"><polygon points="{{ s.area }}" style="fill:{{ s.stroke }}; opacity:0.08;"></polygon><polyline class="tk-chart__line" points="{{ s.path }}" style="stroke:{{ s.stroke }};"></polyline></sc-for>
+              <sc-for list="{{ lineDots }}" as="d" hint-placeholder-count="12"><circle class="tk-chart__dot" cx="{{ d.cx }}" cy="{{ d.cy }}" r="3.2" style="stroke:{{ d.stroke }};"></circle></sc-for>
+              <sc-for list="{{ lineLabels }}" as="l" hint-placeholder-count="6"><text class="tk-chart__axis" x="{{ l.x }}" y="172" text-anchor="middle">{{ l.text }}</text></sc-for>
+            </svg>
+          </div>
+
+          <div class="tk-card" style="padding:18px 20px;">
+            <div style="font-size:15px; font-weight:600;">Margin by OEM</div><div style="font-size:12px; color:var(--text-muted); margin-bottom:6px;">₹ in lakh · net to Datagami</div>
+            <svg viewBox="0 0 320 180" width="100%" preserveAspectRatio="xMidYMid meet" class="tk-chart">
+              <g class="tk-chart__grid"><sc-for list="{{ oemGrid }}" as="gy" hint-placeholder-count="3"><line x1="8" x2="312" y1="{{ gy }}" y2="{{ gy }}"></line></sc-for></g>
+              <sc-for list="{{ oemBars }}" as="b" hint-placeholder-count="2"><rect class="{{ b.cls }}" x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" rx="3"></rect><text class="tk-chart__axis" x="{{ b.cx }}" y="172" text-anchor="middle">{{ b.label }}</text><text x="{{ b.cx }}" y="{{ b.vy }}" text-anchor="middle" style="font-size:12px; font-weight:700; font-family:var(--font-mono); fill:var(--text-secondary);">{{ b.vlabel }}</text></sc-for>
+            </svg>
+          </div>
+
+          <div class="tk-card" style="padding:18px 20px;">
+            <div style="font-size:15px; font-weight:600;">Receivables aging</div><div style="font-size:12px; color:var(--text-muted); margin-bottom:6px;">₹ in lakh · days outstanding</div>
+            <svg viewBox="0 0 320 180" width="100%" preserveAspectRatio="xMidYMid meet" class="tk-chart">
+              <g class="tk-chart__grid"><sc-for list="{{ ageGrid }}" as="gy" hint-placeholder-count="3"><line x1="8" x2="312" y1="{{ gy }}" y2="{{ gy }}"></line></sc-for></g>
+              <sc-for list="{{ ageBars }}" as="b" hint-placeholder-count="4"><rect x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" rx="3" style="fill:{{ b.fill }};"></rect><text class="tk-chart__axis" x="{{ b.cx }}" y="172" text-anchor="middle">{{ b.label }}</text></sc-for>
+            </svg>
+          </div>
+        </div>
+
+        <!-- NEGATIVE MARGIN CALLOUT -->
+        <div style="border:1px solid var(--negative-border); background:var(--negative-subtle); border-radius:12px; padding:16px 18px; margin-bottom:20px; display:flex; gap:14px; align-items:flex-start;">
+          <span style="width:36px; height:36px; flex:none; border-radius:9px; background:var(--negative); color:#fff; display:inline-flex; align-items:center; justify-content:center;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg></span>
+          <div style="flex:1; min-width:0;">
+            <div style="font-size:15px; font-weight:700; color:var(--negative-text);">{{ negCount }} streams are running a negative margin</div>
+            <div style="font-size:13px; color:var(--text-secondary); margin:2px 0 10px;">Net to Datagami is below zero where the OEM rate exceeds the locked university price. Review and renegotiate.</div>
+            <div style="display:flex; flex-direction:column; gap:6px;">
+              <sc-for list="{{ negStreams }}" as="n" hint-placeholder-count="2">
+                <div class="row-link" onClick="{{ n.open }}" style="display:flex; align-items:center; gap:12px; background:var(--surface); border:1px solid var(--negative-border); border-radius:8px; padding:8px 12px;">
+                  <span style="font-size:13px; font-weight:600;">{{ n.uni }}</span>
+                  <span class="tk-badge tk-badge--neutral">{{ n.oem }}</span>
+                  <span style="font-size:13px; color:var(--text-muted);">{{ n.stream }}</span>
+                  <span style="margin-left:auto; font-family:var(--font-mono); font-weight:700; color:var(--negative-text);">{{ n.margin }}</span>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+
+        <!-- UNIVERSITIES SUMMARY TABLE -->
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+          <div style="font-size:17px; font-weight:700; letter-spacing:-0.01em;">All universities</div>
+          <button class="tk-btn tk-btn--ghost tk-btn--sm" onClick="{{ goUniversities }}"><span>View all</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg></button>
+        </div>
+        <div class="tk-table-wrap">
+          <table class="tk-table">
+            <thead><tr>
+              <th>University</th><th>OEM</th><th class="tk-th--num">Billed</th><th class="tk-th--num">Received</th><th class="tk-th--num">Outstanding</th><th class="tk-th--num">Net margin</th><th>Status</th>
+            </tr></thead>
+            <tbody>
+              <sc-for list="{{ topRows }}" as="r" hint-placeholder-count="6">
+                <tr class="row-link" onClick="{{ r.open }}">
+                  <td><div style="display:flex; align-items:center; gap:10px;"><span class="tk-avatar" style="width:28px; height:28px; font-size:11px;">{{ r.initials }}</span><div><div style="font-weight:600; color:var(--text-primary);">{{ r.name }}</div><div style="font-size:11px; color:var(--text-muted);">{{ r.city }}</div></div></div></td>
+                  <td><span class="tk-badge tk-badge--neutral">{{ r.oem }}</span></td>
+                  <td class="tk-td--num">{{ r.billed }}</td>
+                  <td class="tk-td--num" style="color:var(--positive-text);">{{ r.received }}</td>
+                  <td class="tk-td--num" style="color:var(--pending-text);">{{ r.outstanding }}</td>
+                  <td class="tk-td--num" style="color:{{ r.marginColor }};">{{ r.margin }}</td>
+                  <td><span class="tk-badge tk-badge--{{ r.statusTone }}"><span class="tk-badge__dot"></span>{{ r.statusLabel }}</span></td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+        </sc-if>
+
+      </div>
+      </sc-if>
+
+      <!-- ============ PLACEHOLDER SCREENS (filled in later steps) ============ -->
+      <sc-if value="{{ isUniversities }}" hint-placeholder-val="{{ false }}">
+      <div style="max-width:1320px; margin:0 auto; padding:24px 28px 64px;">
+        <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:18px;">
+          <div>
+            <h1 style="font-size:28px; font-weight:700; letter-spacing:-0.02em; margin:0;">Universities</h1>
+            <p style="font-size:14px; color:var(--text-secondary); margin:4px 0 0;">{{ listCount }} of {{ uniCount }} universities · {{ year }}</p>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button class="tk-btn tk-btn--secondary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg><span>Export CSV</span></button>
+            <button class="tk-btn tk-btn--primary" onClick="{{ goNewyear }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg><span>Add university</span></button>
+          </div>
+        </div>
+
+        <!-- FILTER BAR -->
+        <div style="display:flex; gap:10px; align-items:center; margin-bottom:14px; flex-wrap:wrap;">
+          <div style="position:relative; flex:1; min-width:240px; max-width:380px;">
+            <svg style="position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--text-muted);" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
+            <input class="tk-input" placeholder="Search universities, cities, OEMs…" value="{{ listSearch }}" onInput="{{ onListSearch }}" style="padding-left:36px;">
+          </div>
+          <select class="tk-select" value="{{ filterOem }}" onChange="{{ onFilterOem }}" style="width:auto; min-width:130px;">
+            <option value="all">All OEMs</option><option value="IBM">IBM</option><option value="AAFM">AAFM</option>
+          </select>
+          <select class="tk-select" value="{{ filterStatus }}" onChange="{{ onFilterStatus }}" style="width:auto; min-width:150px;">
+            <option value="all">All statuses</option><option value="paid">Paid</option><option value="partially-paid">Partially Paid</option><option value="raised">Raised</option><option value="overdue">Overdue</option>
+          </select>
+          <div style="margin-left:auto; font-size:13px; color:var(--text-muted); font-family:var(--font-mono);">{{ listCount }} results</div>
+        </div>
+
+        <sc-if value="{{ dashError }}" hint-placeholder-val="{{ false }}">
+          <div class="tk-card" style="padding:48px 40px; text-align:center;">
+            <div style="width:52px; height:52px; margin:0 auto 14px; border-radius:14px; background:var(--negative-subtle); color:var(--negative-text); display:flex; align-items:center; justify-content:center;"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg></div>
+            <h2 style="font-size:18px; font-weight:700; margin:0 0 6px;">Couldn't load universities</h2>
+            <p style="font-size:13px; color:var(--text-secondary); margin:0 0 16px;">The table failed to fetch. Retry to reload the list.</p>
+            <button class="tk-btn tk-btn--secondary tk-btn--sm" onClick="{{ retry }}"><span>Try again</span></button>
+          </div>
+        </sc-if>
+        <sc-if value="{{ dashLoading }}" hint-placeholder-val="{{ false }}">
+          <div class="tk-card" style="padding:0; overflow:hidden;">
+            <div style="padding:13px 16px; background:var(--surface-sunken); border-bottom:1px solid var(--border);"><div class="sk" style="height:11px; width:18%;"></div></div>
+            <sc-for list="{{ skRows }}" as="i" hint-placeholder-count="6"><div style="display:flex; align-items:center; gap:16px; padding:14px 16px; border-bottom:1px solid var(--border-subtle);"><div class="sk" style="height:30px; width:30px; border-radius:9999px;"></div><div class="sk" style="height:13px; width:22%;"></div><div class="sk" style="height:20px; width:54px; border-radius:6px;"></div><div class="sk" style="height:13px; width:70px; margin-left:auto;"></div><div class="sk" style="height:13px; width:70px;"></div><div class="sk" style="height:13px; width:70px;"></div><div class="sk" style="height:20px; width:96px; border-radius:9999px;"></div></div></sc-for>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ dashReady }}" hint-placeholder-val="{{ true }}">
+        <div class="tk-table-wrap">
+          <table class="tk-table">
+            <thead><tr>
+              <th class="tk-th--sortable" onClick="{{ sort.name.set }}"><span class="tk-sort">University <span style="color:{{ sort.name.color }};">{{ sort.name.arrow }}</span></span></th>
+              <th class="tk-th--sortable" onClick="{{ sort.oem.set }}"><span class="tk-sort">OEM <span style="color:{{ sort.oem.color }};">{{ sort.oem.arrow }}</span></span></th>
+              <th>Year</th>
+              <th class="tk-th--num tk-th--sortable" onClick="{{ sort.billed.set }}"><span class="tk-sort" style="justify-content:flex-end;">Billed <span style="color:{{ sort.billed.color }};">{{ sort.billed.arrow }}</span></span></th>
+              <th class="tk-th--num tk-th--sortable" onClick="{{ sort.received.set }}"><span class="tk-sort" style="justify-content:flex-end;">Received <span style="color:{{ sort.received.color }};">{{ sort.received.arrow }}</span></span></th>
+              <th class="tk-th--num tk-th--sortable" onClick="{{ sort.outstanding.set }}"><span class="tk-sort" style="justify-content:flex-end;">Outstanding <span style="color:{{ sort.outstanding.color }};">{{ sort.outstanding.arrow }}</span></span></th>
+              <th class="tk-th--num tk-th--sortable" onClick="{{ sort.margin.set }}"><span class="tk-sort" style="justify-content:flex-end;">Net margin <span style="color:{{ sort.margin.color }};">{{ sort.margin.arrow }}</span></span></th>
+              <th>Status</th>
+            </tr></thead>
+            <tbody>
+              <sc-for list="{{ listRows }}" as="r" hint-placeholder-count="8">
+                <tr class="row-link" onClick="{{ r.open }}">
+                  <td><div style="display:flex; align-items:center; gap:10px;"><span class="tk-avatar" style="width:30px; height:30px; font-size:11px;">{{ r.initials }}</span><div><div style="font-weight:600; color:var(--text-primary);">{{ r.name }}</div><div style="font-size:11px; color:var(--text-muted);">{{ r.city }}</div></div></div></td>
+                  <td><span class="tk-badge tk-badge--neutral">{{ r.oem }}</span></td>
+                  <td><span style="font-family:var(--font-mono); font-size:13px; color:var(--text-secondary);">{{ year }}</span></td>
+                  <td class="tk-td--num">{{ r.billed }}</td>
+                  <td class="tk-td--num" style="color:var(--positive-text);">{{ r.received }}</td>
+                  <td class="tk-td--num" style="color:var(--pending-text);">{{ r.outstanding }}</td>
+                  <td class="tk-td--num" style="color:{{ r.marginColor }};">{{ r.margin }}</td>
+                  <td><span class="tk-badge tk-badge--{{ r.statusTone }}"><span class="tk-badge__dot"></span>{{ r.statusLabel }}</span></td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+        </sc-if>
+
+        <sc-if value="{{ listEmpty }}" hint-placeholder-val="{{ false }}">
+          <div style="border:1px dashed var(--border-strong); border-radius:12px; padding:48px; text-align:center; margin-top:-1px;">
+            <div style="width:48px; height:48px; margin:0 auto 12px; border-radius:12px; background:var(--surface-sunken); display:flex; align-items:center; justify-content:center; color:var(--text-muted);"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg></div>
+            <div style="font-weight:600; margin-bottom:4px;">No universities match your filters</div>
+            <div style="font-size:13px; color:var(--text-muted); margin-bottom:14px;">Try a different search term, OEM, or status.</div>
+            <button class="tk-btn tk-btn--secondary tk-btn--sm" onClick="{{ clearFilters }}"><span>Clear filters</span></button>
+          </div>
+        </sc-if>
+      </div>
+      </sc-if>
+      <sc-if value="{{ isUniversity }}" hint-placeholder-val="{{ false }}">
+      <div style="max-width:1320px; margin:0 auto; padding:20px 28px 64px;">
+
+        <!-- HEADER -->
+        <button class="tk-btn tk-btn--ghost tk-btn--sm" onClick="{{ backToList }}" style="margin-left:-8px; margin-bottom:8px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg><span>All universities</span></button>
+        <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:18px;">
+          <div style="display:flex; align-items:center; gap:14px;">
+            <span class="tk-avatar" style="width:48px; height:48px; font-size:18px; border-radius:14px;">{{ detail.initials }}</span>
+            <div>
+              <div style="display:flex; align-items:center; gap:10px;">
+                <h1 style="font-size:26px; font-weight:700; letter-spacing:-0.02em; margin:0; white-space:nowrap;">{{ detail.name }}</h1>
+                <span class="tk-badge tk-badge--{{ detail.statusTone }}"><span class="tk-badge__dot"></span>{{ detail.statusLabel }}</span>
+              </div>
+              <div style="display:flex; align-items:center; gap:10px; font-size:13px; color:var(--text-secondary); margin-top:3px;">
+                <span>{{ detail.city }}</span><span style="color:var(--border-strong);">·</span>
+                <span style="display:inline-flex; align-items:center; gap:5px;">OEM <span class="tk-badge tk-badge--neutral">{{ detail.oem }}</span></span>
+                <span style="color:var(--border-strong);">·</span><span style="font-family:var(--font-mono);">{{ year }}</span>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px; flex:none;">
+            <button class="tk-btn tk-btn--secondary" onClick="{{ openReceipt }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 7h20v12H2z"></path><path d="M2 11h20"></path></svg><span>Record receipt</span></button>
+            <button class="tk-btn tk-btn--secondary" onClick="{{ openPayment }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg><span>Pay OEM</span></button>
+            <button class="tk-btn tk-btn--primary" onClick="{{ goEditor }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"></path></svg><span>Edit invoice</span></button>
+          </div>
+        </div>
+
+        <!-- UNI KPI STRIP -->
+        <div style="display:grid; grid-template-columns:repeat(6,1fr); gap:0; border:1px solid var(--border); border-radius:12px; overflow:hidden; background:var(--surface); margin-bottom:22px;">
+          <sc-for list="{{ detail.kpis }}" as="k" hint-placeholder-count="6">
+            <div style="padding:14px 16px; border-right:1px solid var(--border-subtle);">
+              <div style="font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:var(--text-muted); margin-bottom:6px;">{{ k.label }}</div>
+              <div style="font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-size:20px; font-weight:700; letter-spacing:-0.02em; color:{{ k.color }};">{{ k.value }}</div>
+            </div>
+          </sc-for>
+        </div>
+
+        <!-- STREAM SELECTOR CARDS -->
+        <div style="font-size:13px; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; color:var(--text-muted); margin-bottom:10px;">Invoice streams · {{ year }}</div>
+        <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:22px;">
+          <sc-for list="{{ detail.streamCards }}" as="s" hint-placeholder-count="3">
+            <button class="row-link" onClick="{{ s.select }}" style="text-align:left; border:1.5px solid {{ s.selBorder }}; background:{{ s.selBg }}; border-radius:12px; padding:15px 16px; cursor:pointer; font-family:var(--font-sans); display:flex; flex-direction:column; gap:10px;">
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                <span style="font-size:14px; font-weight:700; color:var(--text-primary);">{{ s.label }}</span>
+                <span class="tk-badge tk-badge--{{ s.statusTone }}"><span class="tk-badge__dot"></span>{{ s.statusLabel }}</span>
+              </div>
+              <div style="display:flex; gap:18px;">
+                <div><div style="font-size:10.5px; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; color:var(--text-muted);">Billed</div><div style="font-family:var(--font-mono); font-weight:700; font-size:15px;">{{ s.billed }}</div></div>
+                <div><div style="font-size:10.5px; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; color:var(--text-muted);">Outstanding</div><div style="font-family:var(--font-mono); font-weight:700; font-size:15px; color:var(--pending-text);">{{ s.outstanding }}</div></div>
+                <div><div style="font-size:10.5px; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; color:var(--text-muted);">Margin</div><div style="font-family:var(--font-mono); font-weight:700; font-size:15px; color:{{ s.marginColor }};">{{ s.margin }}</div></div>
+              </div>
+              <div style="font-size:11px; color:var(--text-muted);">{{ s.students }} students</div>
+            </button>
+          </sc-for>
+        </div>
+
+        <!-- VISUALIZATION + ANNOTATIONS -->
+        <div style="display:flex; gap:18px; align-items:flex-start; min-width:1024px;">
+          <div style="flex:1; min-width:0;">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px;">
+              <div style="display:flex; align-items:center; gap:10px;">
+                <span style="font-size:17px; font-weight:700; letter-spacing:-0.01em;">{{ detail.selLabel }}</span>
+                <span class="tk-badge tk-badge--{{ detail.selStatusTone }}"><span class="tk-badge__dot"></span>{{ detail.selStatusLabel }}</span>
+                <span style="font-size:12px; color:var(--text-muted); font-family:var(--font-mono);">Invoice {{ detail.selInvoiceDate }}</span>
+              </div>
+              <div class="tk-segment">
+                <button onClick="{{ setFlow }}" style="background:{{ seg.flowBg }}; color:{{ seg.flowFg }}; box-shadow:{{ seg.flowSh }};">Flow</button>
+                <button onClick="{{ setLadder }}" style="background:{{ seg.ladderBg }}; color:{{ seg.ladderFg }}; box-shadow:{{ seg.ladderSh }};">Ladder</button>
+                <button onClick="{{ setStatement }}" style="background:{{ seg.statementBg }}; color:{{ seg.statementFg }}; box-shadow:{{ seg.statementSh }};">Statement</button>
+              </div>
+            </div>
+
+            <div class="tk-card" style="padding:22px;">
+
+              <!-- VIEW: FLOW -->
+              <sc-if value="{{ isFlow }}" hint-placeholder-val="{{ true }}">
+                <div style="display:grid; grid-template-columns:1fr 92px 1.18fr 92px 1fr; align-items:stretch; gap:0;">
+                  <!-- University -->
+                  <div style="border:1px solid var(--border); border-radius:12px; padding:16px; background:var(--surface); display:flex; flex-direction:column;">
+                    <div style="font-size:10.5px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:var(--text-muted);">University · pays in</div>
+                    <div style="font-size:14px; font-weight:700; margin:3px 0 12px;">{{ detail.name }}</div>
+                    <div style="display:flex; flex-direction:column; gap:9px; font-size:12.5px;">
+                      <div style="display:flex; justify-content:space-between;"><span style="color:var(--text-secondary);">Billing</span><span style="font-family:var(--font-mono); font-weight:600;">{{ detail.f.billing }}</span></div>
+                      <div style="display:flex; justify-content:space-between;"><span style="color:var(--text-secondary);">After-TDS</span><span style="font-family:var(--font-mono); font-weight:700;">{{ detail.f.afterTds }}</span></div>
+                      <div style="display:flex; justify-content:space-between;"><span style="color:var(--text-secondary);">Received</span><span style="font-family:var(--font-mono); font-weight:600; color:var(--positive-text);">{{ detail.f.received }}</span></div>
+                      <div style="display:flex; justify-content:space-between; padding-top:9px; border-top:1px solid var(--border-subtle);"><span style="font-weight:700;">Outstanding</span><span style="font-family:var(--font-mono); font-weight:800; color:var(--pending-text);">{{ detail.f.outstanding }}</span></div>
+                    </div>
+                  </div>
+                  <!-- inflow arrow -->
+                  <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; padding:0 4px;">
+                    <span style="font-size:9.5px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:var(--positive-text);">Inflow</span>
+                    <span style="font-family:var(--font-mono); font-size:12px; font-weight:700;">{{ detail.f.afterTds }}</span>
+                    <svg width="90" height="22" viewBox="0 0 90 22" fill="none"><line x1="2" y1="11" x2="80" y2="11" stroke="var(--positive)" stroke-width="2.5" stroke-dasharray="1 0"></line><polyline points="74,5 84,11 74,17" stroke="var(--positive)" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"></polyline></svg>
+                  </div>
+                  <!-- Datagami center -->
+                  <div style="border:1.5px solid var(--primary); border-radius:14px; padding:18px; background:var(--primary-subtle); display:flex; flex-direction:column; align-items:center; text-align:center; justify-content:center;">
+                    <div style="display:flex; align-items:center; gap:7px; margin-bottom:8px;">
+                      <svg width="20" height="20" viewBox="0 0 48 48" fill="none"><polyline points="7,33 17,24 24,29 37,13" stroke="var(--text-primary)" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"></polyline><circle cx="37" cy="13" r="5.5" fill="var(--gold-500)"></circle></svg>
+                      <span style="font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:var(--primary-text);">Datagami keeps</span>
+                    </div>
+                    <div style="font-family:var(--font-mono); font-size:30px; font-weight:800; letter-spacing:-0.03em; color:{{ detail.marginColor }};">{{ detail.marginF }}</div>
+                    <div style="font-size:12px; color:var(--text-secondary); margin-top:2px;">Net margin · this stream</div>
+                    <div style="width:100%; height:1px; background:var(--primary-border); margin:14px 0;"></div>
+                    <div style="display:flex; justify-content:space-between; width:100%; font-size:12px;"><span style="color:var(--text-secondary);">GST difference</span><span style="font-family:var(--font-mono); font-weight:600;">{{ detail.gstDiffF }}</span></div>
+                  </div>
+                  <!-- outflow arrow -->
+                  <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; padding:0 4px;">
+                    <span style="font-size:9.5px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:var(--info-text);">Outflow</span>
+                    <span style="font-family:var(--font-mono); font-size:12px; font-weight:700;">{{ detail.f.payable }}</span>
+                    <svg width="90" height="22" viewBox="0 0 90 22" fill="none"><line x1="2" y1="11" x2="80" y2="11" stroke="var(--info)" stroke-width="2.5"></line><polyline points="74,5 84,11 74,17" stroke="var(--info)" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"></polyline></svg>
+                    <sc-if value="{{ detail.advanceHas }}" hint-placeholder-val="{{ false }}"><span class="tk-badge tk-badge--info" style="margin-top:2px;">− adv {{ detail.advanceAdjF }}</span></sc-if>
+                  </div>
+                  <!-- OEM -->
+                  <div style="border:1px solid var(--border); border-radius:12px; padding:16px; background:var(--surface); display:flex; flex-direction:column;">
+                    <div style="font-size:10.5px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:var(--text-muted);">OEM · paid out</div>
+                    <div style="font-size:14px; font-weight:700; margin:3px 0 12px;">{{ detail.oem }}</div>
+                    <div style="display:flex; flex-direction:column; gap:9px; font-size:12.5px;">
+                      <div style="display:flex; justify-content:space-between;"><span style="color:var(--text-secondary);">Taxable</span><span style="font-family:var(--font-mono); font-weight:600;">{{ detail.f.taxableOut }}</span></div>
+                      <div style="display:flex; justify-content:space-between;"><span style="color:var(--text-secondary);">+ GST</span><span style="font-family:var(--font-mono); font-weight:600;">{{ detail.f.gstOut }}</span></div>
+                      <div style="display:flex; justify-content:space-between;"><span style="color:var(--text-secondary);">− Advance</span><span style="font-family:var(--font-mono); font-weight:600; color:var(--info-text);">{{ detail.advanceAdjF }}</span></div>
+                      <div style="display:flex; justify-content:space-between; padding-top:9px; border-top:1px solid var(--border-subtle);"><span style="font-weight:700;">Payable</span><span style="font-family:var(--font-mono); font-weight:800; color:var(--info-text);">{{ detail.f.payable }}</span></div>
+                    </div>
+                  </div>
+                </div>
+                <div style="display:flex; align-items:center; gap:8px; margin-top:16px; padding-top:14px; border-top:1px dashed var(--border); font-size:12.5px; color:var(--text-muted);">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4M12 8h.01"></path></svg>
+                  3-party pass-through · University pays Datagami after-TDS, Datagami pays the OEM net of GST, TDS and any adjusted advance, and keeps the margin between the two taxable values.
+                </div>
+              </sc-if>
+
+              <!-- VIEW: LADDER -->
+              <sc-if value="{{ isLadder }}" hint-placeholder-val="{{ false }}">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+                  <div style="border:1px solid var(--positive-border); border-radius:12px; overflow:hidden;">
+                    <div style="padding:11px 15px; background:var(--positive-subtle); border-bottom:1px solid var(--positive-border); display:flex; align-items:center; gap:8px;">
+                      <span style="width:8px; height:8px; border-radius:9999px; background:var(--positive);"></span>
+                      <span style="font-size:13px; font-weight:700; color:var(--positive-text);">Inflow · University → Datagami</span>
+                    </div>
+                    <sc-for list="{{ detail.inflowD }}" as="r" hint-placeholder-count="7">
+                      <div style="display:flex; align-items:center; gap:12px; padding:11px 15px; background:{{ r.bg }}; border-top:{{ r.bt }};">
+                        <span style="width:14px; text-align:center; font-family:var(--font-mono); font-size:14px; color:var(--text-muted);">{{ r.op }}</span>
+                        <div style="flex:1; min-width:0;"><div style="font-size:13px; font-weight:{{ r.weight }}; color:var(--text-primary);">{{ r.label }}</div><div style="font-size:11px; color:var(--text-muted);">{{ r.sub }}</div></div>
+                        <span style="font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-size:13.5px; font-weight:{{ r.weight }}; color:{{ r.color }};">{{ r.amount }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                  <div style="border:1px solid var(--info-border); border-radius:12px; overflow:hidden;">
+                    <div style="padding:11px 15px; background:var(--info-subtle); border-bottom:1px solid var(--info-border); display:flex; align-items:center; gap:8px;">
+                      <span style="width:8px; height:8px; border-radius:9999px; background:var(--info);"></span>
+                      <span style="font-size:13px; font-weight:700; color:var(--info-text);">Outflow · Datagami → {{ detail.oem }}</span>
+                    </div>
+                    <sc-for list="{{ detail.outflowD }}" as="r" hint-placeholder-count="5">
+                      <div style="display:flex; align-items:center; gap:12px; padding:11px 15px; background:{{ r.bg }}; border-top:{{ r.bt }};">
+                        <span style="width:14px; text-align:center; font-family:var(--font-mono); font-size:14px; color:var(--text-muted);">{{ r.op }}</span>
+                        <div style="flex:1; min-width:0;"><div style="font-size:13px; font-weight:{{ r.weight }}; color:var(--text-primary);">{{ r.label }}</div><div style="font-size:11px; color:var(--text-muted);">{{ r.sub }}</div></div>
+                        <span style="font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-size:13.5px; font-weight:{{ r.weight }}; color:{{ r.color }};">{{ r.amount }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+                <div style="margin-top:16px; border:1px solid {{ detail.marginBorder }}; background:{{ detail.marginBg }}; border-radius:12px; padding:16px 18px; display:flex; align-items:center; gap:16px;">
+                  <div style="flex:1;">
+                    <div style="font-size:12px; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; color:var(--text-muted);">Net margin to Datagami</div>
+                    <div style="font-size:12.5px; color:var(--text-secondary); margin-top:2px;">Inflow taxable − Outflow taxable. GST difference of {{ detail.gstDiffF }} is tracked separately as a tax position.</div>
+                  </div>
+                  <div style="font-family:var(--font-mono); font-size:28px; font-weight:800; letter-spacing:-0.03em; color:{{ detail.marginColor }};">{{ detail.marginF }}</div>
+                </div>
+              </sc-if>
+
+              <!-- VIEW: STATEMENT -->
+              <sc-if value="{{ isStatement }}" hint-placeholder-val="{{ false }}">
+                <table class="tk-table" style="border:1px solid var(--border); border-radius:10px; overflow:hidden;">
+                  <thead><tr>
+                    <th>Line item</th>
+                    <th class="tk-th--num">Inflow · Uni → Datagami</th>
+                    <th class="tk-th--num">Outflow · Datagami → {{ detail.oem }}</th>
+                    <th class="tk-th--num">Margin</th>
+                  </tr></thead>
+                  <tbody>
+                    <sc-for list="{{ detail.statementRows }}" as="r" hint-placeholder-count="5">
+                      <tr>
+                        <td style="font-weight:600; color:var(--text-primary);">{{ r.item }}</td>
+                        <td class="tk-td--num">{{ r.inflow }}</td>
+                        <td class="tk-td--num">{{ r.outflow }}</td>
+                        <td class="tk-td--num" style="color:{{ r.marginCol }};">{{ r.margin }}</td>
+                      </tr>
+                    </sc-for>
+                  </tbody>
+                </table>
+                <div style="font-size:12px; color:var(--text-muted); margin-top:10px;">Figures in ₹, Indian grouping. Net position row reconciles after-TDS receivable against payable to the OEM.</div>
+              </sc-if>
+
+            </div>
+          </div>
+
+          <!-- ANNOTATIONS RAIL -->
+          <sc-if value="{{ showAnnotations }}" hint-placeholder-val="{{ true }}">
+            <div style="width:308px; flex:none; display:flex; flex-direction:column; gap:12px;">
+              <div style="display:flex; align-items:center; gap:7px; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:var(--text-muted);">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"></path></svg>
+                Logic notes
+              </div>
+              <sc-for list="{{ detail.annotations }}" as="a" hint-placeholder-count="3">
+                <div style="background:{{ a.bg }}; border:1px solid {{ a.border }}; border-radius:12px; padding:14px;">
+                  <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px;">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="{{ a.fg }}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4M12 8h.01"></path></svg>
+                    <span style="font-size:13px; font-weight:700; color:{{ a.fg }};">{{ a.title }}</span>
+                  </div>
+                  <div style="font-size:12.5px; line-height:1.5; color:var(--text-secondary);">{{ a.body }}</div>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+        </div>
+
+      </div>
+      </sc-if>
+<sc-if value="{{ isEditor }}" hint-placeholder-val="{{ false }}">
+      <div style="max-width:1180px; margin:0 auto; padding:20px 28px 64px;">
+        <button class="tk-btn tk-btn--ghost tk-btn--sm" onClick="{{ backToDetail }}" style="margin-left:-8px; margin-bottom:8px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg><span>{{ editor.uniName }}</span></button>
+        <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:18px;">
+          <div>
+            <h1 style="font-size:26px; font-weight:700; letter-spacing:-0.02em; margin:0;">Edit invoice</h1>
+            <p style="font-size:14px; color:var(--text-secondary); margin:4px 0 0;">{{ editor.uniName }} · {{ editor.streamLabel }} · {{ year }}</p>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button class="tk-btn tk-btn--secondary" onClick="{{ backToDetail }}"><span>Cancel</span></button>
+            <button class="tk-btn tk-btn--primary" onClick="{{ backToDetail }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg><span>Save changes</span></button>
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 0.92fr; gap:18px; align-items:start;">
+          <!-- FORM -->
+          <div class="tk-card" style="padding:22px;">
+            <div style="font-size:13px; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; color:var(--text-muted); margin-bottom:14px;">Cohort & pricing</div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+              <span class="tk-field"><label class="tk-label">Students enrolled</label><input class="tk-input tk-input--money" value="{{ editor.students }}" onInput="{{ editor.onStudents }}"></span>
+              <span class="tk-field"><label class="tk-label">Margin per student</label><div class="tk-input" style="display:flex; align-items:center; justify-content:flex-end; font-family:var(--font-mono); font-weight:700; background:var(--surface-sunken); color:{{ editor.mpsColor }};">{{ editor.marginPerStudent }}</div></span>
+              <span class="tk-field"><label class="tk-label">Price to university / student</label><span class="tk-input-wrap"><span class="tk-affix tk-affix--lead">₹</span><input class="tk-input tk-input--money tk-input--lead" value="{{ editor.priceToUni }}" onInput="{{ editor.onPriceUni }}"></span></span>
+              <span class="tk-field"><label class="tk-label">Price to Datagami / student</label><span class="tk-input-wrap"><span class="tk-affix tk-affix--lead">₹</span><input class="tk-input tk-input--money tk-input--lead" value="{{ editor.priceToDatagami }}" onInput="{{ editor.onPriceDg }}"></span></span>
+            </div>
+
+            <div style="font-size:13px; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; color:var(--text-muted); margin:22px 0 14px;">Tax overrides</div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+              <span class="tk-field"><label class="tk-label">GST rate (%)</label><input class="tk-input tk-input--money" value="{{ editor.gstPct }}" onInput="{{ editor.onGst }}"><span class="tk-hint">Default 18% · editable per invoice</span></span>
+              <span class="tk-field"><label class="tk-label">TDS rate (%)</label><input class="tk-input tk-input--money" value="{{ editor.tdsPct }}" onInput="{{ editor.onTds }}"><span class="tk-hint">Default 10% · withheld by university</span></span>
+            </div>
+
+            <div style="font-size:13px; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; color:var(--text-muted); margin:22px 0 14px;">Invoice & advance</div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+              <span class="tk-field"><label class="tk-label">Invoice date</label><input class="tk-input" value="{{ editor.invoiceDate }}" onInput="{{ editor.onDate }}"></span>
+              <span class="tk-field"><label class="tk-label">Status</label><select class="tk-select" value="{{ editor.status }}" onChange="{{ editor.onStatus }}"><option value="draft">Draft</option><option value="raised">Raised</option><option value="partially-paid">Partially Paid</option><option value="paid">Paid</option><option value="overdue">Overdue</option></select></span>
+              <span class="tk-field" style="grid-column:span 2;"><label class="tk-label">Advance adjusted against OEM payable</label><span class="tk-input-wrap"><span class="tk-affix tk-affix--lead">₹</span><input class="tk-input tk-input--money tk-input--lead" value="{{ editor.advanceAdj }}" onInput="{{ editor.onAdvance }}"></span></span>
+            </div>
+          </div>
+
+          <!-- LIVE LADDER -->
+          <div style="position:sticky; top:20px;">
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+              <span style="font-size:15px; font-weight:700;">Live recompute</span>
+              <span class="tk-badge tk-badge--positive"><span class="tk-badge__dot" style="animation:none;"></span>Updates as you type</span>
+            </div>
+            <div class="tk-card" style="overflow:hidden;">
+              <div style="padding:10px 15px; background:var(--positive-subtle); border-bottom:1px solid var(--positive-border); font-size:12px; font-weight:700; color:var(--positive-text);">Inflow · University → Datagami</div>
+              <sc-for list="{{ detail.inflowD }}" as="r" hint-placeholder-count="7">
+                <div style="display:flex; align-items:center; gap:10px; padding:8px 15px; background:{{ r.bg }}; border-top:{{ r.bt }};">
+                  <span style="width:12px; text-align:center; font-family:var(--font-mono); font-size:13px; color:var(--text-muted);">{{ r.op }}</span>
+                  <span style="flex:1; font-size:12.5px; font-weight:{{ r.weight }};">{{ r.label }}</span>
+                  <span style="font-family:var(--font-mono); font-size:13px; font-weight:{{ r.weight }}; color:{{ r.color }};">{{ r.amount }}</span>
+                </div>
+              </sc-for>
+              <div style="padding:10px 15px; background:var(--info-subtle); border-top:1px solid var(--info-border); border-bottom:1px solid var(--info-border); font-size:12px; font-weight:700; color:var(--info-text);">Outflow · Datagami → {{ detail.oem }}</div>
+              <sc-for list="{{ detail.outflowD }}" as="r" hint-placeholder-count="5">
+                <div style="display:flex; align-items:center; gap:10px; padding:8px 15px; background:{{ r.bg }}; border-top:{{ r.bt }};">
+                  <span style="width:12px; text-align:center; font-family:var(--font-mono); font-size:13px; color:var(--text-muted);">{{ r.op }}</span>
+                  <span style="flex:1; font-size:12.5px; font-weight:{{ r.weight }};">{{ r.label }}</span>
+                  <span style="font-family:var(--font-mono); font-size:13px; font-weight:{{ r.weight }}; color:{{ r.color }};">{{ r.amount }}</span>
+                </div>
+              </sc-for>
+              <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 15px; background:{{ detail.marginBg }}; border-top:1px solid {{ detail.marginBorder }};">
+                <span style="font-size:12px; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; color:var(--text-muted);">Net margin</span>
+                <span style="font-family:var(--font-mono); font-size:22px; font-weight:800; letter-spacing:-0.02em; color:{{ detail.marginColor }};">{{ detail.marginF }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      </sc-if>
+
+      <sc-if value="{{ isReports }}" hint-placeholder-val="{{ false }}">
+      <div style="max-width:1200px; margin:0 auto; padding:24px 28px 64px;">
+        <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:18px;">
+          <div>
+            <h1 style="font-size:28px; font-weight:700; letter-spacing:-0.02em; margin:0;">Reports & exports</h1>
+            <p style="font-size:14px; color:var(--text-secondary); margin:4px 0 0;">{{ reportLabel }} · {{ year }} · all universities</p>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button class="tk-btn tk-btn--secondary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6M9 15h6M9 11h2"></path></svg><span>Export PDF</span></button>
+            <button class="tk-btn tk-btn--primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg><span>Download CSV</span></button>
+          </div>
+        </div>
+
+        <div class="tk-segment" style="margin-bottom:16px;">
+          <sc-for list="{{ reportTabs }}" as="t" hint-placeholder-count="4">
+            <button onClick="{{ t.set }}" style="background:{{ t.bg }}; color:{{ t.fg }}; box-shadow:{{ t.sh }};">{{ t.label }}</button>
+          </sc-for>
+        </div>
+
+        <div class="tk-table-wrap">
+          <table class="tk-table">
+            <thead><tr>
+              <sc-for list="{{ reportCols }}" as="c" hint-placeholder-count="5"><th class="tk-th--num">{{ c }}</th></sc-for>
+            </tr></thead>
+            <tbody>
+              <sc-for list="{{ reportRows }}" as="r" hint-placeholder-count="8">
+                <tr>
+                  <sc-for list="{{ r.cells }}" as="cell" hint-placeholder-count="5"><td class="tk-td--num" style="color:{{ cell.c }};">{{ cell.v }}</td></sc-for>
+                </tr>
+              </sc-for>
+              <sc-if value="{{ reportHasTotal }}" hint-placeholder-val="{{ false }}">
+                <tr style="background:var(--surface-sunken);">
+                  <sc-for list="{{ reportTotal }}" as="cell" hint-placeholder-count="5"><td class="tk-td--num" style="color:{{ cell.c }}; font-weight:800;">{{ cell.v }}</td></sc-for>
+                </tr>
+              </sc-if>
+            </tbody>
+          </table>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; margin-top:12px; font-size:12.5px; color:var(--text-muted);">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4M12 8h.01"></path></svg>
+          First column left-aligned; money columns are right-aligned mono with Indian grouping. GST and TDS are reported on the taxable value at the prevailing rates.
+        </div>
+      </div>
+      </sc-if>
+
+      <sc-if value="{{ isNewyear }}" hint-placeholder-val="{{ false }}">
+      <div style="max-width:980px; margin:0 auto; padding:24px 28px 64px;">
+        <div style="margin-bottom:22px;">
+          <h1 style="font-size:28px; font-weight:700; letter-spacing:-0.02em; margin:0;">Roll over to a new academic year</h1>
+          <p style="font-size:14px; color:var(--text-secondary); margin:4px 0 0;">Clone a university's pricing & structure into {{ wizard.year }}, then adjust the student counts.</p>
+        </div>
+
+        <!-- STEPPER -->
+        <div style="display:flex; align-items:center; gap:0; margin-bottom:24px;">
+          <sc-for list="{{ wizard.steps }}" as="s" hint-placeholder-count="3">
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span style="width:30px; height:30px; flex:none; border-radius:9999px; border:2px solid {{ s.circBorder }}; background:{{ s.circBg }}; color:{{ s.circFg }}; display:inline-flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; font-family:var(--font-mono);">{{ s.n }}</span>
+              <span style="font-size:13px; font-weight:600; color:{{ s.labelColor }};">{{ s.label }}</span>
+            </div>
+            <span style="width:42px; height:2px; background:var(--border); margin:0 14px; display:{{ s.connDisp }};"></span>
+          </sc-for>
+        </div>
+
+        <sc-if value="{{ wizard.done }}" hint-placeholder-val="{{ false }}">
+          <div class="tk-card" style="padding:40px; text-align:center;">
+            <div style="width:56px; height:56px; margin:0 auto 16px; border-radius:16px; background:var(--positive-subtle); color:var(--positive-text); display:flex; align-items:center; justify-content:center;"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
+            <h2 style="font-size:22px; font-weight:700; margin:0 0 6px;">{{ wizard.uniName }} rolled into {{ wizard.year }}</h2>
+            <p style="font-size:14px; color:var(--text-secondary); margin:0 0 20px;">Three draft invoice streams were created with cloned pricing. Projected billing {{ wizard.totBill }} · projected margin {{ wizard.totMargin }}.</p>
+            <div style="display:flex; gap:8px; justify-content:center;">
+              <button class="tk-btn tk-btn--secondary" onClick="{{ wizard.restart }}"><span>Roll over another</span></button>
+              <button class="tk-btn tk-btn--primary" onClick="{{ goDashboard }}"><span>Go to dashboard</span></button>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ wizard.isStep1 }}" hint-placeholder-val="{{ true }}">
+          <div class="tk-card" style="padding:22px;">
+            <div style="font-size:13px; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; color:var(--text-muted); margin-bottom:14px;">Which university to roll over?</div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+              <sc-for list="{{ wizard.uniOptions }}" as="u" hint-placeholder-count="6">
+                <button class="row-link" onClick="{{ u.select }}" style="text-align:left; display:flex; align-items:center; gap:12px; padding:13px 15px; border:1.5px solid {{ u.selBorder }}; background:{{ u.selBg }}; border-radius:10px; cursor:pointer; font-family:var(--font-sans);">
+                  <span class="tk-avatar" style="width:32px; height:32px; font-size:12px;">{{ u.name }}</span>
+                  <div style="min-width:0;"><div style="font-size:14px; font-weight:600;">{{ u.name }}</div><div style="font-size:11px; color:var(--text-muted);">{{ u.city }} · {{ u.oem }}</div></div>
+                </button>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ wizard.isStep2 }}" hint-placeholder-val="{{ false }}">
+          <div class="tk-card" style="padding:22px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+              <div style="font-size:13px; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; color:var(--text-muted);">Cloned streams · {{ wizard.uniName }} → {{ wizard.year }}</div>
+              <span class="tk-badge tk-badge--brand">Prices carried forward</span>
+            </div>
+            <table class="tk-table" style="border:1px solid var(--border); border-radius:10px; overflow:hidden;">
+              <thead><tr><th>Stream</th><th class="tk-th--num">Last year</th><th class="tk-th--num">Price · uni</th><th class="tk-th--num">Price · Datagami</th><th class="tk-th--num">New count</th><th class="tk-th--num">Proj. margin</th></tr></thead>
+              <tbody>
+                <sc-for list="{{ wizard.streams }}" as="s" hint-placeholder-count="3">
+                  <tr>
+                    <td style="font-weight:600; color:var(--text-primary);">{{ s.label }}</td>
+                    <td class="tk-td--num" style="color:var(--text-muted);">{{ s.lastCount }}</td>
+                    <td class="tk-td--num">{{ s.priceUni }}</td>
+                    <td class="tk-td--num">{{ s.priceDg }}</td>
+                    <td class="tk-td--num" style="width:120px;"><input class="tk-input tk-input--money" value="{{ s.newCount }}" onInput="{{ s.onCount }}" style="height:34px;"></td>
+                    <td class="tk-td--num" style="color:{{ s.projMarginColor }}; font-weight:700;">{{ s.projMargin }}</td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+            <div style="font-size:12px; color:var(--text-muted); margin-top:10px;">New counts default to last year +5%. Edit any value — projected margin recomputes live.</div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ wizard.isStep3 }}" hint-placeholder-val="{{ false }}">
+          <div class="tk-card" style="padding:22px;">
+            <div style="font-size:13px; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; color:var(--text-muted); margin-bottom:14px;">Review · {{ wizard.uniName }} · {{ wizard.year }}</div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px;">
+              <div style="border:1px solid var(--border); border-radius:10px; padding:16px;"><div style="font-size:11px; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; color:var(--text-muted);">Projected billing</div><div style="font-family:var(--font-mono); font-size:24px; font-weight:800; margin-top:4px;">{{ wizard.totBill }}</div></div>
+              <div style="border:1px solid {{ wizard.totMarginColor }}; border-radius:10px; padding:16px; background:var(--positive-subtle);"><div style="font-size:11px; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; color:var(--text-muted);">Projected net margin</div><div style="font-family:var(--font-mono); font-size:24px; font-weight:800; margin-top:4px; color:{{ wizard.totMarginColor }};">{{ wizard.totMargin }}</div></div>
+            </div>
+            <table class="tk-table" style="border:1px solid var(--border); border-radius:10px; overflow:hidden;">
+              <thead><tr><th>Stream</th><th class="tk-th--num">Students</th><th class="tk-th--num">Proj. billing</th><th class="tk-th--num">Proj. margin</th></tr></thead>
+              <tbody>
+                <sc-for list="{{ wizard.streams }}" as="s" hint-placeholder-count="3">
+                  <tr><td style="font-weight:600; color:var(--text-primary);">{{ s.label }}</td><td class="tk-td--num">{{ s.newCount }}</td><td class="tk-td--num">{{ s.projBill }}</td><td class="tk-td--num" style="color:{{ s.projMarginColor }};">{{ s.projMargin }}</td></tr>
+                </sc-for>
+              </tbody>
+            </table>
+            <div style="display:flex; align-items:center; gap:8px; margin-top:12px; font-size:12.5px; color:var(--text-muted);">These will be created as <span class="tk-badge tk-badge--neutral">Draft</span> streams — no invoices are raised until you review each one.</div>
+          </div>
+        </sc-if>
+
+        <!-- WIZARD NAV -->
+        <sc-if value="{{ wizard.showNav }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex; justify-content:space-between; margin-top:18px;">
+          <sc-if value="{{ wizard.showBack }}" hint-placeholder-val="{{ false }}">
+            <button class="tk-btn tk-btn--ghost" onClick="{{ wizard.back }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg><span>Back</span></button>
+          </sc-if>
+          <sc-if value="{{ wizard.isStep1 }}" hint-placeholder-val="{{ true }}"><span></span></sc-if>
+          <sc-if value="{{ wizard.isStep3 }}" hint-placeholder-val="{{ false }}">
+            <button class="tk-btn tk-btn--primary" onClick="{{ wizard.confirm }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg><span>Create {{ wizard.year }} streams</span></button>
+          </sc-if>
+          <sc-if value="{{ wizard.isStep1 }}" hint-placeholder-val="{{ true }}">
+            <button class="tk-btn tk-btn--primary" onClick="{{ wizard.next }}"><span>Continue</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg></button>
+          </sc-if>
+          <sc-if value="{{ wizard.isStep2 }}" hint-placeholder-val="{{ false }}">
+            <button class="tk-btn tk-btn--primary" onClick="{{ wizard.next }}"><span>Continue</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg></button>
+          </sc-if>
+        </div>
+        </sc-if>
+      </div>
+      </sc-if>
+      <sc-if value="{{ isNewyear }}" hint-placeholder-val="{{ false }}"><div style="padding:48px; text-align:center; color:var(--text-muted);">New academic year wizard — next build step.</div></sc-if>
+
+    </main>
+  </div>
+
+  <!-- ===================== DIALOG: record receipt / OEM payment ===================== -->
+  <sc-if value="{{ dialogOpen }}" hint-placeholder-val="{{ false }}">
+    <div class="tk-overlay" onClick="{{ dialog.close }}">
+      <div class="tk-dialog" onClick="{{ dialog.stop }}" style="max-width:520px;">
+        <div class="tk-dialog__head">
+          <div>
+            <h2 class="tk-dialog__title">{{ dialog.title }}</h2>
+            <p class="tk-dialog__desc">{{ dialog.sub }}</p>
+          </div>
+          <button onClick="{{ dialog.close }}" style="width:30px; height:30px; border:none; background:transparent; border-radius:8px; cursor:pointer; color:var(--text-muted); display:inline-flex; align-items:center; justify-content:center;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+        </div>
+        <div class="tk-dialog__body">
+          <!-- target -> after -->
+          <div style="display:flex; align-items:center; gap:14px; background:var(--surface-sunken); border:1px solid var(--border); border-radius:10px; padding:12px 14px; margin-bottom:16px;">
+            <div style="flex:1;"><div style="font-size:11px; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; color:var(--text-muted);">{{ dialog.target }} now</div><div style="font-family:var(--font-mono); font-weight:700; font-size:17px; color:var(--pending-text);">{{ dialog.targetVal }}</div></div>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+            <div style="flex:1; text-align:right;"><div style="font-size:11px; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; color:var(--text-muted);">After this entry</div><div style="font-family:var(--font-mono); font-weight:700; font-size:17px; color:{{ dialog.accentText }};">{{ dialog.afterVal }}</div></div>
+          </div>
+
+          <div style="display:grid; grid-template-columns:1.2fr 1fr; gap:12px; margin-bottom:12px;">
+            <span class="tk-field"><label class="tk-label">Amount</label><span class="tk-input-wrap"><span class="tk-affix tk-affix--lead">₹</span><input class="tk-input tk-input--money tk-input--lead" placeholder="0" value="{{ dialog.amount }}" onInput="{{ dialog.onAmount }}"></span></span>
+            <span class="tk-field"><label class="tk-label">Date</label><input class="tk-input" placeholder="DD MMM YYYY" value="{{ dialog.date }}" onInput="{{ dialog.onDate }}"></span>
+          </div>
+          <div style="display:grid; grid-template-columns:1fr 1.2fr; gap:12px; margin-bottom:6px;">
+            <span class="tk-field"><label class="tk-label">Mode</label><select class="tk-select" value="{{ dialog.mode }}" onChange="{{ dialog.onMode }}"><option>RTGS</option><option>NEFT</option><option>IMPS</option><option>UPI</option><option>Cheque</option></select></span>
+            <span class="tk-field"><label class="tk-label">Reference / UTR</label><input class="tk-input" placeholder="UTR-…" value="{{ dialog.ref }}" onInput="{{ dialog.onRef }}"></span>
+          </div>
+
+          <!-- ledger -->
+          <div style="margin-top:16px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+              <span style="font-size:12px; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; color:var(--text-muted);">Payment ledger</span>
+              <span style="font-size:12px; color:var(--text-muted); font-family:var(--font-mono);">{{ dialog.ledgerCount }} entries</span>
+            </div>
+            <sc-if value="{{ dialog.ledgerCount }}" hint-placeholder-val="{{ 0 }}">
+              <div style="border:1px solid var(--border); border-radius:10px; overflow:hidden;">
+                <sc-for list="{{ dialog.ledger }}" as="p" hint-placeholder-count="2">
+                  <div style="display:flex; align-items:center; gap:10px; padding:9px 12px; border-bottom:1px solid var(--border-subtle); font-size:12.5px;">
+                    <span style="width:8px; height:8px; border-radius:9999px; background:{{ dialog.accent }}; flex:none;"></span>
+                    <span style="font-weight:600; min-width:96px;">{{ p.date }}</span>
+                    <span class="tk-badge tk-badge--neutral">{{ p.mode }}</span>
+                    <span style="color:var(--text-muted); font-family:var(--font-mono); flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ p.ref }}</span>
+                    <span style="font-family:var(--font-mono); font-weight:700; color:var(--positive-text);">{{ p.amount }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+        <div class="tk-dialog__foot">
+          <button class="tk-btn tk-btn--ghost" onClick="{{ dialog.close }}"><span>Cancel</span></button>
+          <button class="tk-btn tk-btn--primary" onClick="{{ dialog.save }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg><span>Add entry</span></button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:940},&quot;dark&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;showAnnotations&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;},&quot;demoState&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;ready&quot;,&quot;loading&quot;,&quot;error&quot;],&quot;default&quot;:&quot;ready&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    const GST = 0.18, TDS = 0.10;
+    const mk = (id, label, students, pu, pd, o = {}) => ({
+      id, label, students, priceToUni: pu, priceToDatagami: pd,
+      gstRate: o.gst != null ? o.gst : GST, tdsRate: o.tds != null ? o.tds : TDS,
+      advanceAdj: o.advanceAdj || 0, invoiceDate: o.date || "—",
+      status: o.status || "raised", payments: o.payments || [],
+    });
+    const universities = [
+      { id: "amity", name: "Amity University", city: "Noida, UP", oem: "IBM", streams: [
+        mk("advance", "Advance bill", 900, 3000, 2550, { date: "12 Apr 2024", status: "paid", payments: [{ date: "18 Apr 2024", amount: 2916000, mode: "NEFT", ref: "UTR-4471902" }] }),
+        mk("old", "Old students · 1st + 2nd sem", 1840, 8500, 7300, { date: "02 Jul 2024", status: "partially-paid", advanceAdj: 1200000, payments: [{ date: "22 Jul 2024", amount: 7000000, mode: "RTGS", ref: "UTR-5520118" }, { date: "09 Sep 2024", amount: 5000000, mode: "RTGS", ref: "UTR-5618877" }] }),
+        mk("new", "New students · 1st + 2nd sem", 1260, 8500, 8900, { date: "05 Sep 2024", status: "overdue", payments: [] }),
+      ] },
+      { id: "lpu", name: "Lovely Professional University", city: "Jalandhar, PB", oem: "IBM", streams: [
+        mk("old", "Old students · 1st + 2nd sem", 3200, 7800, 6700, { date: "28 Jun 2024", status: "partially-paid", advanceAdj: 1800000, payments: [{ date: "15 Jul 2024", amount: 18000000, mode: "RTGS", ref: "UTR-5511002" }] }),
+        mk("new", "New students · 1st + 2nd sem", 2450, 7800, 6700, { date: "01 Sep 2024", status: "raised", payments: [] }),
+      ] },
+      { id: "chandigarh", name: "Chandigarh University", city: "Mohali, PB", oem: "AAFM", streams: [
+        mk("old", "Old students · 1st + 2nd sem", 1500, 9200, 7900, { date: "30 Jun 2024", status: "paid", payments: [{ date: "20 Jul 2024", amount: 16284000, mode: "RTGS", ref: "UTR-5530441" }] }),
+        mk("new", "New students · 1st + 2nd sem", 980, 9200, 7900, { date: "04 Sep 2024", status: "partially-paid", payments: [{ date: "18 Sep 2024", amount: 4000000, mode: "NEFT", ref: "UTR-5640090" }] }),
+      ] },
+      { id: "srm", name: "SRM Institute of Sci. & Tech.", city: "Chennai, TN", oem: "IBM", streams: [
+        mk("old", "Old students · 1st + 2nd sem", 2100, 8100, 8450, { date: "26 Jun 2024", status: "partially-paid", payments: [{ date: "12 Jul 2024", amount: 9000000, mode: "RTGS", ref: "UTR-5509981" }] }),
+        mk("new", "New students · 1st + 2nd sem", 1650, 8100, 7050, { date: "02 Sep 2024", status: "raised", payments: [] }),
+      ] },
+      { id: "manipal", name: "Manipal Academy of Higher Ed.", city: "Manipal, KA", oem: "AAFM", streams: [
+        mk("old", "Old students · 1st + 2nd sem", 1280, 9600, 8200, { date: "29 Jun 2024", status: "paid", payments: [{ date: "16 Jul 2024", amount: 14497920, mode: "RTGS", ref: "UTR-5531120" }] }),
+        mk("new", "New students · 1st + 2nd sem", 760, 9600, 8200, { date: "06 Sep 2024", status: "overdue", payments: [] }),
+      ] },
+      { id: "vit", name: "VIT Vellore", city: "Vellore, TN", oem: "IBM", streams: [
+        mk("old", "Old students · 1st + 2nd sem", 2750, 7400, 6300, { date: "27 Jun 2024", status: "partially-paid", advanceAdj: 1500000, payments: [{ date: "14 Jul 2024", amount: 14000000, mode: "RTGS", ref: "UTR-5510550" }] }),
+        mk("new", "New students · 1st + 2nd sem", 1980, 7400, 6300, { date: "03 Sep 2024", status: "raised", payments: [] }),
+      ] },
+      { id: "galgotias", name: "Galgotias University", city: "Greater Noida, UP", oem: "AAFM", streams: [
+        mk("new", "New students · 1st + 2nd sem", 1340, 8800, 9050, { date: "07 Sep 2024", status: "overdue", payments: [] }),
+      ] },
+      { id: "christ", name: "Christ University", city: "Bengaluru, KA", oem: "IBM", streams: [
+        mk("old", "Old students · 1st + 2nd sem", 1120, 8900, 7600, { date: "01 Jul 2024", status: "paid", payments: [{ date: "19 Jul 2024", amount: 11759840, mode: "RTGS", ref: "UTR-5532900" }] }),
+        mk("new", "New students · 1st + 2nd sem", 690, 8900, 7600, { date: "05 Sep 2024", status: "partially-paid", payments: [{ date: "20 Sep 2024", amount: 3000000, mode: "NEFT", ref: "UTR-5641880" }] }),
+      ] },
+    ];
+
+    this.state = {
+      screen: "dashboard", dark: !!props.dark,
+      showAnnotations: props.showAnnotations !== false,
+      year: "FY24\u201325", role: "Admin / Finance",
+      selectedUniId: "amity", selectedStreamId: "new", detailView: "flow",
+      dialog: null, form: {}, search: "", sortKey: "outstanding", sortDir: "desc",
+      filterOem: "all", filterStatus: "all", listSearch: "",
+      reportType: "margin", wizardStep: 1, wizardUniId: "amity", wizardYear: "FY25\u201326", wizardCounts: {}, wizardDone: false,
+      demoOverride: null,
+      universities,
+    };
+  }
+
+  // ---------- money math ----------
+  computeStream(s) {
+    const ti = s.students * s.priceToUni;
+    const gi = ti * s.gstRate, bill = ti + gi, tdi = ti * s.tdsRate, after = bill - tdi;
+    const rec = (s.payments || []).reduce((a, p) => a + p.amount, 0);
+    const out = after - rec;
+    const to = s.students * s.priceToDatagami;
+    const go = to * s.gstRate, tdo = to * s.tdsRate;
+    const pay = to + go - tdo - (s.advanceAdj || 0);
+    const margin = ti - to;
+    return { ...s, taxableIn: ti, gstIn: gi, billing: bill, tdsIn: tdi, afterTds: after,
+      received: rec, outstanding: out, taxableOut: to, gstOut: go, tdsOut: tdo,
+      advanceAdj: s.advanceAdj || 0, payable: pay, netMargin: margin, gstDiff: gi - go, tdsDiff: tdi - tdo };
+  }
+  computeUni(u) {
+    const streams = u.streams.map((s) => this.computeStream(s));
+    const sum = (k) => streams.reduce((a, s) => a + s[k], 0);
+    const cu = { ...u, streams, billing: sum("billing"), received: sum("received"),
+      outstanding: sum("outstanding"), payable: sum("payable"), netMargin: sum("netMargin"),
+      gstDiff: sum("gstDiff"), hasNegative: streams.some((s) => s.netMargin < 0) };
+    cu.status = this.uniStatus(cu);
+    return cu;
+  }
+  uniStatus(cu) {
+    if (cu.streams.some((s) => s.status === "overdue")) return "overdue";
+    if (cu.outstanding <= 1) return "paid";
+    if (cu.received > 0) return "partially-paid";
+    return "raised";
+  }
+
+  // ---------- formatters ----------
+  fmt(v) {
+    if (v == null || isNaN(v)) return "\u2014";
+    const neg = v < 0, abs = Math.abs(Math.round(v));
+    const s = new Intl.NumberFormat("en-IN").format(abs);
+    return `${neg ? "\u2212" : ""}\u20b9${s}`;
+  }
+  fmtC(v) {
+    if (v == null || isNaN(v)) return "\u2014";
+    const neg = v < 0, abs = Math.abs(v); let out;
+    if (abs >= 1e7) out = (abs / 1e7).toFixed(abs >= 1e8 ? 0 : 2).replace(/\.00$/, "") + "Cr";
+    else if (abs >= 1e5) out = (abs / 1e5).toFixed(abs >= 1e6 ? 0 : 1).replace(/\.0$/, "") + "L";
+    else if (abs >= 1e3) out = (abs / 1e3).toFixed(0) + "K";
+    else out = String(Math.round(abs));
+    return `${neg ? "\u2212" : ""}\u20b9${out}`;
+  }
+  statusMeta(s) {
+    const m = { draft: ["neutral", "Draft"], raised: ["info", "Raised"],
+      "partially-paid": ["pending", "Partially Paid"], pending: ["pending", "Pending"],
+      paid: ["positive", "Paid"], overdue: ["negative", "Overdue"] };
+    return m[s] || m.draft;
+  }
+
+  // ---------- nav ----------
+  go(screen) { this.setState({ screen }); const m = this.scrollMain; if (m) m.scrollTop = 0; }
+  openUni(id) { this.setState({ screen: "university", selectedUniId: id }); }
+
+  // ---------- editing (live recompute) ----------
+  updateStream(field, raw) {
+    this.setState((s) => ({
+      universities: s.universities.map((u) => u.id !== s.selectedUniId ? u : ({
+        ...u, streams: u.streams.map((stm) => {
+          if (stm.id !== s.selectedStreamId) return stm;
+          let v = raw;
+          if (["students", "priceToUni", "priceToDatagami", "advanceAdj"].includes(field))
+            v = Math.max(0, parseInt(String(raw).replace(/[^0-9]/g, ""), 10) || 0);
+          else if (field === "gstRate" || field === "tdsRate")
+            v = Math.max(0, Math.min(100, parseFloat(raw) || 0)) / 100;
+          return { ...stm, [field]: v };
+        }),
+      })),
+    }));
+  }
+  addPayment(kind, p) {
+    this.setState((s) => ({
+      universities: s.universities.map((u) => u.id !== (s.dialog && s.dialog.uniId) ? u : ({
+        ...u, streams: u.streams.map((stm) => {
+          if (stm.id !== (s.dialog && s.dialog.streamId)) return stm;
+          if (kind === "receipt") {
+            const payments = [...stm.payments, p];
+            const after = stm.students * stm.priceToUni * (1 + stm.gstRate) - stm.students * stm.priceToUni * stm.tdsRate;
+            const rec = payments.reduce((a, x) => a + x.amount, 0);
+            const status = rec >= after - 1 ? "paid" : rec > 0 ? "partially-paid" : stm.status;
+            return { ...stm, payments, status };
+          }
+          return { ...stm, oemPayments: [...(stm.oemPayments || []), p] };
+        }),
+      })),
+      dialog: null,
+    }));
+  }
+
+  // ---------- charts ----------
+  lineGeo(series, w, h) {
+    const padX = 12, padT = 16, padB = 24, innerH = h - padT - padB;
+    const all = series.flatMap((s) => s.values);
+    const max = Math.max(...all, 0), min = 0, range = (max - min) || 1;
+    const n = series[0].values.length, step = n > 1 ? (w - padX * 2) / (n - 1) : 0;
+    const px = (i) => padX + step * i, py = (v) => padT + innerH - ((v - min) / range) * innerH;
+    const out = series.map((s) => {
+      const pts = s.values.map((v, i) => `${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(" ");
+      const area = `${px(0).toFixed(1)},${(padT + innerH).toFixed(1)} ${pts} ${px(n - 1).toFixed(1)},${(padT + innerH).toFixed(1)}`;
+      return { path: pts, area, stroke: s.stroke };
+    });
+    const dots = series.flatMap((s) => s.values.map((v, i) => ({ cx: px(i).toFixed(1), cy: py(v).toFixed(1), stroke: s.stroke })));
+    const grid = [0, 0.5, 1].map((t) => (padT + innerH * t).toFixed(1));
+    const labels = series[0].labels.map((t, i) => ({ x: px(i).toFixed(1), text: t }));
+    return { series: out, dots, grid, labels };
+  }
+  barGeo(data, w, h, opts) {
+    opts = opts || {}; const padX = 10, padT = 16, padB = 24, innerH = h - padT - padB;
+    const max = Math.max(1, ...data.map((d) => Math.abs(d.value)));
+    const bw = (w - padX * 2) / data.length, barW = Math.min(46, bw * 0.5);
+    const signed = !!opts.signed, zeroY = signed ? padT + innerH / 2 : padT + innerH;
+    const scale = signed ? (innerH / 2) / max : innerH / max;
+    const bars = data.map((d, i) => {
+      const cx = padX + bw * i + bw / 2, bh = Math.max(2, Math.abs(d.value) * scale);
+      const y = d.value >= 0 ? zeroY - bh : zeroY;
+      const cls = signed ? (d.value >= 0 ? "tk-chart__bar tk-chart__bar--positive" : "tk-chart__bar tk-chart__bar--negative")
+        : "tk-chart__bar";
+      return { x: (cx - barW / 2).toFixed(1), y: y.toFixed(1), w: barW.toFixed(1), h: bh.toFixed(1),
+        cx: cx.toFixed(1), cls, fill: opts.fill || "var(--primary)", label: d.label,
+        vlabel: (d.value >= 0 ? "" : "\u2212") + Math.abs(d.value), vy: (y - 6).toFixed(1) };
+    });
+    const grid = [0, 0.5, 1].map((t) => (padT + innerH * t).toFixed(1));
+    return { bars, grid };
+  }
+
+  componentDidMount() { this.scrollMain = null; }
+  componentDidUpdate(prev) { if (prev.demoState !== this.props.demoState) this.setState({ demoOverride: null }); }
+
+  renderVals() {
+    const st = this.state;
+    const dark = st.dark;
+    const ds = st.demoOverride != null ? st.demoOverride : (this.props.demoState || "ready");
+    const dsLoading = ds === "loading", dsError = ds === "error", dsReady = ds === "ready";
+    const unis = st.universities.map((u) => this.computeUni(u));
+    const sum = (k) => unis.reduce((a, u) => a + u[k], 0);
+    const billed = sum("billing"), received = sum("received"), outstanding = sum("outstanding");
+    const payable = sum("payable"), margin = sum("netMargin");
+
+    // negative streams across portfolio
+    const negStreams = [];
+    unis.forEach((u) => u.streams.forEach((s) => { if (s.netMargin < 0) negStreams.push({
+      uni: u.name, oem: u.oem, stream: s.label, margin: this.fmt(s.netMargin),
+      open: () => this.setState({ screen: "university", selectedUniId: u.id, selectedStreamId: s.id }) }); }));
+
+    const openInvoices = unis.reduce((a, u) => a + u.streams.filter((s) => s.outstanding > 1).length, 0);
+
+    const navState = (active) => ({ bg: active ? "var(--primary-subtle)" : "transparent", fg: active ? "var(--primary-text)" : "var(--text-secondary)" });
+    const aDash = st.screen === "dashboard";
+    const aUni = st.screen === "universities" || st.screen === "university" || st.screen === "editor";
+    const aRep = st.screen === "reports";
+    const aNew = st.screen === "newyear";
+    const nd = navState(aDash), nu = navState(aUni), nr = navState(aRep), nn = navState(aNew);
+
+    const titles = { dashboard: ["Overview", "Dashboard"], universities: ["Universities", "All universities"],
+      university: ["Universities", "University detail"], editor: ["Universities", "Invoice editor"],
+      reports: ["Reports", "Reports & exports"], newyear: ["Setup", "New academic year"] };
+    const t = titles[st.screen] || ["", ""];
+
+    const initials = (n) => n.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+    const mkRow = (u) => { const sm = this.statusMeta(u.status); return {
+      id: u.id, name: u.name, city: u.city, oem: u.oem, initials: initials(u.name),
+      billed: this.fmtC(u.billing), received: this.fmtC(u.received), outstanding: this.fmtC(u.outstanding),
+      margin: this.fmtC(u.netMargin), marginColor: u.netMargin < 0 ? "var(--negative-text)" : "var(--positive-text)",
+      statusTone: sm[0], statusLabel: sm[1], open: () => this.openUni(u.id) }; };
+    const rows = unis.map(mkRow);
+    const topRows = [...unis].sort((a, b) => b.outstanding - a.outstanding).slice(0, 6).map(mkRow);
+
+    // ---- universities list: filter + sort ----
+    const q = st.listSearch.trim().toLowerCase();
+    let filtered = unis.filter((u) =>
+      (st.filterOem === "all" || u.oem === st.filterOem) &&
+      (st.filterStatus === "all" || u.status === st.filterStatus) &&
+      (!q || u.name.toLowerCase().includes(q) || u.city.toLowerCase().includes(q) || u.oem.toLowerCase().includes(q)));
+    const sk = st.sortKey, sdir = st.sortDir === "asc" ? 1 : -1;
+    const sortVal = (u) => sk === "name" ? u.name : sk === "oem" ? u.oem : u[sk];
+    filtered = [...filtered].sort((a, b) => {
+      const av = sortVal(a), bv = sortVal(b);
+      if (typeof av === "number") return (av - bv) * sdir;
+      return String(av).localeCompare(String(bv)) * sdir;
+    });
+    const listRows = filtered.map(mkRow);
+    // ---- UNIVERSITY DETAIL (centerpiece) ----
+    const selUni = unis.find((u) => u.id === st.selectedUniId) || unis[0];
+    let sel = selUni.streams.find((s) => s.id === st.selectedStreamId) || selUni.streams[0];
+    const M = (v) => this.fmt(v);
+    const grp = (n) => Number(n).toLocaleString("en-IN");
+    const dsm = this.statusMeta(selUni.status);
+    const streamCards = selUni.streams.map((s) => { const m = this.statusMeta(s.status); return {
+      id: s.id, label: s.label, students: grp(s.students),
+      billed: this.fmtC(s.billing), outstanding: this.fmtC(s.outstanding), margin: this.fmtC(s.netMargin),
+      marginColor: s.netMargin < 0 ? "var(--negative-text)" : "var(--positive-text)",
+      statusTone: m[0], statusLabel: m[1],
+      selected: s.id === sel.id,
+      selBg: s.id === sel.id ? "var(--primary-subtle)" : "var(--surface)",
+      selBorder: s.id === sel.id ? "var(--primary)" : "var(--border)",
+      select: () => this.setState({ selectedStreamId: s.id }) }; });
+
+    const inflowRows = [
+      { label: "Taxable value", sub: grp(sel.students) + " students \u00d7 " + M(sel.priceToUni), op: "", amount: M(sel.taxableIn), color: "var(--text-primary)", weight: 600 },
+      { label: "GST @ " + Math.round(sel.gstRate * 100) + "%", sub: "Output GST on taxable", op: "+", amount: M(sel.gstIn), color: "var(--text-secondary)", weight: 500 },
+      { label: "Billing \u00b7 invoice value", op: "=", amount: M(sel.billing), color: "var(--text-primary)", weight: 700, rule: true },
+      { label: "TDS @ " + Math.round(sel.tdsRate * 100) + "%", sub: "Withheld by the university", op: "\u2212", amount: M(sel.tdsIn), color: "var(--text-muted)", weight: 500 },
+      { label: "After-TDS receivable", op: "=", amount: M(sel.afterTds), color: "var(--text-primary)", weight: 700, rule: true },
+      { label: "Received in bank", sub: sel.payments.length + " receipt(s)", op: "\u2212", amount: M(sel.received), color: "var(--positive-text)", weight: 600 },
+      { label: "Outstanding", op: "=", amount: M(sel.outstanding), color: "var(--pending-text)", weight: 800, rule: true, bg: "var(--pending-subtle)" },
+    ];
+    const outflowRows = [
+      { label: "Taxable value", sub: grp(sel.students) + " students \u00d7 " + M(sel.priceToDatagami), op: "", amount: M(sel.taxableOut), color: "var(--text-primary)", weight: 600 },
+      { label: "GST @ " + Math.round(sel.gstRate * 100) + "%", sub: "Input GST", op: "+", amount: M(sel.gstOut), color: "var(--text-secondary)", weight: 500 },
+      { label: "TDS @ " + Math.round(sel.tdsRate * 100) + "%", sub: "Withheld from OEM", op: "\u2212", amount: M(sel.tdsOut), color: "var(--text-muted)", weight: 500 },
+      { label: "Advance adjusted", sub: sel.advanceAdj > 0 ? "Set off from advance pool" : "None this stream", op: "\u2212", amount: M(sel.advanceAdj), color: "var(--info-text)", weight: 600, bg: sel.advanceAdj > 0 ? "var(--info-subtle)" : "" },
+      { label: "Payable to OEM", op: "=", amount: M(sel.payable), color: "var(--info-text)", weight: 800, rule: true, bg: "var(--info-subtle)" },
+    ];
+    const statementRows = [
+      { item: "Taxable value", inflow: M(sel.taxableIn), outflow: M(sel.taxableOut), margin: M(sel.netMargin), marginCol: sel.netMargin < 0 ? "var(--negative-text)" : "var(--positive-text)" },
+      { item: "GST @ 18%", inflow: M(sel.gstIn), outflow: M(sel.gstOut), margin: M(sel.gstDiff), marginCol: "var(--text-secondary)" },
+      { item: "TDS @ 10%", inflow: "\u2212" + M(sel.tdsIn), outflow: "\u2212" + M(sel.tdsOut), margin: M(sel.tdsDiff), marginCol: "var(--text-muted)" },
+      { item: "Advance adjusted", inflow: "\u2014", outflow: "\u2212" + M(sel.advanceAdj), margin: "\u2014", marginCol: "var(--text-muted)" },
+      { item: "Net position", inflow: M(sel.afterTds), outflow: M(sel.payable), margin: M(sel.netMargin), marginCol: sel.netMargin < 0 ? "var(--negative-text)" : "var(--positive-text)", strong: true },
+    ];
+
+    const deco = (r) => ({ ...r, bg: r.bg || "transparent", bt: r.rule ? "1px solid var(--border)" : "none", subShow: !!r.sub });
+    const inflowD = inflowRows.map(deco), outflowD = outflowRows.map(deco);
+
+    const annTone = { brand: ["var(--primary-subtle)", "var(--primary-border)", "var(--primary-text)"],
+      info: ["var(--info-subtle)", "var(--info-border)", "var(--info-text)"],
+      pending: ["var(--pending-subtle)", "var(--pending-border)", "var(--pending-text)"],
+      negative: ["var(--negative-subtle)", "var(--negative-border)", "var(--negative-text)"] };
+
+    const ann = [];
+    ann.push({ icon: "calc", tone: "brand", title: "How the ladder recomputes", body: "Taxable = students \u00d7 price. GST (18%) adds on top to form the billing value; TDS (10%) is withheld by the university. After-TDS is what actually lands in Datagami's bank." });
+    if (sel.advanceAdj > 0) ann.push({ icon: "flow", tone: "info", title: "Advance adjustment", body: M(sel.advanceAdj) + " of the advance Datagami pre-paid to " + selUni.oem + " is set off against this cohort's outflow, lowering the payable." });
+    ann.push({ icon: "clock", tone: "pending", title: "Outstanding updates live", body: "Outstanding = After-TDS \u2212 Received. Every receipt you record against this invoice reduces it immediately \u2014 " + M(sel.outstanding) + " remains." });
+    if (sel.netMargin < 0) ann.push({ icon: "warn", tone: "negative", title: "Negative margin \u2014 flagged", body: selUni.oem + "'s revised rate (" + M(sel.priceToDatagami) + "/seat) sits above the university's locked price (" + M(sel.priceToUni) + "). Net to Datagami is " + M(sel.netMargin) + " for this stream." });
+
+    const detail = {
+      id: selUni.id, name: selUni.name, city: selUni.city, oem: selUni.oem, initials: initials(selUni.name),
+      statusTone: dsm[0], statusLabel: dsm[1],
+      kpis: [
+        { label: "Total billed", value: this.fmtC(selUni.billing), color: "var(--text-primary)" },
+        { label: "Received", value: this.fmtC(selUni.received), color: "var(--positive-text)" },
+        { label: "Outstanding", value: this.fmtC(selUni.outstanding), color: "var(--pending-text)" },
+        { label: "Payable to OEM", value: this.fmtC(selUni.payable), color: "var(--info-text)" },
+        { label: "Net margin", value: this.fmtC(selUni.netMargin), color: selUni.netMargin < 0 ? "var(--negative-text)" : "var(--positive-text)" },
+        { label: "GST difference", value: this.fmtC(selUni.gstDiff), color: "var(--text-secondary)" },
+      ],
+      streamCards, inflowD, outflowD,
+      annotations: ann.map((a) => ({ ...a, bg: annTone[a.tone][0], border: annTone[a.tone][1], fg: annTone[a.tone][2] })),
+      selLabel: sel.label, selStatusTone: this.statusMeta(sel.status)[0], selStatusLabel: this.statusMeta(sel.status)[1],
+      selInvoiceDate: sel.invoiceDate, selStudents: grp(sel.students),
+      inflowRows, outflowRows, statementRows, annotations: ann,
+      marginF: M(sel.netMargin), marginColor: sel.netMargin < 0 ? "var(--negative-text)" : "var(--positive-text)",
+      marginNeg: sel.netMargin < 0, marginBg: sel.netMargin < 0 ? "var(--negative-subtle)" : "var(--positive-subtle)",
+      marginBorder: sel.netMargin < 0 ? "var(--negative-border)" : "var(--positive-border)",
+      gstDiffF: M(sel.gstDiff), advanceAdjF: M(sel.advanceAdj), advanceHas: sel.advanceAdj > 0,
+      f: { taxableIn: M(sel.taxableIn), taxableOut: M(sel.taxableOut), billing: M(sel.billing),
+        afterTds: M(sel.afterTds), received: M(sel.received), outstanding: M(sel.outstanding),
+        payable: M(sel.payable), gstIn: M(sel.gstIn), gstOut: M(sel.gstOut) },
+    };
+    // ---- REPORTS ----
+    const pct = (a, b) => b ? (a / b * 100).toFixed(1) + "%" : "\u2014";
+    const reportDefs = {
+      margin: { label: "Margin", cols: ["University", "OEM", "Billed", "Net margin", "Margin %"],
+        rows: unis.map((u) => [u.name, u.oem, this.fmtC(u.billing), { v: this.fmtC(u.netMargin), c: u.netMargin < 0 ? "var(--negative-text)" : "var(--positive-text)" }, { v: pct(u.netMargin, u.billing), c: u.netMargin < 0 ? "var(--negative-text)" : "var(--text-secondary)" }]),
+        total: ["Total", "", this.fmtC(billed), { v: this.fmtC(margin), c: margin < 0 ? "var(--negative-text)" : "var(--positive-text)" }, { v: pct(margin, billed), c: "var(--text-secondary)" }] },
+      gst: { label: "GST", cols: ["University", "Output GST (in)", "Input GST (out)", "Net GST payable"],
+        rows: unis.map((u) => { const oG = u.streams.reduce((a, s) => a + s.gstIn, 0), iG = u.streams.reduce((a, s) => a + s.gstOut, 0); return [u.name, this.fmt(oG), this.fmt(iG), { v: this.fmt(oG - iG), c: "var(--text-primary)" }]; }),
+        total: ["Total", this.fmt(unis.reduce((a, u) => a + u.streams.reduce((x, s) => x + s.gstIn, 0), 0)), this.fmt(unis.reduce((a, u) => a + u.streams.reduce((x, s) => x + s.gstOut, 0), 0)), { v: this.fmt(unis.reduce((a, u) => a + u.gstDiff, 0)), c: "var(--text-primary)" }] },
+      tds: { label: "TDS", cols: ["University", "TDS by university (in)", "TDS by Datagami (out)", "Net TDS credit"],
+        rows: unis.map((u) => { const i = u.streams.reduce((a, s) => a + s.tdsIn, 0), o = u.streams.reduce((a, s) => a + s.tdsOut, 0); return [u.name, this.fmt(i), this.fmt(o), { v: this.fmt(i - o), c: "var(--text-primary)" }]; }),
+        total: ["Total", this.fmt(unis.reduce((a, u) => a + u.streams.reduce((x, s) => x + s.tdsIn, 0), 0)), this.fmt(unis.reduce((a, u) => a + u.streams.reduce((x, s) => x + s.tdsOut, 0), 0)), { v: "\u2014", c: "var(--text-muted)" }] },
+      aging: { label: "Collections aging", cols: ["University", "Current", "31\u201360 days", "61\u201390 days", "90+ days", "Total outstanding"],
+        rows: unis.filter((u) => u.outstanding > 1).map((u) => { const b = { c: 0, b1: 0, b2: 0, b3: 0 }; u.streams.forEach((s) => { if (s.outstanding <= 1) return; if (s.status === "overdue") b.b3 += s.outstanding; else if (s.status === "raised") b.c += s.outstanding; else b.b1 += s.outstanding; });
+          return [u.name, this.fmt(b.c), this.fmt(b.b1), this.fmt(b.b2), { v: this.fmt(b.b3), c: b.b3 > 0 ? "var(--negative-text)" : "var(--text-secondary)" }, { v: this.fmt(u.outstanding), c: "var(--pending-text)" }]; }),
+        total: null },
+    };
+    const rep = reportDefs[st.reportType];
+    const reportTabs = ["margin", "gst", "tds", "aging"].map((k) => ({ key: k, label: reportDefs[k].label,
+      bg: st.reportType === k ? "var(--surface)" : "transparent", fg: st.reportType === k ? "var(--text-primary)" : "var(--text-secondary)",
+      sh: st.reportType === k ? "var(--shadow-xs)" : "none", set: () => this.setState({ reportType: k }) }));
+    const repRows = rep.rows.map((cells) => ({ cells: cells.map((c) => typeof c === "object" ? c : { v: c, c: "" }) }));
+    const repTotal = rep.total ? rep.total.map((c) => typeof c === "object" ? c : { v: c, c: "" }) : null;
+
+    // ---- NEW YEAR WIZARD ----
+    const wuni = unis.find((u) => u.id === st.wizardUniId) || unis[0];
+    const wsteps = [{ n: 1, label: "Select university" }, { n: 2, label: "Clone & edit counts" }, { n: 3, label: "Review & confirm" }];
+    const wizStreams = wuni.streams.map((s) => { const nc = st.wizardCounts[s.id] != null ? st.wizardCounts[s.id] : Math.round(s.students * 1.05);
+      const projBill = nc * s.priceToUni * (1 + s.gstRate); const projMargin = nc * (s.priceToUni - s.priceToDatagami);
+      return { id: s.id, label: s.label, lastCount: grp(s.students), priceUni: this.fmt(s.priceToUni), priceDg: this.fmt(s.priceToDatagami),
+        newCount: String(nc), projBill: this.fmtC(projBill), projMargin: this.fmtC(projMargin),
+        projMarginColor: projMargin < 0 ? "var(--negative-text)" : "var(--positive-text)",
+        onCount: (e) => this.setState((p) => ({ wizardCounts: { ...p.wizardCounts, [s.id]: Math.max(0, parseInt(String(e.target.value).replace(/[^0-9]/g, ""), 10) || 0) } })) }; });
+    const wizTotBill = wuni.streams.reduce((a, s) => { const nc = st.wizardCounts[s.id] != null ? st.wizardCounts[s.id] : Math.round(s.students * 1.05); return a + nc * s.priceToUni * (1 + s.gstRate); }, 0);
+    const wizTotMargin = wuni.streams.reduce((a, s) => { const nc = st.wizardCounts[s.id] != null ? st.wizardCounts[s.id] : Math.round(s.students * 1.05); return a + nc * (s.priceToUni - s.priceToDatagami); }, 0);
+    const wizard = {
+      step: st.wizardStep, done: st.wizardDone,
+      steps: wsteps.map((s) => ({ ...s, active: s.n === st.wizardStep, done: s.n < st.wizardStep,
+        circBg: s.n < st.wizardStep ? "var(--positive)" : s.n === st.wizardStep ? "var(--primary)" : "var(--surface-sunken)",
+        circFg: s.n <= st.wizardStep ? "var(--primary-fg)" : "var(--text-muted)",
+        circBorder: s.n === st.wizardStep ? "var(--primary)" : "transparent",
+        labelColor: s.n === st.wizardStep ? "var(--text-primary)" : "var(--text-muted)",
+        connDisp: s.n < wsteps.length ? "inline-block" : "none" })),
+      uniName: wuni.name, uniCity: wuni.city, oem: wuni.oem, year: st.wizardYear,
+      uniOptions: unis.map((u) => ({ id: u.id, name: u.name, city: u.city, oem: u.oem,
+        selBg: u.id === st.wizardUniId ? "var(--primary-subtle)" : "var(--surface)",
+        selBorder: u.id === st.wizardUniId ? "var(--primary)" : "var(--border)",
+        select: () => this.setState({ wizardUniId: u.id, wizardCounts: {} }) })),
+      streams: wizStreams, totBill: this.fmtC(wizTotBill), totMargin: this.fmtC(wizTotMargin),
+      totMarginColor: wizTotMargin < 0 ? "var(--negative-text)" : "var(--positive-text)",
+      isStep1: st.wizardStep === 1, isStep2: st.wizardStep === 2, isStep3: st.wizardStep === 3,
+      showNav: !st.wizardDone, showBack: st.wizardStep > 1 && !st.wizardDone,
+      next: () => this.setState((p) => ({ wizardStep: Math.min(3, p.wizardStep + 1) })),
+      back: () => this.setState((p) => ({ wizardStep: Math.max(1, p.wizardStep - 1) })),
+      confirm: () => this.setState({ wizardDone: true }),
+      restart: () => this.setState({ wizardStep: 1, wizardDone: false, wizardCounts: {} }),
+    };
+
+    const setView = (v) => this.setState({ detailView: v });
+    const segBg = (v) => st.detailView === v ? "var(--surface)" : "transparent";
+    const segFg = (v) => st.detailView === v ? "var(--text-primary)" : "var(--text-secondary)";
+    const segSh = (v) => st.detailView === v ? "var(--shadow-xs)" : "none";
+
+    // ---- EDITOR (live inputs bound to raw stream) ----
+    const rawUni = st.universities.find((u) => u.id === st.selectedUniId) || st.universities[0];
+    const rawStream = rawUni.streams.find((s) => s.id === st.selectedStreamId) || rawUni.streams[0];
+    const mps = rawStream.priceToUni - rawStream.priceToDatagami;
+    const editor = {
+      streamLabel: rawStream.label, uniName: rawUni.name, oem: rawUni.oem,
+      students: String(rawStream.students), priceToUni: String(rawStream.priceToUni),
+      priceToDatagami: String(rawStream.priceToDatagami), advanceAdj: String(rawStream.advanceAdj || 0),
+      gstPct: String(Math.round(rawStream.gstRate * 1000) / 10), tdsPct: String(Math.round(rawStream.tdsRate * 1000) / 10),
+      invoiceDate: rawStream.invoiceDate, status: rawStream.status,
+      marginPerStudent: this.fmt(mps), mpsColor: mps < 0 ? "var(--negative-text)" : "var(--positive-text)",
+      onStudents: (e) => this.updateStream("students", e.target.value),
+      onPriceUni: (e) => this.updateStream("priceToUni", e.target.value),
+      onPriceDg: (e) => this.updateStream("priceToDatagami", e.target.value),
+      onAdvance: (e) => this.updateStream("advanceAdj", e.target.value),
+      onGst: (e) => this.updateStream("gstRate", e.target.value),
+      onTds: (e) => this.updateStream("tdsRate", e.target.value),
+      onDate: (e) => this.updateStream("invoiceDate", e.target.value),
+      onStatus: (e) => this.updateStream("status", e.target.value),
+    };
+
+    // ---- DIALOG (record receipt / OEM payment) ----
+    let dialogVM = null;
+    if (st.dialog) {
+      const du = unis.find((u) => u.id === st.dialog.uniId);
+      const ds = du && du.streams.find((s) => s.id === st.dialog.streamId);
+      if (ds) {
+        const isReceipt = st.dialog.kind === "receipt";
+        const ledger = (isReceipt ? ds.payments : (ds.oemPayments || [])).map((p) => ({
+          date: p.date, amount: this.fmt(p.amount), mode: p.mode, ref: p.ref }));
+        dialogVM = {
+          isReceipt, kind: st.dialog.kind, title: isReceipt ? "Record a receipt" : "Record a payment to " + du.oem,
+          sub: du.name + " \u00b7 " + ds.label, oem: du.oem,
+          target: isReceipt ? "Outstanding" : "Payable to OEM",
+          targetVal: this.fmt(isReceipt ? ds.outstanding : ds.payable),
+          afterVal: this.fmt((isReceipt ? ds.outstanding : ds.payable) - (parseInt(String(st.form.amount || "").replace(/[^0-9]/g, ""), 10) || 0)),
+          ledger, ledgerCount: ledger.length,
+          amount: st.form.amount || "", date: st.form.date || "", mode: st.form.mode || "RTGS", ref: st.form.ref || "",
+          onAmount: (e) => this.setState({ form: { ...st.form, amount: e.target.value } }),
+          onDate: (e) => this.setState({ form: { ...st.form, date: e.target.value } }),
+          onMode: (e) => this.setState({ form: { ...st.form, mode: e.target.value } }),
+          onRef: (e) => this.setState({ form: { ...st.form, ref: e.target.value } }),
+          canSave: (parseInt(String(st.form.amount || "").replace(/[^0-9]/g, ""), 10) || 0) > 0,
+          save: () => { const amt = parseInt(String(st.form.amount || "").replace(/[^0-9]/g, ""), 10) || 0;
+            if (amt <= 0) return;
+            this.addPayment(st.dialog.kind, { date: st.form.date || "Today", amount: amt, mode: st.form.mode || "RTGS", ref: st.form.ref || "\u2014" });
+            this.setState({ form: {} }); },
+          close: () => this.setState({ dialog: null, form: {} }),
+          stop: (e) => e.stopPropagation(),
+          accent: isReceipt ? "var(--positive)" : "var(--info)",
+          accentSubtle: isReceipt ? "var(--positive-subtle)" : "var(--info-subtle)",
+          accentText: isReceipt ? "var(--positive-text)" : "var(--info-text)",
+        };
+      }
+    }
+
+    const setSort = (key) => this.setState((s) => ({ sortKey: key, sortDir: s.sortKey === key ? (s.sortDir === "asc" ? "desc" : "asc") : "asc" }));
+    const arrow = (key) => st.sortKey !== key ? "\u2195" : st.sortDir === "asc" ? "\u2191" : "\u2193";
+    const acol = (key) => st.sortKey === key ? "var(--primary-text)" : "var(--text-muted)";
+    const sortMeta = {};
+    ["name", "oem", "billed", "received", "outstanding", "margin"].forEach((key) => {
+      const dataKey = key === "billed" ? "billing" : key === "margin" ? "netMargin" : key;
+      sortMeta[key] = { arrow: arrow(dataKey), color: acol(dataKey), set: () => setSort(dataKey) };
+    });
+
+    // charts
+    const line = this.lineGeo([
+      { values: [32, 41, 38, 95, 120, 88], labels: ["Apr", "May", "Jun", "Jul", "Aug", "Sep"], stroke: "var(--positive)" },
+      { values: [60, 52, 70, 140, 95, 165], labels: ["Apr", "May", "Jun", "Jul", "Aug", "Sep"], stroke: "var(--pending)" },
+    ], 540, 180);
+    const oem = this.barGeo([{ label: "IBM", value: 86 }, { label: "AAFM", value: 54 }], 320, 180, { signed: false });
+    const age = this.barGeo([{ label: "0\u201330", value: 72 }, { label: "31\u201360", value: 48 }, { label: "61\u201390", value: 26 }, { label: "90+", value: 18 }], 320, 180, { fill: "var(--pending)" });
+
+    return {
+      rootClass: dark ? "dark" : "",
+      markLine: dark ? "#E2E8F0" : "#0F172A", markNode: dark ? "#EDB733" : "#E5A50A",
+      year: st.year, role: st.role, roleShort: "Admin",
+      themeIcon: dark ? "\u2600\uFE0F" : "\u{1F319}",
+      crumb: t[0], screenTitle: t[1],
+      isDashboard: aDash, isUniversities: st.screen === "universities", isUniversity: st.screen === "university",
+      isReports: aRep, isNewyear: aNew, isEditor: st.screen === "editor",
+      editor, dialog: dialogVM, dialogOpen: !!dialogVM,
+      backToDetail: () => this.setState({ screen: "university" }),
+      reportTabs, reportCols: rep.cols, reportRows: repRows, reportTotal: repTotal, reportHasTotal: !!repTotal, reportLabel: rep.label,
+      wizard,
+      nav: { dashboardBg: nd.bg, dashboardFg: nd.fg, universitiesBg: nu.bg, universitiesFg: nu.fg,
+        reportsBg: nr.bg, reportsFg: nr.fg, newyearBg: nn.bg, newyearFg: nn.fg },
+      goDashboard: () => this.go("dashboard"), goUniversities: () => this.go("universities"),
+      goReports: () => this.go("reports"), goNewyear: () => this.go("newyear"),
+      toggleDark: () => this.setState({ dark: !st.dark }),
+      uniCount: unis.length, oemCount: 2,
+      k: { billed: this.fmtC(billed), received: this.fmtC(received), outstanding: this.fmtC(outstanding),
+        payable: this.fmtC(payable), margin: this.fmtC(margin),
+        collectedPct: Math.round((received / (received + outstanding)) * 100) + "%",
+        marginPct: (margin / billed * 100).toFixed(1) + "%", openInvoices, marginNeg: margin < 0 },
+      negCount: negStreams.length, negStreams,
+      dashReady: dsReady, dashLoading: dsLoading, dashError: dsError,
+      retry: () => this.setState({ demoOverride: "ready" }),
+      skFive: [0, 1, 2, 3, 4], skThree: [0, 1, 2], skRows: [0, 1, 2, 3, 4, 5],
+      detail, showAnnotations: st.showAnnotations,
+      detailView: st.detailView, isFlow: st.detailView === "flow", isLadder: st.detailView === "ladder", isStatement: st.detailView === "statement",
+      setFlow: () => setView("flow"), setLadder: () => setView("ladder"), setStatement: () => setView("statement"),
+      seg: { flowBg: segBg("flow"), flowFg: segFg("flow"), flowSh: segSh("flow"),
+        ladderBg: segBg("ladder"), ladderFg: segFg("ladder"), ladderSh: segSh("ladder"),
+        statementBg: segBg("statement"), statementFg: segFg("statement"), statementSh: segSh("statement") },
+      backToList: () => this.go("universities"),
+      goEditor: () => this.setState({ screen: "editor" }),
+      openReceipt: () => this.setState({ dialog: { kind: "receipt", uniId: selUni.id, streamId: sel.id } }),
+      openPayment: () => this.setState({ dialog: { kind: "payment", uniId: selUni.id, streamId: sel.id } }),
+      topRows, rows, listRows, listCount: listRows.length, sort: sortMeta,
+      listSearch: st.listSearch, filterOem: st.filterOem, filterStatus: st.filterStatus,
+      listEmpty: listRows.length === 0,
+      onListSearch: (e) => this.setState({ listSearch: e.target.value }),
+      onFilterOem: (e) => this.setState({ filterOem: e.target.value }),
+      onFilterStatus: (e) => this.setState({ filterStatus: e.target.value }),
+      clearFilters: () => this.setState({ listSearch: "", filterOem: "all", filterStatus: "all" }),
+      lineSeries: line.series, lineDots: line.dots, lineGrid: line.grid, lineLabels: line.labels,
+      oemBars: oem.bars, oemGrid: oem.grid, ageBars: age.bars, ageGrid: age.grid,
+    };
+  }
+}
+</script>
+</body>
+</html>
