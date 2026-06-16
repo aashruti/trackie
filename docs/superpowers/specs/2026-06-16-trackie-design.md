@@ -50,6 +50,22 @@ The prototype's math was a UI approximation and the source Excel is internally
 inconsistent (per-sheet formula variants + an advance double-count, see §3.2).
 Trackie uses **one clean, consistent definition**, validated against the Excel.
 
+### 3.0 Confirmed business facts (decide the model)
+1. **Advance is university-funded.** The university pays Datagami the advance; it
+   is forwarded to the OEM as-is. A round-trip pass-through that nets to zero —
+   the only real cost is the TDS Datagami fronts on it (§3.1).
+2. **Universities pay GST on top** (billed taxable + 18% GST). GST is the
+   government's money passing through Datagami, **not a cost** — it never reduces
+   profit. The net GST remittance is a cash-timing reserve only.
+3. **GST and TDS are displayed as separate "set aside" reserve lines** on every
+   account (so the team knows what cash to hold for govt), but they sit in a
+   reserves section — NOT subtracted from profit.
+
+> These facts confirm the clean engine. The source Excel's negative "Net To
+> Datagami" values are artifacts of (a) subtracting the advance out-leg without
+> the matching uni-funded in-leg, and (b) treating GST/TDS as costs even though
+> the university pays GST on top. Trackie does neither.
+
 ### 3.1 Per-invoice ladder
 
 **Core rule (per Datagami):** profit is ALWAYS `students × (priceToUni −
