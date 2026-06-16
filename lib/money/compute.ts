@@ -1,4 +1,10 @@
-import type { InvoiceInput, InvoiceComputed } from "./types";
+import type {
+  InvoiceInput,
+  InvoiceComputed,
+  InvoiceInputWithStatus,
+  AccountComputed,
+  Status,
+} from "./types";
 
 /**
  * The authoritative per-invoice money engine.
@@ -54,5 +60,50 @@ export function computeInvoice(i: InvoiceInput): InvoiceComputed {
     gstDiff,
     tdsDiff,
     netMargin,
+  };
+}
+
+/**
+ * Roll an account's status up from its invoices:
+ *  - any overdue invoice → overdue
+ *  - else outstanding ≤ ₹1 → paid
+ *  - else any money received → partially-paid
+ *  - else raised
+ */
+export function accountStatus(
+  invoices: { status: Status; outstanding: number; received?: number }[],
+): Status {
+  if (invoices.some((s) => s.status === "overdue")) return "overdue";
+  const outstanding = invoices.reduce((a, s) => a + s.outstanding, 0);
+  if (outstanding <= 1) return "paid";
+  const received = invoices.reduce((a, s) => a + (s.received ?? 0), 0);
+  if (received > 0) return "partially-paid";
+  return "raised";
+}
+
+export function computeAccount(
+  inputs: InvoiceInputWithStatus[],
+): AccountComputed {
+  const invoices = inputs.map((i) => ({ ...computeInvoice(i), status: i.status }));
+  const sum = (k: keyof InvoiceComputed) =>
+    invoices.reduce((a, s) => a + (s[k] as number), 0);
+  return {
+    invoices,
+    billing: sum("billing"),
+    received: sum("received"),
+    outstanding: sum("outstanding"),
+    payable: sum("payable"),
+    netMargin: sum("netMargin"),
+    gstDiff: sum("gstDiff"),
+    // Only genuine below-cost student sales trip the red flag; the advance's
+    // structural negative TDS cost does not.
+    hasNegative: invoices.some((s) => s.category !== "advance" && s.netMargin < 0),
+    status: accountStatus(
+      invoices.map((s) => ({
+        status: s.status,
+        outstanding: s.outstanding,
+        received: s.received,
+      })),
+    ),
   };
 }

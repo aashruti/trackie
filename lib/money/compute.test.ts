@@ -71,3 +71,69 @@ describe("computeInvoice", () => {
     expect(c.outstanding).toBe(2_121_280); // afterTds - received
   });
 });
+
+import { computeAccount, accountStatus } from "./compute";
+
+describe("computeAccount", () => {
+  const invoices = [
+    {
+      category: "advance" as const,
+      semester: "none" as const,
+      students: 1,
+      priceToUni: 1_000_000,
+      priceToDatagami: 1_000_000,
+      gstRate: 0.18,
+      tdsRate: 0.1,
+      status: "paid" as const,
+      payments: [{ amount: 1_080_000 }],
+    },
+    {
+      category: "new" as const,
+      semester: "none" as const,
+      students: 180,
+      priceToUni: 21200,
+      priceToDatagami: 18500,
+      gstRate: 0.18,
+      tdsRate: 0.1,
+      advanceAdj: 1_000_000,
+      status: "overdue" as const,
+      payments: [],
+    },
+  ];
+
+  it("sums rollups; advance TDS reduces profit but does not trip hasNegative", () => {
+    const a = computeAccount(invoices);
+    expect(a.billing).toBe(1_180_000 + 4_502_880);
+    expect(a.netMargin).toBe(-100_000 + 486_000); // advance −100k TDS + new 486k = 386k
+    expect(a.hasNegative).toBe(false); // advance's structural negative is excluded
+    expect(a.status).toBe("overdue"); // any overdue invoice → overdue
+  });
+
+  it("hasNegative is true for a genuine below-cost student invoice", () => {
+    const a = computeAccount([
+      {
+        category: "old",
+        semester: "none",
+        students: 100,
+        priceToUni: 20_000,
+        priceToDatagami: 21_000,
+        gstRate: 0.18,
+        tdsRate: 0.1,
+        status: "raised",
+        payments: [],
+      },
+    ]);
+    expect(a.hasNegative).toBe(true);
+  });
+});
+
+describe("accountStatus", () => {
+  it("paid when outstanding <= 1 and no overdue", () => {
+    expect(accountStatus([{ status: "paid", outstanding: 0 }])).toBe("paid");
+  });
+  it("partially-paid when some received but outstanding remains", () => {
+    expect(
+      accountStatus([{ status: "raised", outstanding: 500, received: 100 }]),
+    ).toBe("partially-paid");
+  });
+});
