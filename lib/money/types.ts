@@ -19,6 +19,7 @@ export interface InvoiceInput {
 }
 
 export interface InvoiceComputed extends InvoiceInput {
+  advanceAdj: number; // always resolved (0 when absent)
   taxableIn: number;
   gstIn: number;
   billing: number;
