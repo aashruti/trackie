@@ -17,5 +17,8 @@ export default defineConfig({
     exclude: ["node_modules", ".next"],
     environment: "node",
     setupFiles: ["./test/vitest-setup.ts"],
+    // Integration tests share one local DB; run files sequentially to avoid
+    // cross-test races (e.g. a mutation test colliding with a read test).
+    fileParallelism: false,
   },
 });

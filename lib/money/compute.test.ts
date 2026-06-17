@@ -149,4 +149,12 @@ describe("accountStatus", () => {
       accountStatus([{ status: "raised", outstanding: 500, received: 100 }]),
     ).toBe("partially-paid");
   });
+  it("draft when every invoice is draft (freshly rolled-over year)", () => {
+    expect(
+      accountStatus([
+        { status: "draft", outstanding: 500 },
+        { status: "draft", outstanding: 200 },
+      ]),
+    ).toBe("draft");
+  });
 });

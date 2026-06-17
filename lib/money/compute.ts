@@ -73,6 +73,7 @@ export function computeInvoice(i: InvoiceInput): InvoiceComputed {
 export function accountStatus(
   invoices: { status: Status; outstanding: number; received?: number }[],
 ): Status {
+  if (invoices.length > 0 && invoices.every((s) => s.status === "draft")) return "draft";
   if (invoices.some((s) => s.status === "overdue")) return "overdue";
   const outstanding = invoices.reduce((a, s) => a + s.outstanding, 0);
   if (outstanding <= 1) return "paid";

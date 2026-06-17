@@ -34,7 +34,7 @@ export function RolloverWizard({
     Object.fromEntries(rows.map((r) => [r.invoiceId, r.students])),
   );
   const [pending, startTransition] = useTransition();
-  const [done, setDone] = useState<null | { created: number; accounts: number }>(null);
+  const [done, setDone] = useState<null | { created: number; accounts: number; from: string; to: string }>(null);
   const [error, setError] = useState<string | null>(null);
 
   const projected = useMemo(() => {
@@ -64,10 +64,17 @@ export function RolloverWizard({
       const v = counts[r.invoiceId];
       if (v != null && v !== r.students) overrides[r.invoiceId] = v;
     }
+    const capturedFrom = fromYear;
+    const capturedTo = toYear;
     startTransition(async () => {
       try {
-        const res = await rolloverAction(fromYear, toYear, overrides);
-        setDone({ created: res.invoicesCreated, accounts: res.accountsRolled });
+        const res = await rolloverAction(capturedFrom, capturedTo, overrides);
+        setDone({
+          created: res.invoicesCreated,
+          accounts: res.accountsRolled,
+          from: capturedFrom,
+          to: capturedTo,
+        });
       } catch (e) {
         setError(e instanceof Error ? e.message : "Rollover failed");
       }
@@ -78,11 +85,11 @@ export function RolloverWizard({
     return (
       <Card className="p-6">
         <h3 className="text-base font-semibold text-text-primary">
-          {toYear} created as Draft ✓
+          {done.to} created as Draft ✓
         </h3>
         <p className="mt-1 text-sm text-text-secondary">
-          {done.created} invoices across {done.accounts} accounts were cloned from {fromYear} as
-          Draft. {fromYear} is unchanged.
+          {done.created} invoices across {done.accounts} accounts were cloned from {done.from} as
+          Draft. {done.from} is unchanged.
         </p>
         <div className="mt-4 flex gap-2">
           <button
@@ -99,7 +106,7 @@ export function RolloverWizard({
           </button>
         </div>
         <p className="mt-3 text-xs text-text-muted">
-          Switch the year in the top bar to {toYear} to see the new Draft year.
+          Switch the year in the top bar to {done.to} to see the new Draft year.
         </p>
       </Card>
     );
