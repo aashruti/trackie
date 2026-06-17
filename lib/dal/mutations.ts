@@ -49,7 +49,17 @@ export async function updateInvoice(
   }
 
   const patch: Record<string, unknown> = {};
-  if (edit.students != null) patch.students = num(edit.students);
+  if (edit.students != null) {
+    // When the invoice is cohort-driven, `students` is derived from the cohort
+    // sum (the money engine's basis) — a direct scalar edit would silently
+    // diverge from the cohorts, so ignore it. Counts are edited via setCohorts.
+    const [hasCohort] = await db
+      .select({ id: cohorts.id })
+      .from(cohorts)
+      .where(eq(cohorts.invoiceId, invoiceId))
+      .limit(1);
+    if (!hasCohort) patch.students = num(edit.students);
+  }
   if (edit.priceToUni != null) patch.priceToUni = String(num(edit.priceToUni));
   if (edit.priceToDatagami != null)
     patch.priceToDatagami = String(num(edit.priceToDatagami));

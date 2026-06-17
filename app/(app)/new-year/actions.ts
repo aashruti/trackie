@@ -8,6 +8,7 @@ export async function rolloverAction(
   fromYearLabel: string,
   toYearLabel: string,
   countOverrides: Record<number, number>,
+  cohortOverrides: Record<number, Record<string, number>> = {},
 ) {
   const session = await auth();
   if (!session?.user) throw new Error("Not authenticated");
@@ -18,6 +19,7 @@ export async function rolloverAction(
     fromYearLabel,
     toYearLabel,
     countOverrides,
+    cohortOverrides,
   );
   revalidatePath("/", "layout");
   return result;

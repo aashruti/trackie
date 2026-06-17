@@ -298,9 +298,12 @@ function StudentsView({
                           }}
                         />
                       </div>
-                      {c.priceToUni != null && (
-                        <span className="tabular w-20 shrink-0 text-right text-[11px] text-text-muted">
-                          @{fmt(c.priceToUni)}
+                      {(c.priceToUni != null || c.priceToDatagami != null) && (
+                        <span className="tabular w-28 shrink-0 text-right text-[11px] text-text-muted">
+                          {c.priceToUni != null && <>@{fmt(c.priceToUni)}</>}
+                          {c.priceToDatagami != null && (
+                            <span className="text-text-muted"> ▸ {fmt(c.priceToDatagami)}</span>
+                          )}
                         </span>
                       )}
                       <span className="tabular w-10 shrink-0 text-right text-xs font-medium text-text-primary">

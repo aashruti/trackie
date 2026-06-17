@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useCallback, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Money } from "@/components/ui/money";
@@ -30,45 +30,86 @@ export function RolloverWizard({
 }) {
   const router = useRouter();
   const [toYear, setToYear] = useState(suggestedToYear);
+  // Scalar counts for non-cohort invoices.
   const [counts, setCounts] = useState<Record<number, number>>(() =>
-    Object.fromEntries(rows.map((r) => [r.invoiceId, r.students])),
+    Object.fromEntries(rows.filter((r) => r.cohorts.length === 0).map((r) => [r.invoiceId, r.students])),
+  );
+  // Per-cohort counts (invoiceId → enrollmentYear → count) for cohort-driven invoices.
+  const [cohortCounts, setCohortCounts] = useState<Record<number, Record<string, number>>>(() =>
+    Object.fromEntries(
+      rows
+        .filter((r) => r.cohorts.length > 0)
+        .map((r) => [r.invoiceId, Object.fromEntries(r.cohorts.map((c) => [c.enrollmentYear, c.count]))]),
+    ),
   );
   const [pending, startTransition] = useTransition();
   const [done, setDone] = useState<null | { created: number; accounts: number; from: string; to: string }>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const projected = useMemo(() => {
-    let billing = 0;
-    let margin = 0;
-    for (const r of rows) {
-      const c = computeInvoice({
+  // Compute an invoice with the wizard's edits applied. Cohort-driven invoices
+  // blend per-cohort counts × locked prices (matching the engine post-rollover);
+  // others use the scalar count.
+  const computeRow = useCallback(
+    (r: RolloverPlanRow) => {
+      const hasCohorts = r.cohorts.length > 0;
+      const cohortPricing = hasCohorts
+        ? r.cohorts.map((c) => ({
+            count: cohortCounts[r.invoiceId]?.[c.enrollmentYear] ?? c.count,
+            priceToUni: c.priceToUni,
+            priceToDatagami: c.priceToDatagami,
+          }))
+        : undefined;
+      const students = cohortPricing
+        ? cohortPricing.reduce((a, c) => a + c.count, 0)
+        : counts[r.invoiceId] ?? r.students;
+      return computeInvoice({
         category: r.category as Category,
         semester: r.semester as Semester,
-        students: counts[r.invoiceId] ?? r.students,
+        students,
         priceToUni: r.priceToUni,
         priceToDatagami: r.priceToDatagami,
         gstRate: r.gstRate,
         tdsRate: r.tdsRate,
         advanceAdj: r.advanceAdj,
+        cohortPricing,
       });
+    },
+    [counts, cohortCounts],
+  );
+
+  const projected = useMemo(() => {
+    let billing = 0;
+    let margin = 0;
+    for (const r of rows) {
+      const c = computeRow(r);
       billing += c.billing;
       margin += c.netMargin;
     }
     return { billing, margin };
-  }, [rows, counts]);
+  }, [rows, computeRow]);
 
   function create() {
     setError(null);
     const overrides: Record<number, number> = {};
+    const cohortOverrides: Record<number, Record<string, number>> = {};
     for (const r of rows) {
-      const v = counts[r.invoiceId];
-      if (v != null && v !== r.students) overrides[r.invoiceId] = v;
+      if (r.cohorts.length > 0) {
+        const changed: Record<string, number> = {};
+        for (const c of r.cohorts) {
+          const v = cohortCounts[r.invoiceId]?.[c.enrollmentYear];
+          if (v != null && v !== c.count) changed[c.enrollmentYear] = v;
+        }
+        if (Object.keys(changed).length) cohortOverrides[r.invoiceId] = changed;
+      } else {
+        const v = counts[r.invoiceId];
+        if (v != null && v !== r.students) overrides[r.invoiceId] = v;
+      }
     }
     const capturedFrom = fromYear;
     const capturedTo = toYear;
     startTransition(async () => {
       try {
-        const res = await rolloverAction(capturedFrom, capturedTo, overrides);
+        const res = await rolloverAction(capturedFrom, capturedTo, overrides, cohortOverrides);
         setDone({
           created: res.invoicesCreated,
           accounts: res.accountsRolled,
@@ -160,23 +201,45 @@ export function RolloverWizard({
             </thead>
             <tbody>
               {rows.map((r) => {
-                const c = computeInvoice({
-                  category: r.category as Category,
-                  semester: r.semester as Semester,
-                  students: counts[r.invoiceId] ?? r.students,
-                  priceToUni: r.priceToUni,
-                  priceToDatagami: r.priceToDatagami,
-                  gstRate: r.gstRate,
-                  tdsRate: r.tdsRate,
-                  advanceAdj: r.advanceAdj,
-                });
+                const c = computeRow(r);
+                const hasCohorts = r.cohorts.length > 0;
+                const cohortTotal = hasCohorts
+                  ? r.cohorts.reduce(
+                      (a, ch) => a + (cohortCounts[r.invoiceId]?.[ch.enrollmentYear] ?? ch.count),
+                      0,
+                    )
+                  : 0;
                 return (
-                  <tr key={r.invoiceId} className="border-b border-border-subtle last:border-0">
+                  <tr key={r.invoiceId} className="border-b border-border-subtle last:border-0 align-top">
                     <td className="px-5 py-2 font-medium text-text-primary">{r.accountName}</td>
                     <td className="px-3 py-2 text-text-secondary">{streamLabel(r)}</td>
                     <td className="px-3 py-2 text-right">
                       {r.category === "advance" ? (
                         <span className="text-text-muted">—</span>
+                      ) : hasCohorts ? (
+                        <div className="flex flex-col items-end gap-1">
+                          {r.cohorts.map((ch) => (
+                            <label key={ch.enrollmentYear} className="flex items-center justify-end gap-1.5">
+                              <span className="text-[10px] text-text-muted">{ch.enrollmentYear}</span>
+                              <input
+                                type="number"
+                                value={cohortCounts[r.invoiceId]?.[ch.enrollmentYear] ?? ch.count}
+                                onChange={(e) =>
+                                  setCohortCounts((p) => ({
+                                    ...p,
+                                    [r.invoiceId]: {
+                                      ...p[r.invoiceId],
+                                      [ch.enrollmentYear]: parseInt(e.target.value, 10) || 0,
+                                    },
+                                  }))
+                                }
+                                aria-label={`Cohort ${ch.enrollmentYear} count`}
+                                className="tabular w-16 rounded-md border border-border-strong bg-surface px-2 py-1 text-right text-sm outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                              />
+                            </label>
+                          ))}
+                          <span className="text-[10px] text-text-muted">total {cohortTotal}</span>
+                        </div>
                       ) : (
                         <input
                           type="number"
