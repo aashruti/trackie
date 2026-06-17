@@ -65,6 +65,41 @@ describe("computeInvoice", () => {
     expect(computeInvoice(kaveriish).netMargin).toBe(-100_000); // 100 * (20000-21000)
   });
 
+  it("self-supplied (Datagami's own product): no OEM transfer, margin = revenue", () => {
+    const ownProduct = {
+      category: "new" as const,
+      semester: "none" as const,
+      students: 100,
+      priceToUni: 30000,
+      priceToDatagami: 0, // no internal cost
+      gstRate: 0.18,
+      tdsRate: 0.1,
+      selfSupplied: true,
+    };
+    const c = computeInvoice(ownProduct);
+    expect(c.payable).toBe(0); // no transfer to any OEM
+    expect(c.gstOut).toBe(0);
+    expect(c.tdsOut).toBe(0);
+    expect(c.taxableIn).toBe(3_000_000);
+    expect(c.netMargin).toBe(3_000_000); // full revenue is profit
+    expect(c.gstDiff).toBe(540_000); // full GST remitted (no input credit)
+  });
+
+  it("self-supplied with an internal cost subtracts it from margin only", () => {
+    const c = computeInvoice({
+      category: "new",
+      semester: "none",
+      students: 100,
+      priceToUni: 30000,
+      priceToDatagami: 12000, // internal cost
+      gstRate: 0.18,
+      tdsRate: 0.1,
+      selfSupplied: true,
+    });
+    expect(c.payable).toBe(0);
+    expect(c.netMargin).toBe(100 * (30000 - 12000)); // 1_800_000
+  });
+
   it("treats received/outstanding from the payment ledger", () => {
     const c = computeInvoice({ ...pillaiNew, payments: [{ amount: 2_000_000 }] });
     expect(c.received).toBe(2_000_000);

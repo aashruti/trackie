@@ -16,6 +16,7 @@ export interface InvoiceInput {
   tdsRate: number; // 0.10 default
   advanceAdj?: number; // amount netted off the OEM taxable, pre-tax
   payments?: PaymentLite[]; // receipts only (direction handled upstream)
+  selfSupplied?: boolean; // Datagami's own product — no external OEM transfer
 }
 
 export interface InvoiceComputed extends InvoiceInput {

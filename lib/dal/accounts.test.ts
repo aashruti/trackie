@@ -3,9 +3,10 @@ import { listAccountsForUser } from "./accounts";
 
 // Integration test — requires `npm run db:seed` to have run against the local DB.
 describe("listAccountsForUser", () => {
-  it("super-admin sees all 21 accounts with computed rollups", async () => {
+  it("super-admin sees all accounts with computed rollups", async () => {
     const rows = await listAccountsForUser({ id: 1, role: "super-admin" }, "FY26–27");
-    expect(rows.length).toBe(21);
+    expect(rows.length).toBeGreaterThanOrEqual(21); // 21 from Excel (+ any demo accounts)
+    expect(rows.some((r) => r.name.includes("Pillai"))).toBe(true);
     const sample = rows[0];
     expect(sample).toHaveProperty("billing");
     expect(sample).toHaveProperty("netMargin");

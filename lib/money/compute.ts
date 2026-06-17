@@ -27,15 +27,21 @@ export function computeInvoice(i: InvoiceInput): InvoiceComputed {
   const received = (i.payments ?? []).reduce((a, p) => a + p.amount, 0);
   const outstanding = afterTds - received;
 
-  const taxableOut = i.students * i.priceToDatagami; // FULL — used for margin
-  const oemTaxableNet = taxableOut - adv; // advance token netted PRE-tax
-  const gstOut = oemTaxableNet * i.gstRate;
-  const tdsOut = oemTaxableNet * i.tdsRate;
-  const payable = oemTaxableNet + gstOut - tdsOut;
+  // taxableOut = Datagami's cost basis (used for margin). For self-supplied
+  // products it's an optional internal cost; otherwise the OEM transfer price.
+  const taxableOut = i.students * i.priceToDatagami;
+
+  // Self-supplied (Datagami is the "OEM"): no external transfer at all — no
+  // payable, no OEM-side GST/TDS, no advance. Margin = revenue − internal cost.
+  const self = i.selfSupplied === true;
+  const oemTaxableNet = self ? 0 : taxableOut - adv; // advance token netted PRE-tax
+  const gstOut = self ? 0 : oemTaxableNet * i.gstRate;
+  const tdsOut = self ? 0 : oemTaxableNet * i.tdsRate;
+  const payable = self ? 0 : oemTaxableNet + gstOut - tdsOut;
 
   // Advance is the only out-of-pocket cost: Datagami fronts the TDS on the
   // as-is advance transfer. Student invoices net only the price difference.
-  const advanceTdsCost = i.category === "advance" ? taxableIn * i.tdsRate : 0;
+  const advanceTdsCost = !self && i.category === "advance" ? taxableIn * i.tdsRate : 0;
 
   const gstDiff = gstIn - gstOut;
   const tdsDiff = tdsIn - tdsOut;

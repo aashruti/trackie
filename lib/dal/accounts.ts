@@ -36,7 +36,7 @@ export async function listAccountsForUser(
   const scope = scopeAccountIds(user, assigned);
 
   const accRows = await db
-    .select({ id: accounts.id, name: accounts.name, type: accounts.type, oem: oems.name })
+    .select({ id: accounts.id, name: accounts.name, type: accounts.type, oem: oems.name, isSelf: oems.isSelf })
     .from(accounts)
     .innerJoin(oems, eq(accounts.oemId, oems.id))
     .where(scope === null ? undefined : inArray(accounts.id, scope.length ? scope : [-1]));
@@ -59,6 +59,7 @@ export async function listAccountsForUser(
       advanceAdj: Number(r.advanceAdj),
       status: r.status,
       payments: [], // receipts wired in the payments milestone
+      selfSupplied: a.isSelf,
     }));
 
     const computed = computeAccount(inputs);

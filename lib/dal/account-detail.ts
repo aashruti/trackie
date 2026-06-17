@@ -23,6 +23,7 @@ export interface AccountDetail {
   name: string;
   type: string;
   oem: string;
+  selfSupplied: boolean;
   status: Status;
   totalStudents: number;
   totals: { billed: number; received: number; outstanding: number; payable: number; netMargin: number };
@@ -50,7 +51,7 @@ export async function getAccountDetail(
   if (!year) return null;
 
   const [acc] = await db
-    .select({ id: accounts.id, name: accounts.name, type: accounts.type, oem: oems.name })
+    .select({ id: accounts.id, name: accounts.name, type: accounts.type, oem: oems.name, isSelf: oems.isSelf })
     .from(accounts)
     .innerJoin(oems, eq(accounts.oemId, oems.id))
     .where(eq(accounts.id, accountId))
@@ -85,6 +86,7 @@ export async function getAccountDetail(
     advanceAdj: Number(r.advanceAdj),
     status: r.status,
     payments: [],
+    selfSupplied: acc.isSelf,
   }));
 
   const c = computeAccount(inputs);
@@ -105,6 +107,7 @@ export async function getAccountDetail(
     name: acc.name,
     type: acc.type,
     oem: acc.oem,
+    selfSupplied: acc.isSelf,
     status: c.status,
     totalStudents,
     totals: {

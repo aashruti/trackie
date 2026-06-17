@@ -69,7 +69,7 @@ export async function getPortfolioForUser(
   const scope = scopeAccountIds(user, assigned);
 
   const accRows = await db
-    .select({ id: accounts.id, name: accounts.name, oem: oems.name })
+    .select({ id: accounts.id, name: accounts.name, oem: oems.name, isSelf: oems.isSelf })
     .from(accounts)
     .innerJoin(oems, eq(accounts.oemId, oems.id))
     .where(scope === null ? undefined : inArray(accounts.id, scope.length ? scope : [-1]));
@@ -94,6 +94,7 @@ export async function getPortfolioForUser(
       advanceAdj: Number(r.advanceAdj),
       status: r.status,
       payments: [],
+      selfSupplied: a.isSelf,
     }));
 
     const c: AccountComputed = computeAccount(inputs);

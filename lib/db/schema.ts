@@ -6,6 +6,7 @@ import {
   numeric,
   timestamp,
   date,
+  boolean,
   pgEnum,
   primaryKey,
 } from "drizzle-orm/pg-core";
@@ -30,6 +31,8 @@ export const accountTypeEnum = pgEnum("account_type", ACCOUNT_TYPES);
 export const oems = pgTable("oems", {
   id: serial("id").primaryKey(),
   name: text("name").notNull().unique(),
+  // True when the "OEM" is Datagami itself (own product → no external transfer).
+  isSelf: boolean("is_self").notNull().default(false),
 });
 
 export const accounts = pgTable("accounts", {

@@ -19,10 +19,11 @@ async function invoiceCount(yearLabel: string) {
 describe("rolloverYear", () => {
   it("clones the year as Draft and retains the source year untouched", async () => {
     const before = await invoiceCount(FROM);
+    const accountCount = (await listAccountsForUser(SUPER, FROM)).length;
 
     const res = await rolloverYear(SUPER, FROM, TO, {});
     expect(res.invoicesCreated).toBeGreaterThan(0);
-    expect(res.accountsRolled).toBe(21);
+    expect(res.accountsRolled).toBe(accountCount);
 
     // Source year unchanged → history retained.
     expect(await invoiceCount(FROM)).toBe(before);
@@ -31,12 +32,13 @@ describe("rolloverYear", () => {
 
     // New year shows up scoped to the user.
     const rows = await listAccountsForUser(SUPER, TO);
-    expect(rows.length).toBe(21);
+    expect(rows.length).toBe(accountCount);
   });
 
   it("is idempotent — re-running skips already-populated accounts", async () => {
+    const accountCount = (await listAccountsForUser(SUPER, FROM)).length;
     const res = await rolloverYear(SUPER, FROM, TO, {});
-    expect(res.skipped).toBe(21);
+    expect(res.skipped).toBe(accountCount);
     expect(res.invoicesCreated).toBe(0);
   });
 
