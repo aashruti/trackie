@@ -1,10 +1,15 @@
 import "server-only";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { invoices } from "@/lib/db/schema";
+import { invoices, cohorts } from "@/lib/db/schema";
 import type { Status } from "@/lib/money/types";
 import { canEdit, type SessionUser } from "./authz";
 import { assignedIds } from "./accounts";
+
+export interface CohortInput {
+  enrollmentYear: string;
+  count: number;
+}
 
 export interface InvoiceEdit {
   students?: number;
@@ -58,4 +63,37 @@ export async function updateInvoice(
     await db.update(invoices).set(patch).where(eq(invoices.id, invoiceId));
   }
   return { accountId: inv.accountId };
+}
+
+/**
+ * Replace an invoice's enrollment-year cohort distribution and sync the invoice's
+ * total student count to the sum of the cohorts. Enforces `canEdit`.
+ */
+export async function setCohorts(
+  user: SessionUser,
+  invoiceId: number,
+  list: CohortInput[],
+): Promise<{ accountId: number; total: number }> {
+  const [inv] = await db
+    .select({ id: invoices.id, accountId: invoices.accountId })
+    .from(invoices)
+    .where(eq(invoices.id, invoiceId))
+    .limit(1);
+  if (!inv) throw new Error("Invoice not found");
+  const assigned = user.role === "super-admin" ? [] : await assignedIds(user.id);
+  if (!canEdit(user, inv.accountId, assigned)) throw new Error("Not authorized");
+
+  const clean = list
+    .map((c) => ({ enrollmentYear: c.enrollmentYear.trim(), count: Math.max(0, Math.floor(c.count)) }))
+    .filter((c) => c.enrollmentYear.length > 0);
+  const total = clean.reduce((a, c) => a + c.count, 0);
+
+  await db.delete(cohorts).where(eq(cohorts.invoiceId, invoiceId));
+  if (clean.length > 0) {
+    await db.insert(cohorts).values(
+      clean.map((c) => ({ invoiceId, enrollmentYear: c.enrollmentYear, count: c.count })),
+    );
+  }
+  await db.update(invoices).set({ students: total }).where(eq(invoices.id, invoiceId));
+  return { accountId: inv.accountId, total };
 }

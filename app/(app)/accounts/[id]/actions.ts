@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth/config";
-import { updateInvoice, type InvoiceEdit } from "@/lib/dal/mutations";
+import { updateInvoice, setCohorts, type InvoiceEdit, type CohortInput } from "@/lib/dal/mutations";
 import { addPayment, deletePayment, type NewPayment } from "@/lib/dal/payments";
 
 function sessionUser(session: { user: { id: string; role: "super-admin" | "admin" | "viewer" } }) {
@@ -21,6 +21,18 @@ export async function updateInvoiceAction(
     invoiceId,
     edit,
   );
+  revalidatePath(`/accounts/${accountId}`);
+  return { ok: true };
+}
+
+export async function updateCohortsAction(
+  accountId: number,
+  invoiceId: number,
+  cohorts: CohortInput[],
+) {
+  const session = await auth();
+  if (!session?.user) throw new Error("Not authenticated");
+  await setCohorts(sessionUser(session), invoiceId, cohorts);
   revalidatePath(`/accounts/${accountId}`);
   return { ok: true };
 }

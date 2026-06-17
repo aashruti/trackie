@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { updateInvoice } from "./mutations";
+import { updateInvoice, setCohorts } from "./mutations";
 import { getAccountDetail } from "./account-detail";
 import { listAccountsForUser } from "./accounts";
 
@@ -45,5 +45,40 @@ describe("updateInvoice", () => {
 
   afterAll(async () => {
     if (restore) await updateInvoice(SUPER, restore.id, { students: restore.original });
+  });
+});
+
+describe("setCohorts", () => {
+  let original: { id: number; cohorts: { enrollmentYear: string; count: number }[] } | null = null;
+
+  it("replaces cohorts and syncs the invoice total to their sum", async () => {
+    const all = await listAccountsForUser(SUPER, YEAR);
+    const kalinga = all.find((a) => a.name.includes("Kalinga"))!;
+    const before = await getAccountDetail(SUPER, kalinga.id, YEAR);
+    const old1 = before!.invoices.find((i) => i.category === "old" && i.semester === "1")!;
+    original = {
+      id: old1.id,
+      cohorts: old1.cohorts.map((c) => ({ enrollmentYear: c.enrollmentYear, count: c.count })),
+    };
+
+    await setCohorts(SUPER, old1.id, [
+      { enrollmentYear: "2025-26", count: 100 },
+      { enrollmentYear: "2024-25", count: 50 },
+    ]);
+
+    const after = await getAccountDetail(SUPER, kalinga.id, YEAR);
+    const inv = after!.invoices.find((i) => i.id === old1.id)!;
+    expect(inv.students).toBe(150); // total synced to cohort sum
+    expect(inv.cohorts.length).toBe(2);
+  });
+
+  it("rejects a viewer", async () => {
+    await expect(
+      setCohorts({ id: 999, role: "viewer" }, original!.id, []),
+    ).rejects.toThrow();
+  });
+
+  afterAll(async () => {
+    if (original) await setCohorts(SUPER, original.id, original.cohorts);
   });
 });

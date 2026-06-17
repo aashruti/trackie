@@ -6,6 +6,7 @@ import { Money } from "@/components/ui/money";
 import { StatusBadge } from "@/components/ui/badge";
 import { InvoiceLadder } from "./invoice-ladder";
 import { InvoiceEditor } from "./invoice-editor";
+import { CohortEditor } from "./cohort-editor";
 import type { InvoiceComputed, Status } from "@/lib/money/types";
 
 import type { PaymentEntry } from "@/lib/dal/payments";
@@ -131,7 +132,14 @@ export function DetailTabs({
         </div>
       )}
 
-      {tab === "Students" && <StudentsView invoices={invoices} currentYear={currentYear} />}
+      {tab === "Students" && (
+        <StudentsView
+          invoices={invoices}
+          currentYear={currentYear}
+          accountId={accountId}
+          canEdit={canEdit}
+        />
+      )}
 
       {tab === "Statement" && (
         <Card>
@@ -196,9 +204,20 @@ function yearOfStudy(enrollmentYear: string, currentYear: string): string | null
   return `${ord} year`;
 }
 
-function StudentsView({ invoices, currentYear }: { invoices: Inv[]; currentYear: string }) {
+function StudentsView({
+  invoices,
+  currentYear,
+  accountId,
+  canEdit,
+}: {
+  invoices: Inv[];
+  currentYear: string;
+  accountId: number;
+  canEdit: boolean;
+}) {
   const studentInvoices = invoices.filter((i) => i.category !== "advance");
   const total = studentInvoices.reduce((s, i) => s + i.students, 0);
+  const [editingId, setEditingId] = useState<number | null>(null);
 
   return (
     <div className="space-y-4">
@@ -223,12 +242,29 @@ function StudentsView({ invoices, currentYear }: { invoices: Inv[]; currentYear:
             <Card key={idx} className="p-5">
               <div className="mb-3 flex items-baseline justify-between">
                 <h3 className="text-sm font-semibold text-text-primary">{label(inv)}</h3>
-                <span className="tabular text-lg font-semibold text-text-primary">
-                  {inv.students}
-                </span>
+                <div className="flex items-center gap-3">
+                  {canEdit && inv.category === "old" && editingId !== inv.id && (
+                    <button
+                      onClick={() => setEditingId(inv.id)}
+                      className="rounded-md border border-border-strong bg-surface px-2 py-0.5 text-xs font-medium text-text-secondary hover:bg-surface-hover"
+                    >
+                      Edit cohorts
+                    </button>
+                  )}
+                  <span className="tabular text-lg font-semibold text-text-primary">
+                    {inv.students}
+                  </span>
+                </div>
               </div>
 
-              {inv.cohorts.length > 0 ? (
+              {editingId === inv.id ? (
+                <CohortEditor
+                  accountId={accountId}
+                  invoiceId={inv.id}
+                  initial={inv.cohorts.map((c) => ({ enrollmentYear: c.enrollmentYear, count: c.count }))}
+                  onClose={() => setEditingId(null)}
+                />
+              ) : inv.cohorts.length > 0 ? (
                 <div className="space-y-2">
                   <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted">
                     By enrollment year
