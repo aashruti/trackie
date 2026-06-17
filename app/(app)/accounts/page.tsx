@@ -22,6 +22,7 @@ export default async function AccountsPage() {
           {rows.length} accounts · {YEAR}
         </p>
         <AccountsExplorer
+          canCreate={user.role === "super-admin"}
           rows={rows.map((r) => ({
             id: r.id,
             name: r.name,

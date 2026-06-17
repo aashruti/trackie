@@ -33,7 +33,7 @@ function toCsv(rows: AccountRow[]): string {
   return [head.join(","), ...body].join("\n");
 }
 
-export function AccountsExplorer({ rows }: { rows: AccountRow[] }) {
+export function AccountsExplorer({ rows, canCreate = false }: { rows: AccountRow[]; canCreate?: boolean }) {
   const [query, setQuery] = useState("");
   const [oem, setOem] = useState("all");
   const [status, setStatus] = useState("all");
@@ -120,13 +120,22 @@ export function AccountsExplorer({ rows }: { rows: AccountRow[] }) {
         >
           Export CSV
         </button>
-        <button
-          disabled
-          className="cursor-not-allowed rounded-md bg-[var(--primary-subtle)] px-3 py-2 text-sm font-medium text-text-muted"
-          title="Coming soon"
-        >
-          Add account
-        </button>
+        {canCreate ? (
+          <Link
+            href="/accounts/new"
+            className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-fg hover:opacity-90"
+          >
+            Add account
+          </Link>
+        ) : (
+          <button
+            disabled
+            className="cursor-not-allowed rounded-md bg-[var(--primary-subtle)] px-3 py-2 text-sm font-medium text-text-muted"
+            title="Super Admin only"
+          >
+            Add account
+          </button>
+        )}
       </div>
 
       <Card>

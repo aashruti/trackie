@@ -7,6 +7,7 @@ import { Money } from "@/components/ui/money";
 import { StatusBadge } from "@/components/ui/badge";
 import { ReservesStrip } from "@/components/dashboard/reserves-strip";
 import { DetailTabs } from "@/components/accounts/detail-tabs";
+import { AddInvoice } from "@/components/accounts/add-invoice";
 import { getAccountDetail } from "@/lib/dal/account-detail";
 import { getCurrentYear, listYears } from "@/lib/dal/years";
 
@@ -73,13 +74,26 @@ export default async function AccountDetailPage({
 
         <ReservesStrip reserves={detail.reserves} />
 
-        <DetailTabs
-          invoices={detail.invoices}
-          oem={detail.oem}
-          accountId={detail.id}
-          currentYear={YEAR}
-          canEdit={user.role !== "viewer"}
-        />
+        {user.role !== "viewer" && (
+          <AddInvoice accountId={detail.id} yearLabel={YEAR} selfSupplied={detail.selfSupplied} />
+        )}
+
+        {detail.invoices.length === 0 ? (
+          <Card className="p-8 text-center">
+            <p className="text-sm text-text-secondary">
+              No invoices for {YEAR} yet.
+              {user.role !== "viewer" ? " Use “Add invoice” above to create the first one." : ""}
+            </p>
+          </Card>
+        ) : (
+          <DetailTabs
+            invoices={detail.invoices}
+            oem={detail.oem}
+            accountId={detail.id}
+            currentYear={YEAR}
+            canEdit={user.role !== "viewer"}
+          />
+        )}
       </main>
     </>
   );
