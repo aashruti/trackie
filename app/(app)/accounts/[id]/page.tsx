@@ -8,6 +8,7 @@ import { StatusBadge } from "@/components/ui/badge";
 import { ReservesStrip } from "@/components/dashboard/reserves-strip";
 import { DetailTabs } from "@/components/accounts/detail-tabs";
 import { AddInvoice } from "@/components/accounts/add-invoice";
+import { AccountReportButton } from "@/components/accounts/account-report";
 import { getAccountDetail } from "@/lib/dal/account-detail";
 import { getCurrentYear, listYears } from "@/lib/dal/years";
 
@@ -53,6 +54,9 @@ export default async function AccountDetailPage({
               {detail.name}
             </h2>
             <StatusBadge status={detail.status} />
+            <div className="ml-auto">
+              <AccountReportButton detail={detail} year={YEAR} />
+            </div>
           </div>
           <p className="mt-0.5 text-sm text-text-secondary">
             {detail.selfSupplied ? "Datagami own product" : detail.oem} · {detail.type} · {YEAR} ·{" "}
