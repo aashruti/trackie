@@ -2,12 +2,13 @@ import { auth } from "@/lib/auth/config";
 import { Topbar } from "@/components/shell/topbar";
 import { listAccountsForUser } from "@/lib/dal/accounts";
 import { AccountsExplorer } from "@/components/accounts/accounts-explorer";
-
-const YEAR = "FY26–27";
+import { getCurrentYear, listYears } from "@/lib/dal/years";
 
 export default async function AccountsPage() {
   const session = await auth();
   const user = session!.user;
+  const YEAR = await getCurrentYear();
+  const years = (await listYears()).map((y) => y.label);
   const rows = await listAccountsForUser(
     { id: Number(user.id), role: user.role },
     YEAR,
@@ -15,7 +16,7 @@ export default async function AccountsPage() {
 
   return (
     <>
-      <Topbar title="Accounts" user={user} />
+      <Topbar title="Accounts" user={user} years={years} currentYear={YEAR} />
       <main className="mx-auto w-full max-w-[1440px] space-y-4 px-6 py-6">
         <p className="text-xs text-text-muted">
           {rows.length} accounts · {YEAR}

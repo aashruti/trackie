@@ -8,8 +8,7 @@ import { StatusBadge } from "@/components/ui/badge";
 import { ReservesStrip } from "@/components/dashboard/reserves-strip";
 import { DetailTabs } from "@/components/accounts/detail-tabs";
 import { getAccountDetail } from "@/lib/dal/account-detail";
-
-const YEAR = "FY26–27";
+import { getCurrentYear, listYears } from "@/lib/dal/years";
 
 function Kpi({ label, value, tone }: { label: string; value: number; tone?: "default" | "positive" | "negative" | "pending" | "info" }) {
   return (
@@ -30,6 +29,8 @@ export default async function AccountDetailPage({
   const { id } = await params;
   const session = await auth();
   const user = session!.user;
+  const YEAR = await getCurrentYear();
+  const years = (await listYears()).map((y) => y.label);
 
   const detail = await getAccountDetail(
     { id: Number(user.id), role: user.role },
@@ -40,7 +41,7 @@ export default async function AccountDetailPage({
 
   return (
     <>
-      <Topbar title="Account" user={user} />
+      <Topbar title="Account" user={user} years={years} currentYear={YEAR} />
       <main className="mx-auto w-full max-w-[1440px] space-y-5 px-6 py-6">
         <div>
           <Link href="/accounts" className="text-xs text-text-muted hover:text-text-primary">

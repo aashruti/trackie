@@ -9,12 +9,13 @@ import {
   AgingChart,
 } from "@/components/dashboard/charts";
 import { AccountsTable } from "@/components/dashboard/accounts-table";
-
-const YEAR = "FY26–27";
+import { getCurrentYear, listYears } from "@/lib/dal/years";
 
 export default async function DashboardPage() {
   const session = await auth();
   const user = session!.user;
+  const YEAR = await getCurrentYear();
+  const years = (await listYears()).map((y) => y.label);
   const portfolio = await getPortfolioForUser(
     { id: Number(user.id), role: user.role },
     YEAR,
@@ -23,7 +24,7 @@ export default async function DashboardPage() {
 
   return (
     <>
-      <Topbar title="Dashboard" user={user} />
+      <Topbar title="Dashboard" user={user} years={years} currentYear={YEAR} />
       <main className="mx-auto w-full max-w-[1440px] space-y-6 px-6 py-6">
         <div>
           <h2 className="text-sm font-medium text-text-secondary">

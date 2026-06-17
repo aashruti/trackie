@@ -1,5 +1,6 @@
 import { signOut } from "@/lib/auth/config";
 import { Badge } from "@/components/ui/badge";
+import { YearSelector } from "./year-selector";
 import type { Role } from "@/lib/db/enums";
 
 function initials(name: string) {
@@ -14,18 +15,22 @@ function initials(name: string) {
 export function Topbar({
   title,
   user,
+  years = [],
+  currentYear,
 }: {
   title: string;
   user: { name?: string | null; role?: Role };
+  years?: string[];
+  currentYear?: string;
 }) {
   return (
     <header className="sticky top-0 z-10 flex h-[60px] items-center gap-4 border-b border-border bg-surface/80 px-6 backdrop-blur">
       <h1 className="text-lg font-semibold tracking-tight text-text-primary">{title}</h1>
 
       <div className="ml-auto flex items-center gap-3">
-        <span className="hidden items-center rounded-md border border-border-strong px-2.5 py-1.5 text-sm font-medium text-text-secondary sm:inline-flex">
-          FY26–27
-        </span>
+        {currentYear && years.length > 0 && (
+          <YearSelector years={years} current={currentYear} />
+        )}
 
         <div className="hidden items-center gap-2 rounded-md border border-border bg-surface-sunken px-3 py-1.5 text-sm text-text-muted md:flex">
           <span>Search</span>
