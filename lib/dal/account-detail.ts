@@ -7,6 +7,7 @@ import { computeAccount } from "@/lib/money/compute";
 import type { InvoiceInputWithStatus, Status } from "@/lib/money/types";
 import { type SessionUser } from "./authz";
 import { assignedIds } from "./accounts";
+import { loadPaymentLites, loadPaymentLedger, type PaymentEntry } from "./payments";
 
 export interface Cohort {
   enrollmentYear: string;
@@ -16,6 +17,7 @@ export interface Cohort {
 export type DetailInvoice = ReturnType<typeof computeAccount>["invoices"][number] & {
   id: number;
   cohorts: Cohort[];
+  ledger: PaymentEntry[];
 };
 
 export interface AccountDetail {
@@ -26,7 +28,15 @@ export interface AccountDetail {
   selfSupplied: boolean;
   status: Status;
   totalStudents: number;
-  totals: { billed: number; received: number; outstanding: number; payable: number; netMargin: number };
+  totals: {
+    billed: number;
+    received: number;
+    outstanding: number;
+    payable: number;
+    paidToOem: number;
+    outstandingToOem: number;
+    netMargin: number;
+  };
   reserves: { netGst: number; tdsReceivable: number; tdsPayable: number; advanceTdsCost: number };
   invoices: DetailInvoice[];
 }
@@ -75,6 +85,10 @@ export async function getAccountDetail(
     cohortsByInvoice.set(c.invoiceId, list);
   }
 
+  // Payment ledger (receipts + OEM payments) per invoice.
+  const lites = await loadPaymentLites(invoiceIds);
+  const ledger = await loadPaymentLedger(invoiceIds);
+
   const inputs: InvoiceInputWithStatus[] = invRows.map((r) => ({
     category: r.category,
     semester: r.semester,
@@ -85,7 +99,8 @@ export async function getAccountDetail(
     tdsRate: Number(r.tdsRate),
     advanceAdj: Number(r.advanceAdj),
     status: r.status,
-    payments: [],
+    payments: lites.get(r.id)?.receipts ?? [],
+    oemPayments: lites.get(r.id)?.oemPayments ?? [],
     selfSupplied: acc.isSelf,
   }));
 
@@ -96,6 +111,7 @@ export async function getAccountDetail(
     cohorts: (cohortsByInvoice.get(invRows[i].id) ?? []).sort((a, b) =>
       b.enrollmentYear.localeCompare(a.enrollmentYear),
     ),
+    ledger: ledger.get(invRows[i].id) ?? [],
   }));
   // Total students = sum of student-bearing invoices (advance has students=1, exclude it).
   const totalStudents = c.invoices
@@ -115,6 +131,8 @@ export async function getAccountDetail(
       received: c.received,
       outstanding: c.outstanding,
       payable: c.payable,
+      paidToOem: c.paidToOem,
+      outstandingToOem: c.outstandingToOem,
       netMargin: c.netMargin,
     },
     reserves: {

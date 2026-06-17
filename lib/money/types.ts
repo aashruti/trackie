@@ -15,7 +15,8 @@ export interface InvoiceInput {
   gstRate: number; // 0.18 default
   tdsRate: number; // 0.10 default
   advanceAdj?: number; // amount netted off the OEM taxable, pre-tax
-  payments?: PaymentLite[]; // receipts only (direction handled upstream)
+  payments?: PaymentLite[]; // receipts: university → Datagami
+  oemPayments?: PaymentLite[]; // payments out: Datagami → OEM
   selfSupplied?: boolean; // Datagami's own product — no external OEM transfer
 }
 
@@ -33,6 +34,8 @@ export interface InvoiceComputed extends InvoiceInput {
   gstOut: number;
   tdsOut: number;
   payable: number;
+  paidToOem: number;
+  outstandingToOem: number;
   advanceTdsCost: number;
   gstDiff: number;
   tdsDiff: number;
@@ -49,6 +52,8 @@ export interface AccountComputed {
   received: number;
   outstanding: number;
   payable: number;
+  paidToOem: number;
+  outstandingToOem: number;
   netMargin: number;
   gstDiff: number;
   // Set-aside reserves (owed to / recoverable from government — NOT profit).

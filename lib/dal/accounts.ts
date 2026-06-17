@@ -5,6 +5,7 @@ import { accounts, invoices, academicYears, oems, userAccounts } from "@/lib/db/
 import { computeAccount } from "@/lib/money/compute";
 import type { InvoiceInputWithStatus } from "@/lib/money/types";
 import { scopeAccountIds, type SessionUser } from "./authz";
+import { loadPaymentLites } from "./payments";
 
 /** Account ids assigned to a user (for admin/viewer scoping). */
 export async function assignedIds(userId: number): Promise<number[]> {
@@ -48,6 +49,7 @@ export async function listAccountsForUser(
       .from(invoices)
       .where(and(eq(invoices.accountId, a.id), eq(invoices.yearId, year.id)));
 
+    const lites = await loadPaymentLites(invRows.map((r) => r.id));
     const inputs: InvoiceInputWithStatus[] = invRows.map((r) => ({
       category: r.category,
       semester: r.semester,
@@ -58,7 +60,8 @@ export async function listAccountsForUser(
       tdsRate: Number(r.tdsRate),
       advanceAdj: Number(r.advanceAdj),
       status: r.status,
-      payments: [], // receipts wired in the payments milestone
+      payments: lites.get(r.id)?.receipts ?? [],
+      oemPayments: lites.get(r.id)?.oemPayments ?? [],
       selfSupplied: a.isSelf,
     }));
 

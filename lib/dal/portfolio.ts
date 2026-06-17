@@ -6,6 +6,7 @@ import { computeAccount } from "@/lib/money/compute";
 import type { InvoiceInputWithStatus, AccountComputed, Status } from "@/lib/money/types";
 import { scopeAccountIds, type SessionUser } from "./authz";
 import { assignedIds } from "./accounts";
+import { loadPaymentLites } from "./payments";
 
 export interface PortfolioRow {
   id: number;
@@ -25,6 +26,8 @@ export interface Portfolio {
     received: number;
     outstanding: number;
     payable: number;
+    paidToOem: number;
+    outstandingToOem: number;
     netMargin: number;
   };
   reserves: {
@@ -49,7 +52,7 @@ export async function getPortfolioForUser(
   assignedOverride?: number[],
 ): Promise<Portfolio> {
   const empty: Portfolio = {
-    totals: { billed: 0, received: 0, outstanding: 0, payable: 0, netMargin: 0 },
+    totals: { billed: 0, received: 0, outstanding: 0, payable: 0, paidToOem: 0, outstandingToOem: 0, netMargin: 0 },
     reserves: { netGst: 0, tdsReceivable: 0, tdsPayable: 0, advanceTdsCost: 0 },
     counts: { accounts: 0, openInvoices: 0, negativeMargin: 0 },
     rows: [],
@@ -83,6 +86,7 @@ export async function getPortfolioForUser(
       .from(invoices)
       .where(and(eq(invoices.accountId, a.id), eq(invoices.yearId, year.id)));
 
+    const lites = await loadPaymentLites(invRows.map((r) => r.id));
     const inputs: InvoiceInputWithStatus[] = invRows.map((r) => ({
       category: r.category,
       semester: r.semester,
@@ -93,7 +97,8 @@ export async function getPortfolioForUser(
       tdsRate: Number(r.tdsRate),
       advanceAdj: Number(r.advanceAdj),
       status: r.status,
-      payments: [],
+      payments: lites.get(r.id)?.receipts ?? [],
+      oemPayments: lites.get(r.id)?.oemPayments ?? [],
       selfSupplied: a.isSelf,
     }));
 
@@ -103,6 +108,8 @@ export async function getPortfolioForUser(
     p.totals.received += c.received;
     p.totals.outstanding += c.outstanding;
     p.totals.payable += c.payable;
+    p.totals.paidToOem += c.paidToOem;
+    p.totals.outstandingToOem += c.outstandingToOem;
     p.totals.netMargin += c.netMargin;
     p.reserves.netGst += c.netGst;
     p.reserves.tdsReceivable += c.tdsReceivable;

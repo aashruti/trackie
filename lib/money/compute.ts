@@ -38,6 +38,8 @@ export function computeInvoice(i: InvoiceInput): InvoiceComputed {
   const gstOut = self ? 0 : oemTaxableNet * i.gstRate;
   const tdsOut = self ? 0 : oemTaxableNet * i.tdsRate;
   const payable = self ? 0 : oemTaxableNet + gstOut - tdsOut;
+  const paidToOem = (i.oemPayments ?? []).reduce((a, p) => a + p.amount, 0);
+  const outstandingToOem = payable - paidToOem;
 
   // Advance is the only out-of-pocket cost: Datagami fronts the TDS on the
   // as-is advance transfer. Student invoices net only the price difference.
@@ -66,6 +68,8 @@ export function computeInvoice(i: InvoiceInput): InvoiceComputed {
     gstOut,
     tdsOut,
     payable,
+    paidToOem,
+    outstandingToOem,
     advanceTdsCost,
     gstDiff,
     tdsDiff,
@@ -104,6 +108,8 @@ export function computeAccount(
     received: sum("received"),
     outstanding: sum("outstanding"),
     payable: sum("payable"),
+    paidToOem: sum("paidToOem"),
+    outstandingToOem: sum("outstandingToOem"),
     netMargin: sum("netMargin"),
     gstDiff: sum("gstDiff"),
     // Set-aside reserves (owed to / recoverable from govt) — never part of profit.

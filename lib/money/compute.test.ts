@@ -134,6 +134,16 @@ describe("computeInvoice", () => {
     expect(c.received).toBe(2_000_000);
     expect(c.outstanding).toBe(2_121_280); // afterTds - received
   });
+
+  it("tracks OEM payments paid vs payable", () => {
+    const c = computeInvoice({
+      ...pillaiNew,
+      oemPayments: [{ amount: 1_000_000 }, { amount: 500_000 }],
+    });
+    expect(c.payable).toBe(2_516_400);
+    expect(c.paidToOem).toBe(1_500_000);
+    expect(c.outstandingToOem).toBe(1_016_400); // payable − paid
+  });
 });
 
 import { computeAccount, accountStatus } from "./compute";
