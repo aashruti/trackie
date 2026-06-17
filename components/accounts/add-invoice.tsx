@@ -39,12 +39,15 @@ export function AddInvoice({
   const [error, setError] = useState<string | null>(null);
 
   const isAdvance = category === "advance";
+  // For an advance, the single "Advance amount" funds both the bill to the uni
+  // and the transfer to the OEM (own-product advances have no OEM transfer → 0).
+  const effPriceToDatagami = isAdvance ? (selfSupplied ? 0 : priceToUni) : priceToDatagami;
   const c = computeInvoice({
     category,
     semester,
     students: isAdvance ? 1 : students,
     priceToUni,
-    priceToDatagami,
+    priceToDatagami: effPriceToDatagami,
     gstRate: gstPct / 100,
     tdsRate: tdsPct / 100,
     advanceAdj,
@@ -70,10 +73,10 @@ export function AddInvoice({
           semester,
           students: isAdvance ? 1 : students,
           priceToUni,
-          priceToDatagami,
+          priceToDatagami: effPriceToDatagami,
           gstRate: gstPct / 100,
           tdsRate: tdsPct / 100,
-          advanceAdj,
+          advanceAdj: isAdvance ? 0 : advanceAdj,
           status: "draft",
         });
         reset();
@@ -127,10 +130,12 @@ export function AddInvoice({
           <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">{isAdvance ? "Advance amount ₹" : "Price / uni ₹"}</span>
           <input type="number" value={priceToUni || ""} onChange={(e) => setPriceToUni(parseFloat(e.target.value) || 0)} className={`tabular ${inputCls}`} />
         </label>
-        <label className="block">
-          <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">{selfSupplied ? "Internal cost ₹" : "Price / Datagami ₹"}</span>
-          <input type="number" value={priceToDatagami || ""} onChange={(e) => setPriceToDatagami(parseFloat(e.target.value) || 0)} className={`tabular ${inputCls}`} />
-        </label>
+        {!isAdvance && (
+          <label className="block">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">{selfSupplied ? "Internal cost ₹" : "Price / Datagami ₹"}</span>
+            <input type="number" value={priceToDatagami || ""} onChange={(e) => setPriceToDatagami(parseFloat(e.target.value) || 0)} className={`tabular ${inputCls}`} />
+          </label>
+        )}
         <label className="block">
           <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">GST %</span>
           <input type="number" value={gstPct} onChange={(e) => setGstPct(parseFloat(e.target.value) || 0)} className={`tabular ${inputCls}`} />
