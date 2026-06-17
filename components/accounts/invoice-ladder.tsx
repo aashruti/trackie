@@ -46,6 +46,7 @@ export function InvoiceLadder({
   onEdit?: () => void;
 }) {
   const isAdvance = inv.category === "advance";
+  const self = inv.selfSupplied === true;
   return (
     <Card className="p-5">
       <div className="mb-3 flex items-center justify-between">
@@ -84,19 +85,34 @@ export function InvoiceLadder({
         </div>
 
         {/* Outflow */}
-        <div className="border-t border-border-subtle pt-2">
-          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted">
-            Outflow · Datagami → OEM
+        {self ? (
+          <div className="border-t border-border-subtle pt-2">
+            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+              Outflow · Datagami&apos;s own product
+            </div>
+            <div className="rounded-lg bg-[var(--positive-subtle)] px-3 py-2 text-xs text-[var(--positive-text)]">
+              No external OEM transfer — Datagami is the supplier.
+            </div>
+            {inv.taxableOut > 0 && (
+              <Line label="Internal cost" value={inv.taxableOut} op="−" tone="muted" />
+            )}
+            <Line label="Payable" value={0} strong tone="muted" />
           </div>
-          <Line label="Taxable" value={inv.taxableOut} />
-          {inv.advanceAdj > 0 && (
-            <Line label="Advance adjusted" value={inv.advanceAdj} op="−" tone="info" />
-          )}
-          <Line label="OEM taxable (net)" value={inv.oemTaxableNet} strong />
-          <Line label="GST" value={inv.gstOut} op="+" tone="muted" />
-          <Line label="TDS withheld" value={inv.tdsOut} op="−" tone="muted" />
-          <Line label="Payable to OEM" value={inv.payable} strong />
-        </div>
+        ) : (
+          <div className="border-t border-border-subtle pt-2">
+            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+              Outflow · Datagami → OEM
+            </div>
+            <Line label="Taxable" value={inv.taxableOut} />
+            {inv.advanceAdj > 0 && (
+              <Line label="Advance adjusted" value={inv.advanceAdj} op="−" tone="info" />
+            )}
+            <Line label="OEM taxable (net)" value={inv.oemTaxableNet} strong />
+            <Line label="GST" value={inv.gstOut} op="+" tone="muted" />
+            <Line label="TDS withheld" value={inv.tdsOut} op="−" tone="muted" />
+            <Line label="Payable to OEM" value={inv.payable} strong />
+          </div>
+        )}
       </div>
 
       <div className="mt-3 flex items-center justify-between border-t border-border-subtle pt-3">

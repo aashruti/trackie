@@ -54,7 +54,13 @@ export default async function AccountDetailPage({
             <StatusBadge status={detail.status} />
           </div>
           <p className="mt-0.5 text-sm text-text-secondary">
-            {detail.oem} · {detail.type} · {YEAR} · {detail.totalStudents} students
+            {detail.selfSupplied ? "Datagami own product" : detail.oem} · {detail.type} · {YEAR} ·{" "}
+            {detail.totalStudents} students
+            {detail.selfSupplied && (
+              <span className="ml-2 rounded-full bg-[var(--positive-subtle)] px-2 py-0.5 text-[11px] font-medium text-[var(--positive-text)]">
+                no OEM transfer
+              </span>
+            )}
           </p>
         </div>
 
@@ -71,6 +77,7 @@ export default async function AccountDetailPage({
           invoices={detail.invoices}
           oem={detail.oem}
           accountId={detail.id}
+          currentYear={YEAR}
           canEdit={user.role !== "viewer"}
         />
       </main>

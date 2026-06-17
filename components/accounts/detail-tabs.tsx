@@ -30,11 +30,13 @@ export function DetailTabs({
   invoices,
   oem,
   accountId,
+  currentYear,
   canEdit = false,
 }: {
   invoices: Inv[];
   oem: string;
   accountId: number;
+  currentYear: string;
   canEdit?: boolean;
 }) {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Ladder");
@@ -124,7 +126,7 @@ export function DetailTabs({
         </div>
       )}
 
-      {tab === "Students" && <StudentsView invoices={invoices} />}
+      {tab === "Students" && <StudentsView invoices={invoices} currentYear={currentYear} />}
 
       {tab === "Statement" && (
         <Card>
@@ -170,7 +172,26 @@ const COHORT_COLORS = [
   "var(--neutral-status)",
 ];
 
-function StudentsView({ invoices }: { invoices: Inv[] }) {
+/** Academic-year start, e.g. "FY26–27" → 2026, "2024-25" → 2024. */
+function startYear(label: string): number | null {
+  const m = label.match(/(\d{4})|(?:FY)?(\d{2})\D/);
+  if (m?.[1]) return parseInt(m[1], 10);
+  if (m?.[2]) return 2000 + parseInt(m[2], 10);
+  return null;
+}
+
+/** Ordinal year of study for an enrollment cohort within the current academic year. */
+function yearOfStudy(enrollmentYear: string, currentYear: string): string | null {
+  const enroll = startYear(enrollmentYear);
+  const cur = startYear(currentYear);
+  if (enroll == null || cur == null) return null;
+  const n = cur - enroll + 1;
+  if (n < 1) return null;
+  const ord = ["", "1st", "2nd", "3rd", "4th", "5th", "6th", "7th"][n] ?? `${n}th`;
+  return `${ord} year`;
+}
+
+function StudentsView({ invoices, currentYear }: { invoices: Inv[]; currentYear: string }) {
   const studentInvoices = invoices.filter((i) => i.category !== "advance");
   const total = studentInvoices.reduce((s, i) => s + i.students, 0);
 
@@ -207,10 +228,19 @@ function StudentsView({ invoices }: { invoices: Inv[] }) {
                   <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted">
                     By enrollment year
                   </div>
-                  {inv.cohorts.map((c, i) => (
+                  {inv.cohorts.map((c, i) => {
+                    const yos = yearOfStudy(c.enrollmentYear, currentYear);
+                    return (
                     <div key={c.enrollmentYear} className="flex items-center gap-3">
-                      <span className="w-16 shrink-0 text-xs text-text-secondary">
-                        {c.enrollmentYear}
+                      <span className="w-28 shrink-0 text-xs text-text-secondary">
+                        {yos ? (
+                          <>
+                            <span className="font-medium text-text-primary">{yos}</span>{" "}
+                            <span className="text-text-muted">· {c.enrollmentYear}</span>
+                          </>
+                        ) : (
+                          c.enrollmentYear
+                        )}
                       </span>
                       <div className="relative h-4 flex-1 rounded bg-surface-sunken">
                         <div
@@ -225,7 +255,8 @@ function StudentsView({ invoices }: { invoices: Inv[] }) {
                         {c.count}
                       </span>
                     </div>
-                  ))}
+                    );
+                  })}
                   {cohortTotal !== inv.students && (
                     <p className="text-[11px] text-[var(--pending-text)]">
                       Cohorts sum to {cohortTotal}; invoice total {inv.students}.
