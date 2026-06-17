@@ -69,7 +69,7 @@ function Group({ title, items, pathname }: { title: string; items: Item[]; pathn
   );
 }
 
-export function Sidebar() {
+export function Sidebar({ year }: { year?: string }) {
   const pathname = usePathname();
   return (
     <aside
@@ -84,7 +84,7 @@ export function Sidebar() {
         <Group title="Workspace" items={WORKSPACE} pathname={pathname} />
       </nav>
       <div className="border-t border-border-subtle px-5 py-3 text-[11px] text-text-muted">
-        Trackie · FY26–27
+        Trackie{year ? ` · ${year}` : ""}
       </div>
     </aside>
   );
