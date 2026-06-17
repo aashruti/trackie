@@ -67,7 +67,12 @@ export default async function AccountDetailPage({
 
         <ReservesStrip reserves={detail.reserves} />
 
-        <DetailTabs invoices={detail.invoices} oem={detail.oem} />
+        <DetailTabs
+          invoices={detail.invoices}
+          oem={detail.oem}
+          accountId={detail.id}
+          canEdit={user.role !== "viewer"}
+        />
       </main>
     </>
   );

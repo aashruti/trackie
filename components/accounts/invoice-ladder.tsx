@@ -38,7 +38,13 @@ function Line({
   );
 }
 
-export function InvoiceLadder({ inv }: { inv: InvoiceComputed & { status: Status } }) {
+export function InvoiceLadder({
+  inv,
+  onEdit,
+}: {
+  inv: InvoiceComputed & { status: Status };
+  onEdit?: () => void;
+}) {
   const isAdvance = inv.category === "advance";
   return (
     <Card className="p-5">
@@ -49,7 +55,17 @@ export function InvoiceLadder({ inv }: { inv: InvoiceComputed & { status: Status
             {inv.students} {inv.students === 1 ? "unit" : "students"} · GST {(inv.gstRate * 100).toFixed(0)}% · TDS {(inv.tdsRate * 100).toFixed(0)}%
           </p>
         </div>
-        <StatusBadge status={inv.status} />
+        <div className="flex items-center gap-2">
+          {onEdit && (
+            <button
+              onClick={onEdit}
+              className="rounded-md border border-border-strong bg-surface px-2.5 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover"
+            >
+              Edit
+            </button>
+          )}
+          <StatusBadge status={inv.status} />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-x-8 gap-y-1 md:grid-cols-2">

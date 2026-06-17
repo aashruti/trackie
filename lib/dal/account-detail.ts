@@ -14,6 +14,7 @@ export interface Cohort {
 }
 
 export type DetailInvoice = ReturnType<typeof computeAccount>["invoices"][number] & {
+  id: number;
   cohorts: Cohort[];
 };
 
@@ -89,6 +90,7 @@ export async function getAccountDetail(
   const c = computeAccount(inputs);
   const detailInvoices: DetailInvoice[] = c.invoices.map((inv, i) => ({
     ...inv,
+    id: invRows[i].id,
     cohorts: (cohortsByInvoice.get(invRows[i].id) ?? []).sort((a, b) =>
       b.enrollmentYear.localeCompare(a.enrollmentYear),
     ),

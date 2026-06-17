@@ -5,9 +5,11 @@ import { Card } from "@/components/ui/card";
 import { Money } from "@/components/ui/money";
 import { StatusBadge } from "@/components/ui/badge";
 import { InvoiceLadder } from "./invoice-ladder";
+import { InvoiceEditor } from "./invoice-editor";
 import type { InvoiceComputed, Status } from "@/lib/money/types";
 
 type Inv = InvoiceComputed & {
+  id: number;
   status: Status;
   cohorts: { enrollmentYear: string; count: number }[];
 };
@@ -24,8 +26,19 @@ function label(inv: Inv) {
 
 const TABS = ["Ladder", "Flow", "Statement", "Students"] as const;
 
-export function DetailTabs({ invoices, oem }: { invoices: Inv[]; oem: string }) {
+export function DetailTabs({
+  invoices,
+  oem,
+  accountId,
+  canEdit = false,
+}: {
+  invoices: Inv[];
+  oem: string;
+  accountId: number;
+  canEdit?: boolean;
+}) {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Ladder");
+  const [editingId, setEditingId] = useState<number | null>(null);
 
   return (
     <div className="space-y-4">
@@ -47,9 +60,33 @@ export function DetailTabs({ invoices, oem }: { invoices: Inv[]; oem: string }) 
 
       {tab === "Ladder" && (
         <div className="grid grid-cols-1 gap-4">
-          {invoices.map((inv, i) => (
-            <InvoiceLadder key={i} inv={inv} />
-          ))}
+          {invoices.map((inv, i) =>
+            editingId === inv.id ? (
+              <InvoiceEditor
+                key={i}
+                accountId={accountId}
+                invoiceId={inv.id}
+                category={inv.category}
+                semester={inv.semester}
+                initial={{
+                  students: inv.students,
+                  priceToUni: inv.priceToUni,
+                  priceToDatagami: inv.priceToDatagami,
+                  gstRate: inv.gstRate,
+                  tdsRate: inv.tdsRate,
+                  advanceAdj: inv.advanceAdj,
+                  status: inv.status,
+                }}
+                onClose={() => setEditingId(null)}
+              />
+            ) : (
+              <InvoiceLadder
+                key={i}
+                inv={inv}
+                onEdit={canEdit ? () => setEditingId(inv.id) : undefined}
+              />
+            ),
+          )}
         </div>
       )}
 
