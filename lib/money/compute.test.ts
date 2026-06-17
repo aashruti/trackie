@@ -14,12 +14,20 @@ const pillaiNew = {
 };
 
 describe("computeInvoice", () => {
-  it("computes the inflow ladder exactly (matches Excel)", () => {
-    const c = computeInvoice(pillaiNew);
-    expect(c.taxableIn).toBe(3_816_000);
-    expect(c.gstIn).toBe(686_880);
+  it("bills the university NET of the advance prepaid (no double-count)", () => {
+    const c = computeInvoice(pillaiNew); // advanceAdj 1,000,000
+    expect(c.taxableIn).toBe(3_816_000); // full — margin basis, unchanged
+    expect(c.billedTaxableIn).toBe(2_816_000); // 3_816_000 − 1_000_000 advance prepaid
+    expect(c.gstIn).toBe(506_880);
+    expect(c.billing).toBe(3_322_880);
+    expect(c.tdsIn).toBe(281_600);
+    expect(c.afterTds).toBe(3_041_280);
+  });
+
+  it("bills full when there is no advance", () => {
+    const c = computeInvoice({ ...pillaiNew, advanceAdj: 0 });
+    expect(c.billedTaxableIn).toBe(3_816_000);
     expect(c.billing).toBe(4_502_880);
-    expect(c.tdsIn).toBe(381_600);
     expect(c.afterTds).toBe(4_121_280);
   });
 
@@ -35,8 +43,8 @@ describe("computeInvoice", () => {
   it("computes student profit as students × price-diff, advance-INDEPENDENT", () => {
     const c = computeInvoice(pillaiNew); // category "new"
     expect(c.advanceTdsCost).toBe(0); // student invoice → no out-of-pocket TDS
-    expect(c.netMargin).toBe(486_000); // 180 * (21200 - 18500)
-    expect(c.gstDiff).toBe(267_480);
+    expect(c.netMargin).toBe(486_000); // 180 * (21200 - 18500) — advance-independent
+    expect(c.gstDiff).toBe(87_480); // net GST = 18% of margin (gstIn 506,880 − gstOut 419,400)
   });
 
   it("charges advance TDS to Datagami (advance × tdsRate) as a negative margin", () => {
@@ -132,7 +140,7 @@ describe("computeInvoice", () => {
   it("treats received/outstanding from the payment ledger", () => {
     const c = computeInvoice({ ...pillaiNew, payments: [{ amount: 2_000_000 }] });
     expect(c.received).toBe(2_000_000);
-    expect(c.outstanding).toBe(2_121_280); // afterTds - received
+    expect(c.outstanding).toBe(1_041_280); // afterTds (3,041,280) - received
   });
 
   it("tracks OEM payments paid vs payable", () => {
@@ -177,7 +185,8 @@ describe("computeAccount", () => {
 
   it("sums rollups; advance TDS reduces profit but does not trip hasNegative", () => {
     const a = computeAccount(invoices);
-    expect(a.billing).toBe(1_180_000 + 4_502_880);
+    // advance billed full (1,180,000) + new billed NET of advance (3,322,880).
+    expect(a.billing).toBe(1_180_000 + 3_322_880);
     expect(a.netMargin).toBe(-100_000 + 486_000); // advance −100k TDS + new 486k = 386k
     expect(a.hasNegative).toBe(false); // advance's structural negative is excluded
     expect(a.status).toBe("overdue"); // any overdue invoice → overdue
@@ -207,9 +216,11 @@ describe("computeAccount reserves", () => {
       { category: "new", semester: "none", students: 180, priceToUni: 21200, priceToDatagami: 18500, gstRate: 0.18, tdsRate: 0.1, advanceAdj: 1_000_000, status: "raised", payments: [] },
       { category: "advance", semester: "none", students: 1, priceToUni: 1_000_000, priceToDatagami: 1_000_000, gstRate: 0.18, tdsRate: 0.1, status: "raised", payments: [] },
     ]);
-    expect(a.netGst).toBe(267_480); // gstIn − gstOut on new (advance nets to 0)
+    // Net GST = 18% of value-add: new gstDiff (506,880 − 419,400 = 87,480) + advance 0.
+    expect(a.netGst).toBe(87_480);
     expect(a.advanceTdsCost).toBe(100_000); // advance × tds
-    expect(a.tdsReceivable).toBe(481_600); // 381_600 (new) + 100_000 (advance)
+    // TDS withheld by uni on the BILLED (net) amounts: new 281,600 + advance 100,000.
+    expect(a.tdsReceivable).toBe(381_600);
     expect(a.tdsPayable).toBeGreaterThan(0);
   });
 });

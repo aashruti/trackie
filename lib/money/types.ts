@@ -22,7 +22,8 @@ export interface InvoiceInput {
 
 export interface InvoiceComputed extends InvoiceInput {
   advanceAdj: number; // always resolved (0 when absent)
-  taxableIn: number;
+  taxableIn: number; // FULL value (students × priceToUni) — margin basis
+  billedTaxableIn: number; // billed to the university (taxableIn − advance prepaid)
   gstIn: number;
   billing: number;
   tdsIn: number;

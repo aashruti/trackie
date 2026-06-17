@@ -19,10 +19,13 @@ import type {
 export function computeInvoice(i: InvoiceInput): InvoiceComputed {
   const adv = i.advanceAdj ?? 0;
 
-  const taxableIn = i.students * i.priceToUni;
-  const gstIn = taxableIn * i.gstRate;
-  const billing = taxableIn + gstIn;
-  const tdsIn = taxableIn * i.tdsRate;
+  const taxableIn = i.students * i.priceToUni; // FULL — margin basis
+  // The advance is a prepayment of these fees, so the university is billed the
+  // NET amount once the count is known (advance was billed separately as a token).
+  const billedTaxableIn = taxableIn - adv;
+  const gstIn = billedTaxableIn * i.gstRate;
+  const billing = billedTaxableIn + gstIn;
+  const tdsIn = billedTaxableIn * i.tdsRate;
   const afterTds = billing - tdsIn;
   const received = (i.payments ?? []).reduce((a, p) => a + p.amount, 0);
   const outstanding = afterTds - received;
@@ -57,6 +60,7 @@ export function computeInvoice(i: InvoiceInput): InvoiceComputed {
     ...i,
     advanceAdj: adv,
     taxableIn,
+    billedTaxableIn,
     gstIn,
     billing,
     tdsIn,

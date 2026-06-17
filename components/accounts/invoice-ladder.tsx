@@ -111,6 +111,12 @@ export function InvoiceLadder({
             Inflow · University → Datagami
           </div>
           <Line label="Taxable" value={inv.taxableIn} />
+          {inv.advanceAdj > 0 && (
+            <>
+              <Line label="Advance prepaid" value={inv.advanceAdj} op="−" tone="info" />
+              <Line label="Net taxable" value={inv.billedTaxableIn} strong />
+            </>
+          )}
           <Line label="GST" value={inv.gstIn} op="+" tone="muted" />
           <Line label="Billing" value={inv.billing} strong />
           <Line label="TDS withheld" value={inv.tdsIn} op="−" tone="muted" />

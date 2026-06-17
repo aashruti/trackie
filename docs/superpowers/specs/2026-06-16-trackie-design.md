@@ -73,13 +73,18 @@ priceToDatagami)`. The advance is a **token pass-through** (university → Datag
 → OEM); it affects cash paid to the OEM but **never** affects profit.
 
 ```
-taxableIn   = students × priceToUni
-gstIn       = taxableIn × gstRate
-billing     = taxableIn + gstIn
-tdsIn       = taxableIn × tdsRate                 // creditable timing item, tracked separately
-afterTds    = billing − tdsIn
-received    = Σ receipt payments
-outstanding = afterTds − received
+taxableIn      = students × priceToUni            // FULL — margin basis
+billedTaxableIn = taxableIn − advanceAdj          // billed to uni (advance was a prepayment)
+gstIn          = billedTaxableIn × gstRate
+billing        = billedTaxableIn + gstIn
+tdsIn          = billedTaxableIn × tdsRate        // creditable timing item, tracked separately
+afterTds       = billing − tdsIn
+received       = Σ receipt payments
+outstanding    = afterTds − received
+// The advance is billed once (its own token invoice) and DEDUCTED from the
+// student invoice it prepaid, so the uni's total billing = full fees (no double
+// count). advanceAdj reduces BOTH the uni billing (inflow) and the OEM payable
+// (outflow); margin uses the FULL taxableIn/taxableOut so it is advance-neutral.
 
 taxableOut  = students × priceToDatagami          // FULL (no advance netting here)
 
