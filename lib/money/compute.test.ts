@@ -85,6 +85,35 @@ describe("computeInvoice", () => {
     expect(c.gstDiff).toBe(540_000); // full GST remitted (no input credit)
   });
 
+  it("own-product advance is a 0-margin prepayment (no OEM, no TDS fronted)", () => {
+    const c = computeInvoice({
+      category: "advance",
+      semester: "none",
+      students: 1,
+      priceToUni: 500_000,
+      priceToDatagami: 0,
+      gstRate: 0.18,
+      tdsRate: 0.1,
+      selfSupplied: true,
+    });
+    expect(c.payable).toBe(0); // nothing transferred out
+    expect(c.advanceTdsCost).toBe(0); // no OEM transfer → no fronted TDS
+    expect(c.netMargin).toBe(0); // pure prepayment, not profit
+  });
+
+  it("OEM advance margin is just the fronted TDS (unchanged)", () => {
+    const c = computeInvoice({
+      category: "advance",
+      semester: "none",
+      students: 1,
+      priceToUni: 1_000_000,
+      priceToDatagami: 1_000_000,
+      gstRate: 0.18,
+      tdsRate: 0.1,
+    });
+    expect(c.netMargin).toBe(-100_000);
+  });
+
   it("self-supplied with an internal cost subtracts it from margin only", () => {
     const c = computeInvoice({
       category: "new",

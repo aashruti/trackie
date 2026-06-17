@@ -45,7 +45,11 @@ export function computeInvoice(i: InvoiceInput): InvoiceComputed {
 
   const gstDiff = gstIn - gstOut;
   const tdsDiff = tdsIn - tdsOut;
-  const netMargin = taxableIn - taxableOut - advanceTdsCost;
+  // An advance is a token/prepayment — never a profit centre. Its only profit
+  // impact is the TDS Datagami fronts (OEM advances); own-product advances cost
+  // nothing → margin 0. Student invoices carry the real margin (price diff).
+  const netMargin =
+    i.category === "advance" ? -advanceTdsCost || 0 : taxableIn - taxableOut;
 
   return {
     ...i,
