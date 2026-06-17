@@ -1,11 +1,21 @@
 import "server-only";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { accounts, invoices, academicYears, oems } from "@/lib/db/schema";
+import { inArray } from "drizzle-orm";
+import { accounts, invoices, academicYears, oems, cohorts } from "@/lib/db/schema";
 import { computeAccount } from "@/lib/money/compute";
 import type { InvoiceInputWithStatus, Status } from "@/lib/money/types";
 import { type SessionUser } from "./authz";
 import { assignedIds } from "./accounts";
+
+export interface Cohort {
+  enrollmentYear: string;
+  count: number;
+}
+
+export type DetailInvoice = ReturnType<typeof computeAccount>["invoices"][number] & {
+  cohorts: Cohort[];
+};
 
 export interface AccountDetail {
   id: number;
@@ -13,9 +23,10 @@ export interface AccountDetail {
   type: string;
   oem: string;
   status: Status;
+  totalStudents: number;
   totals: { billed: number; received: number; outstanding: number; payable: number; netMargin: number };
   reserves: { netGst: number; tdsReceivable: number; tdsPayable: number; advanceTdsCost: number };
-  invoices: ReturnType<typeof computeAccount>["invoices"];
+  invoices: DetailInvoice[];
 }
 
 /** Single account with fully computed invoices. Returns null if out of the caller's scope. */
@@ -50,6 +61,18 @@ export async function getAccountDetail(
     .from(invoices)
     .where(and(eq(invoices.accountId, acc.id), eq(invoices.yearId, year.id)));
 
+  // Cohort distribution per invoice (old-student enrollment-year breakdown).
+  const invoiceIds = invRows.map((r) => r.id);
+  const cohortRows = invoiceIds.length
+    ? await db.select().from(cohorts).where(inArray(cohorts.invoiceId, invoiceIds))
+    : [];
+  const cohortsByInvoice = new Map<number, Cohort[]>();
+  for (const c of cohortRows) {
+    const list = cohortsByInvoice.get(c.invoiceId) ?? [];
+    list.push({ enrollmentYear: c.enrollmentYear, count: c.count });
+    cohortsByInvoice.set(c.invoiceId, list);
+  }
+
   const inputs: InvoiceInputWithStatus[] = invRows.map((r) => ({
     category: r.category,
     semester: r.semester,
@@ -64,12 +87,24 @@ export async function getAccountDetail(
   }));
 
   const c = computeAccount(inputs);
+  const detailInvoices: DetailInvoice[] = c.invoices.map((inv, i) => ({
+    ...inv,
+    cohorts: (cohortsByInvoice.get(invRows[i].id) ?? []).sort((a, b) =>
+      b.enrollmentYear.localeCompare(a.enrollmentYear),
+    ),
+  }));
+  // Total students = sum of student-bearing invoices (advance has students=1, exclude it).
+  const totalStudents = c.invoices
+    .filter((inv) => inv.category !== "advance")
+    .reduce((sum, inv) => sum + inv.students, 0);
+
   return {
     id: acc.id,
     name: acc.name,
     type: acc.type,
     oem: acc.oem,
     status: c.status,
+    totalStudents,
     totals: {
       billed: c.billing,
       received: c.received,
@@ -83,6 +118,6 @@ export async function getAccountDetail(
       tdsPayable: c.tdsPayable,
       advanceTdsCost: c.advanceTdsCost,
     },
-    invoices: c.invoices,
+    invoices: detailInvoices,
   };
 }

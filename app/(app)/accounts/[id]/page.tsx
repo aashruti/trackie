@@ -53,7 +53,7 @@ export default async function AccountDetailPage({
             <StatusBadge status={detail.status} />
           </div>
           <p className="mt-0.5 text-sm text-text-secondary">
-            {detail.oem} · {detail.type} · {YEAR}
+            {detail.oem} · {detail.type} · {YEAR} · {detail.totalStudents} students
           </p>
         </div>
 

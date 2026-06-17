@@ -7,7 +7,10 @@ import { StatusBadge } from "@/components/ui/badge";
 import { InvoiceLadder } from "./invoice-ladder";
 import type { InvoiceComputed, Status } from "@/lib/money/types";
 
-type Inv = InvoiceComputed & { status: Status };
+type Inv = InvoiceComputed & {
+  status: Status;
+  cohorts: { enrollmentYear: string; count: number }[];
+};
 
 const CATEGORY_LABEL: Record<string, string> = {
   advance: "Advance bill",
@@ -19,7 +22,7 @@ function label(inv: Inv) {
   return inv.semester === "none" ? base : `${base} · ${inv.semester === "1" ? "1st" : "2nd"} sem`;
 }
 
-const TABS = ["Ladder", "Flow", "Statement"] as const;
+const TABS = ["Ladder", "Flow", "Statement", "Students"] as const;
 
 export function DetailTabs({ invoices, oem }: { invoices: Inv[]; oem: string }) {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Ladder");
@@ -84,6 +87,8 @@ export function DetailTabs({ invoices, oem }: { invoices: Inv[]; oem: string }) 
         </div>
       )}
 
+      {tab === "Students" && <StudentsView invoices={invoices} />}
+
       {tab === "Statement" && (
         <Card>
           <div className="overflow-x-auto">
@@ -116,6 +121,89 @@ export function DetailTabs({ invoices, oem }: { invoices: Inv[]; oem: string }) 
           </div>
         </Card>
       )}
+    </div>
+  );
+}
+
+const COHORT_COLORS = [
+  "var(--primary)",
+  "var(--info)",
+  "var(--positive)",
+  "var(--pending)",
+  "var(--neutral-status)",
+];
+
+function StudentsView({ invoices }: { invoices: Inv[] }) {
+  const studentInvoices = invoices.filter((i) => i.category !== "advance");
+  const total = studentInvoices.reduce((s, i) => s + i.students, 0);
+
+  return (
+    <div className="space-y-4">
+      <Card className="flex items-center justify-between p-5">
+        <div>
+          <div className="text-xs font-medium uppercase tracking-wide text-text-muted">
+            Total student count (billed)
+          </div>
+          <div className="mt-1 text-3xl font-semibold tabular text-text-primary">{total}</div>
+        </div>
+        <div className="text-right text-xs text-text-muted">
+          across {studentInvoices.length} student invoice
+          {studentInvoices.length === 1 ? "" : "s"}
+        </div>
+      </Card>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        {studentInvoices.map((inv, idx) => {
+          const cohortTotal = inv.cohorts.reduce((s, c) => s + c.count, 0);
+          const max = Math.max(1, ...inv.cohorts.map((c) => c.count));
+          return (
+            <Card key={idx} className="p-5">
+              <div className="mb-3 flex items-baseline justify-between">
+                <h3 className="text-sm font-semibold text-text-primary">{label(inv)}</h3>
+                <span className="tabular text-lg font-semibold text-text-primary">
+                  {inv.students}
+                </span>
+              </div>
+
+              {inv.cohorts.length > 0 ? (
+                <div className="space-y-2">
+                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+                    By enrollment year
+                  </div>
+                  {inv.cohorts.map((c, i) => (
+                    <div key={c.enrollmentYear} className="flex items-center gap-3">
+                      <span className="w-16 shrink-0 text-xs text-text-secondary">
+                        {c.enrollmentYear}
+                      </span>
+                      <div className="relative h-4 flex-1 rounded bg-surface-sunken">
+                        <div
+                          className="absolute inset-y-0 left-0 rounded"
+                          style={{
+                            width: `${(c.count / max) * 100}%`,
+                            background: COHORT_COLORS[i % COHORT_COLORS.length],
+                          }}
+                        />
+                      </div>
+                      <span className="tabular w-10 shrink-0 text-right text-xs font-medium text-text-primary">
+                        {c.count}
+                      </span>
+                    </div>
+                  ))}
+                  {cohortTotal !== inv.students && (
+                    <p className="text-[11px] text-[var(--pending-text)]">
+                      Cohorts sum to {cohortTotal}; invoice total {inv.students}.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs text-text-muted">
+                  Current-year intake — no multi-year cohort split.
+                </p>
+              )}
+            </Card>
+          );
+        })}
+      </div>
     </div>
   );
 }
