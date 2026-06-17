@@ -1,7 +1,12 @@
+"use client";
+
+import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Money } from "@/components/ui/money";
 import { StatusBadge } from "@/components/ui/badge";
+import { PaymentForm } from "./payment-form";
 import type { InvoiceComputed, Status } from "@/lib/money/types";
+import type { Direction, PaymentEntry } from "@/lib/dal/payments";
 
 const CATEGORY_LABEL: Record<string, string> = {
   advance: "Advance bill",
@@ -38,15 +43,27 @@ function Line({
   );
 }
 
+export type LadderInvoice = InvoiceComputed & {
+  id: number;
+  status: Status;
+  ledger: PaymentEntry[];
+};
+
 export function InvoiceLadder({
   inv,
+  accountId,
+  canEdit = false,
   onEdit,
 }: {
-  inv: InvoiceComputed & { status: Status };
+  inv: LadderInvoice;
+  accountId: number;
+  canEdit?: boolean;
   onEdit?: () => void;
 }) {
   const isAdvance = inv.category === "advance";
   const self = inv.selfSupplied === true;
+  const [paying, setPaying] = useState<Direction | null>(null);
+
   return (
     <Card className="p-5">
       <div className="mb-3 flex items-center justify-between">
@@ -57,13 +74,31 @@ export function InvoiceLadder({
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {onEdit && (
-            <button
-              onClick={onEdit}
-              className="rounded-md border border-border-strong bg-surface px-2.5 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover"
-            >
-              Edit
-            </button>
+          {canEdit && (
+            <>
+              <button
+                onClick={() => setPaying("receipt")}
+                className="rounded-md border border-border-strong bg-surface px-2.5 py-1 text-xs font-medium text-[var(--positive-text)] hover:bg-surface-hover"
+              >
+                Record receipt
+              </button>
+              {!self && (
+                <button
+                  onClick={() => setPaying("oem-payment")}
+                  className="rounded-md border border-border-strong bg-surface px-2.5 py-1 text-xs font-medium text-[var(--info-text)] hover:bg-surface-hover"
+                >
+                  Pay OEM
+                </button>
+              )}
+              {onEdit && (
+                <button
+                  onClick={onEdit}
+                  className="rounded-md border border-border-strong bg-surface px-2.5 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover"
+                >
+                  Edit
+                </button>
+              )}
+            </>
           )}
           <StatusBadge status={inv.status} />
         </div>
@@ -93,9 +128,7 @@ export function InvoiceLadder({
             <div className="rounded-lg bg-[var(--positive-subtle)] px-3 py-2 text-xs text-[var(--positive-text)]">
               No external OEM transfer — Datagami is the supplier.
             </div>
-            {inv.taxableOut > 0 && (
-              <Line label="Internal cost" value={inv.taxableOut} op="−" tone="muted" />
-            )}
+            {inv.taxableOut > 0 && <Line label="Internal cost" value={inv.taxableOut} op="−" tone="muted" />}
             <Line label="Payable" value={0} strong tone="muted" />
           </div>
         ) : (
@@ -104,13 +137,13 @@ export function InvoiceLadder({
               Outflow · Datagami → OEM
             </div>
             <Line label="Taxable" value={inv.taxableOut} />
-            {inv.advanceAdj > 0 && (
-              <Line label="Advance adjusted" value={inv.advanceAdj} op="−" tone="info" />
-            )}
+            {inv.advanceAdj > 0 && <Line label="Advance adjusted" value={inv.advanceAdj} op="−" tone="info" />}
             <Line label="OEM taxable (net)" value={inv.oemTaxableNet} strong />
             <Line label="GST" value={inv.gstOut} op="+" tone="muted" />
             <Line label="TDS withheld" value={inv.tdsOut} op="−" tone="muted" />
             <Line label="Payable to OEM" value={inv.payable} strong />
+            <Line label="Paid to OEM" value={inv.paidToOem} tone="positive" />
+            <Line label="Outstanding to OEM" value={inv.outstandingToOem} tone="pending" strong />
           </div>
         )}
       </div>
@@ -126,6 +159,42 @@ export function InvoiceLadder({
         </span>
         <Money value={inv.netMargin} tone="auto" className="text-base font-bold" />
       </div>
+
+      {paying && (
+        <PaymentForm
+          accountId={accountId}
+          invoiceId={inv.id}
+          direction={paying}
+          onClose={() => setPaying(null)}
+        />
+      )}
+
+      {inv.ledger.length > 0 && (
+        <div className="mt-4 border-t border-border-subtle pt-3">
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+            Payment ledger
+          </div>
+          <div className="space-y-1">
+            {inv.ledger.map((p) => (
+              <div key={p.id} className="flex items-center gap-3 text-xs">
+                <span
+                  className={`rounded px-1.5 py-0.5 font-medium ${
+                    p.direction === "receipt"
+                      ? "bg-[var(--positive-subtle)] text-[var(--positive-text)]"
+                      : "bg-[var(--info-subtle)] text-[var(--info-text)]"
+                  }`}
+                >
+                  {p.direction === "receipt" ? "Received" : "Paid OEM"}
+                </span>
+                <span className="text-text-secondary">{p.paidOn}</span>
+                <span className="text-text-muted">{p.mode}</span>
+                {p.ref && <span className="text-text-muted">· {p.ref}</span>}
+                <Money value={p.amount} className="ml-auto font-medium" />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </Card>
   );
 }

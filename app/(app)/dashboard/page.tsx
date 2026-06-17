@@ -10,6 +10,7 @@ import {
 } from "@/components/dashboard/charts";
 import { AccountsTable } from "@/components/dashboard/accounts-table";
 import { getCurrentYear, listYears } from "@/lib/dal/years";
+import { fmtCompact as fmtC } from "@/lib/money/format";
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -53,7 +54,7 @@ export default async function DashboardPage() {
             label="Payable to OEMs"
             value={totals.payable}
             tone="info"
-            sublabel="net of advances"
+            sublabel={`${fmtC(totals.paidToOem)} paid · ${fmtC(totals.outstandingToOem)} due`}
           />
           <KpiCard label="Net margin" value={totals.netMargin} tone="positive" />
         </div>

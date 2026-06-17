@@ -8,10 +8,13 @@ import { InvoiceLadder } from "./invoice-ladder";
 import { InvoiceEditor } from "./invoice-editor";
 import type { InvoiceComputed, Status } from "@/lib/money/types";
 
+import type { PaymentEntry } from "@/lib/dal/payments";
+
 type Inv = InvoiceComputed & {
   id: number;
   status: Status;
   cohorts: { enrollmentYear: string; count: number }[];
+  ledger: PaymentEntry[];
 };
 
 const CATEGORY_LABEL: Record<string, string> = {
@@ -85,6 +88,8 @@ export function DetailTabs({
               <InvoiceLadder
                 key={i}
                 inv={inv}
+                accountId={accountId}
+                canEdit={canEdit}
                 onEdit={canEdit ? () => setEditingId(inv.id) : undefined}
               />
             ),
