@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Money } from "@/components/ui/money";
@@ -113,13 +114,26 @@ export function ReportsTabs({ data, year }: { data: ReportData; year: string }) 
       )}
 
       {tab === "By OEM" && (
-        <ReportTable
-          title="Margin by OEM"
-          subtitle="net to Datagami"
-          columns={byOemCols}
-          rows={data.byOem}
-          filename={`trackie-margin-by-oem-${year}.csv`}
-        />
+        <div className="space-y-3">
+          <ReportTable
+            title="Margin by OEM"
+            subtitle="net to Datagami"
+            columns={byOemCols}
+            rows={data.byOem}
+            filename={`trackie-margin-by-oem-${year}.csv`}
+          />
+          <div className="flex flex-wrap gap-2">
+            {data.byOem.map((o) => (
+              <Link
+                key={o.oem}
+                href={`/reports/oem/${encodeURIComponent(o.oem)}`}
+                className="rounded-md border border-border-strong bg-surface px-3 py-1.5 text-sm font-medium text-[var(--primary-text)] hover:bg-surface-hover"
+              >
+                {o.oem} report →
+              </Link>
+            ))}
+          </div>
+        </div>
       )}
 
       {tab === "Aging" && (

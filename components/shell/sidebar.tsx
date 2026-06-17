@@ -77,7 +77,7 @@ export function Sidebar({ year, role }: { year?: string; role?: string }) {
   const pathname = usePathname();
   return (
     <aside
-      className="flex h-dvh w-[264px] shrink-0 flex-col border-r border-border bg-surface"
+      className="no-print flex h-dvh w-[264px] shrink-0 flex-col border-r border-border bg-surface"
       style={{ position: "sticky", top: 0 }}
     >
       <div className="px-5 py-5">

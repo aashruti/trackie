@@ -52,14 +52,14 @@ export function ReportTable<T extends object>({
   }
 
   return (
-    <Card>
+    <Card className="print-card">
       <CardHeader
         title={title}
         subtitle={subtitle}
         action={
           <button
             onClick={exportCsv}
-            className="rounded-md border border-border-strong px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover"
+            className="no-print rounded-md border border-border-strong px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover"
           >
             Export CSV
           </button>

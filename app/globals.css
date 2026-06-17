@@ -57,3 +57,35 @@ body {
   font-family: var(--font-mono);
   font-variant-numeric: var(--numeric-tabular);
 }
+
+/* Print / Save-as-PDF: hide app chrome, lay the report flat on white. */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
+  main {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+  /* Hide in-content action buttons (tabs, edit, record…) for a clean PDF. */
+  main button {
+    display: none !important;
+  }
+  .print-card,
+  .print-card * {
+    box-shadow: none !important;
+  }
+  .print-card {
+    border-color: #e2e8f0 !important;
+    break-inside: avoid;
+  }
+  thead {
+    display: table-header-group;
+  }
+  tr {
+    break-inside: avoid;
+  }
+}

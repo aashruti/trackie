@@ -9,6 +9,7 @@ import { ReservesStrip } from "@/components/dashboard/reserves-strip";
 import { DetailTabs } from "@/components/accounts/detail-tabs";
 import { AddInvoice } from "@/components/accounts/add-invoice";
 import { AccountReportButton } from "@/components/accounts/account-report";
+import { PrintButton } from "@/components/reports/print-button";
 import { getAccountDetail } from "@/lib/dal/account-detail";
 import { getCurrentYear, listYears } from "@/lib/dal/years";
 
@@ -54,8 +55,9 @@ export default async function AccountDetailPage({
               {detail.name}
             </h2>
             <StatusBadge status={detail.status} />
-            <div className="ml-auto">
+            <div className="ml-auto flex gap-2">
               <AccountReportButton detail={detail} year={YEAR} />
+              <PrintButton label="Print / PDF" />
             </div>
           </div>
           <p className="mt-0.5 text-sm text-text-secondary">
