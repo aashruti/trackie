@@ -192,6 +192,9 @@ export async function rolloverYear(
             invoiceId: created.id,
             enrollmentYear: c.enrollmentYear,
             count: c.count,
+            // Carry each cohort's locked price forward into the new year.
+            priceToUni: c.priceToUni,
+            priceToDatagami: c.priceToDatagami,
           })),
         );
       }
