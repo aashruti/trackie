@@ -9,6 +9,8 @@ import { assignedIds } from "./accounts";
 export interface CohortInput {
   enrollmentYear: string;
   count: number;
+  priceToUni?: number | null;
+  priceToDatagami?: number | null;
 }
 
 export interface InvoiceEdit {
@@ -83,15 +85,28 @@ export async function setCohorts(
   const assigned = user.role === "super-admin" ? [] : await assignedIds(user.id);
   if (!canEdit(user, inv.accountId, assigned)) throw new Error("Not authorized");
 
+  const price = (v: number | null | undefined) =>
+    v == null || v <= 0 ? null : String(Math.max(0, v));
   const clean = list
-    .map((c) => ({ enrollmentYear: c.enrollmentYear.trim(), count: Math.max(0, Math.floor(c.count)) }))
+    .map((c) => ({
+      enrollmentYear: c.enrollmentYear.trim(),
+      count: Math.max(0, Math.floor(c.count)),
+      priceToUni: price(c.priceToUni),
+      priceToDatagami: price(c.priceToDatagami),
+    }))
     .filter((c) => c.enrollmentYear.length > 0);
   const total = clean.reduce((a, c) => a + c.count, 0);
 
   await db.delete(cohorts).where(eq(cohorts.invoiceId, invoiceId));
   if (clean.length > 0) {
     await db.insert(cohorts).values(
-      clean.map((c) => ({ invoiceId, enrollmentYear: c.enrollmentYear, count: c.count })),
+      clean.map((c) => ({
+        invoiceId,
+        enrollmentYear: c.enrollmentYear,
+        count: c.count,
+        priceToUni: c.priceToUni,
+        priceToDatagami: c.priceToDatagami,
+      })),
     );
   }
   await db.update(invoices).set({ students: total }).where(eq(invoices.id, invoiceId));

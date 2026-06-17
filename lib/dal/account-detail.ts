@@ -12,6 +12,8 @@ import { loadPaymentLites, loadPaymentLedger, type PaymentEntry } from "./paymen
 export interface Cohort {
   enrollmentYear: string;
   count: number;
+  priceToUni: number | null;
+  priceToDatagami: number | null;
 }
 
 export type DetailInvoice = ReturnType<typeof computeAccount>["invoices"][number] & {
@@ -81,7 +83,12 @@ export async function getAccountDetail(
   const cohortsByInvoice = new Map<number, Cohort[]>();
   for (const c of cohortRows) {
     const list = cohortsByInvoice.get(c.invoiceId) ?? [];
-    list.push({ enrollmentYear: c.enrollmentYear, count: c.count });
+    list.push({
+      enrollmentYear: c.enrollmentYear,
+      count: c.count,
+      priceToUni: c.priceToUni == null ? null : Number(c.priceToUni),
+      priceToDatagami: c.priceToDatagami == null ? null : Number(c.priceToDatagami),
+    });
     cohortsByInvoice.set(c.invoiceId, list);
   }
 
@@ -102,6 +109,11 @@ export async function getAccountDetail(
     payments: lites.get(r.id)?.receipts ?? [],
     oemPayments: lites.get(r.id)?.oemPayments ?? [],
     selfSupplied: acc.isSelf,
+    cohortPricing: cohortsByInvoice.get(r.id)?.map((c) => ({
+      count: c.count,
+      priceToUni: c.priceToUni,
+      priceToDatagami: c.priceToDatagami,
+    })),
   }));
 
   const c = computeAccount(inputs);

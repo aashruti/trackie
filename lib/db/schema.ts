@@ -77,6 +77,9 @@ export const cohorts = pgTable("cohorts", {
     .references(() => invoices.id, { onDelete: "cascade" }),
   enrollmentYear: text("enrollment_year").notNull(), // "2024-25"
   count: integer("count").notNull().default(0),
+  // Per-cohort locked-in prices. Null → fall back to the invoice's price.
+  priceToUni: numeric("price_to_uni"),
+  priceToDatagami: numeric("price_to_datagami"),
 });
 
 export const payments = pgTable("payments", {

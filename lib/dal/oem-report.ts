@@ -7,6 +7,7 @@ import type { InvoiceInputWithStatus, Status } from "@/lib/money/types";
 import { scopeAccountIds, type SessionUser } from "./authz";
 import { assignedIds } from "./accounts";
 import { loadPaymentLites, loadPaymentLedger } from "./payments";
+import { loadCohortPricing } from "./cohort-pricing";
 
 export interface OemAccountRow {
   id: number;
@@ -113,6 +114,7 @@ export async function getOemReport(
     const invoiceIds = invRows.map((r) => r.id);
     const lites = await loadPaymentLites(invoiceIds);
     const ledger = await loadPaymentLedger(invoiceIds);
+    const cohortPx = await loadCohortPricing(invoiceIds);
 
     const inputs: InvoiceInputWithStatus[] = invRows.map((r) => ({
       category: r.category, semester: r.semester, students: r.students,
@@ -120,6 +122,7 @@ export async function getOemReport(
       gstRate: Number(r.gstRate), tdsRate: Number(r.tdsRate), advanceAdj: Number(r.advanceAdj),
       status: r.status, payments: lites.get(r.id)?.receipts ?? [],
       oemPayments: lites.get(r.id)?.oemPayments ?? [], selfSupplied: oem.isSelf,
+      cohortPricing: cohortPx.get(r.id),
     }));
 
     const c = computeAccount(inputs);
