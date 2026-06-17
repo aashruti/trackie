@@ -14,7 +14,7 @@ export default async function AppLayout({
 
   return (
     <div className="flex min-h-dvh bg-background">
-      <Sidebar year={year} />
+      <Sidebar year={year} role={session.user.role} />
       <div className="flex min-w-0 flex-1 flex-col">{children}</div>
     </div>
   );

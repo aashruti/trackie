@@ -69,7 +69,11 @@ function Group({ title, items, pathname }: { title: string; items: Item[]; pathn
   );
 }
 
-export function Sidebar({ year }: { year?: string }) {
+const ADMIN: Item[] = [
+  { label: "Users & access", href: "/admin/users", icon: "M16 14a4 4 0 10-8 0M12 7a3 3 0 110 6 3 3 0 010-6M3 20a6 6 0 0118 0" },
+];
+
+export function Sidebar({ year, role }: { year?: string; role?: string }) {
   const pathname = usePathname();
   return (
     <aside
@@ -81,6 +85,7 @@ export function Sidebar({ year }: { year?: string }) {
       </div>
       <nav className="flex-1 overflow-y-auto px-3">
         <Group title="Overview" items={OVERVIEW} pathname={pathname} />
+        {role === "super-admin" && <Group title="Admin" items={ADMIN} pathname={pathname} />}
         <Group title="Workspace" items={WORKSPACE} pathname={pathname} />
       </nav>
       <div className="border-t border-border-subtle px-5 py-3 text-[11px] text-text-muted">
