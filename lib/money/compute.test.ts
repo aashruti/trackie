@@ -137,6 +137,42 @@ describe("computeInvoice", () => {
     expect(c.netMargin).toBe(100 * (30000 - 12000)); // 1_800_000
   });
 
+  it("prices old students per cohort (locked at enrollment), blended margin", () => {
+    // Year-3 old students: Y1 batch (21000 uni / 18000 oem) + Y2 batch (23000 / 20000).
+    const c = computeInvoice({
+      category: "old",
+      semester: "none",
+      students: 150, // 100 + 50
+      priceToUni: 25000, // invoice default (fallback) — not used since cohorts priced
+      priceToDatagami: 22000,
+      gstRate: 0.18,
+      tdsRate: 0.1,
+      cohortPricing: [
+        { count: 100, priceToUni: 21000, priceToDatagami: 18000 }, // Y1 batch
+        { count: 50, priceToUni: 23000, priceToDatagami: 20000 }, // Y2 batch
+      ],
+    });
+    expect(c.taxableIn).toBe(100 * 21000 + 50 * 23000); // 3,250,000
+    expect(c.taxableOut).toBe(100 * 18000 + 50 * 20000); // 2,800,000
+    expect(c.netMargin).toBe(3_250_000 - 2_800_000); // 450,000 blended
+  });
+
+  it("falls back to the invoice price for cohorts without a price", () => {
+    const c = computeInvoice({
+      category: "old",
+      semester: "none",
+      students: 90,
+      priceToUni: 14830.5,
+      priceToDatagami: 10500,
+      gstRate: 0.18,
+      tdsRate: 0.1,
+      cohortPricing: [{ count: 60, priceToUni: null, priceToDatagami: null }, { count: 30 }],
+    });
+    // No cohort prices → all 90 at the invoice price (current behaviour).
+    expect(c.taxableIn).toBe(90 * 14830.5);
+    expect(c.netMargin).toBe(90 * (14830.5 - 10500));
+  });
+
   it("treats received/outstanding from the payment ledger", () => {
     const c = computeInvoice({ ...pillaiNew, payments: [{ amount: 2_000_000 }] });
     expect(c.received).toBe(2_000_000);

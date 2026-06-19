@@ -6,6 +6,8 @@ import { updateCohortsAction } from "@/app/(app)/accounts/[id]/actions";
 interface Row {
   enrollmentYear: string;
   count: number;
+  priceToUni: number | null;
+  priceToDatagami: number | null;
 }
 
 export function CohortEditor({
@@ -20,7 +22,9 @@ export function CohortEditor({
   onClose: () => void;
 }) {
   const [rows, setRows] = useState<Row[]>(
-    initial.length ? initial.map((r) => ({ ...r })) : [{ enrollmentYear: "", count: 0 }],
+    initial.length
+      ? initial.map((r) => ({ ...r }))
+      : [{ enrollmentYear: "", count: 0, priceToUni: null, priceToDatagami: null }],
   );
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -31,7 +35,7 @@ export function CohortEditor({
     setRows((p) => p.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   }
   function add() {
-    setRows((p) => [...p, { enrollmentYear: "", count: 0 }]);
+    setRows((p) => [...p, { enrollmentYear: "", count: 0, priceToUni: null, priceToDatagami: null }]);
   }
   function remove(i: number) {
     setRows((p) => p.filter((_, idx) => idx !== i));
@@ -59,7 +63,13 @@ export function CohortEditor({
   return (
     <div className="mt-3 rounded-lg border border-[var(--primary-border)] bg-surface-sunken p-4">
       <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-text-secondary">
-        Edit cohorts · total syncs to student count
+        Edit cohorts · total syncs to student count · prices lock per batch (blank = invoice price)
+      </div>
+      <div className="flex items-center gap-2 px-1 pb-1 text-[10px] uppercase tracking-wide text-text-muted">
+        <span className="w-28">Enrollment yr</span>
+        <span className="w-20">Count</span>
+        <span className="w-24">Price/uni</span>
+        <span className="w-24">Price/Datagami</span>
       </div>
       <div className="space-y-2">
         {rows.map((r, i) => (
@@ -76,8 +86,24 @@ export function CohortEditor({
               value={r.count || ""}
               onChange={(e) => update(i, { count: parseInt(e.target.value, 10) || 0 })}
               placeholder="count"
-              className={`tabular w-24 ${inputCls}`}
+              className={`tabular w-20 ${inputCls}`}
               aria-label="Cohort count"
+            />
+            <input
+              type="number"
+              value={r.priceToUni ?? ""}
+              onChange={(e) => update(i, { priceToUni: e.target.value === "" ? null : parseFloat(e.target.value) || 0 })}
+              placeholder="invoice"
+              className={`tabular w-24 ${inputCls}`}
+              aria-label="Cohort price to uni"
+            />
+            <input
+              type="number"
+              value={r.priceToDatagami ?? ""}
+              onChange={(e) => update(i, { priceToDatagami: e.target.value === "" ? null : parseFloat(e.target.value) || 0 })}
+              placeholder="invoice"
+              className={`tabular w-24 ${inputCls}`}
+              aria-label="Cohort price to Datagami"
             />
             <button
               onClick={() => remove(i)}

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Money } from "@/components/ui/money";
+import { fmt } from "@/lib/money/format";
 import { StatusBadge } from "@/components/ui/badge";
 import { InvoiceLadder } from "./invoice-ladder";
 import { InvoiceEditor } from "./invoice-editor";
@@ -14,7 +15,7 @@ import type { PaymentEntry } from "@/lib/dal/payments";
 type Inv = InvoiceComputed & {
   id: number;
   status: Status;
-  cohorts: { enrollmentYear: string; count: number }[];
+  cohorts: { enrollmentYear: string; count: number; priceToUni: number | null; priceToDatagami: number | null }[];
   ledger: PaymentEntry[];
 };
 
@@ -261,7 +262,12 @@ function StudentsView({
                 <CohortEditor
                   accountId={accountId}
                   invoiceId={inv.id}
-                  initial={inv.cohorts.map((c) => ({ enrollmentYear: c.enrollmentYear, count: c.count }))}
+                  initial={inv.cohorts.map((c) => ({
+                    enrollmentYear: c.enrollmentYear,
+                    count: c.count,
+                    priceToUni: c.priceToUni,
+                    priceToDatagami: c.priceToDatagami,
+                  }))}
                   onClose={() => setEditingId(null)}
                 />
               ) : inv.cohorts.length > 0 ? (
@@ -292,6 +298,14 @@ function StudentsView({
                           }}
                         />
                       </div>
+                      {(c.priceToUni != null || c.priceToDatagami != null) && (
+                        <span className="tabular w-28 shrink-0 text-right text-[11px] text-text-muted">
+                          {c.priceToUni != null && <>@{fmt(c.priceToUni)}</>}
+                          {c.priceToDatagami != null && (
+                            <span className="text-text-muted"> ▸ {fmt(c.priceToDatagami)}</span>
+                          )}
+                        </span>
+                      )}
                       <span className="tabular w-10 shrink-0 text-right text-xs font-medium text-text-primary">
                         {c.count}
                       </span>

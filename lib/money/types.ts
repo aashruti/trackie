@@ -6,6 +6,13 @@ export interface PaymentLite {
   amount: number;
 }
 
+/** A cohort's enrollment count with optional locked-in per-student prices. */
+export interface CohortPricing {
+  count: number;
+  priceToUni?: number | null;
+  priceToDatagami?: number | null;
+}
+
 export interface InvoiceInput {
   category: Category;
   semester: Semester;
@@ -18,6 +25,9 @@ export interface InvoiceInput {
   payments?: PaymentLite[]; // receipts: university → Datagami
   oemPayments?: PaymentLite[]; // payments out: Datagami → OEM
   selfSupplied?: boolean; // Datagami's own product — no external OEM transfer
+  // Per-cohort pricing (old students): when present, taxables are summed across
+  // cohorts using each cohort's locked price (falling back to the invoice price).
+  cohortPricing?: CohortPricing[];
 }
 
 export interface InvoiceComputed extends InvoiceInput {

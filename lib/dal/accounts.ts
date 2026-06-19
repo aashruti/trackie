@@ -6,6 +6,7 @@ import { computeAccount } from "@/lib/money/compute";
 import type { InvoiceInputWithStatus } from "@/lib/money/types";
 import { scopeAccountIds, type SessionUser } from "./authz";
 import { loadPaymentLites } from "./payments";
+import { loadCohortPricing } from "./cohort-pricing";
 
 /** Account ids assigned to a user (for admin/viewer scoping). */
 export async function assignedIds(userId: number): Promise<number[]> {
@@ -49,7 +50,9 @@ export async function listAccountsForUser(
       .from(invoices)
       .where(and(eq(invoices.accountId, a.id), eq(invoices.yearId, year.id)));
 
-    const lites = await loadPaymentLites(invRows.map((r) => r.id));
+    const invIds = invRows.map((r) => r.id);
+    const lites = await loadPaymentLites(invIds);
+    const cohortPx = await loadCohortPricing(invIds);
     const inputs: InvoiceInputWithStatus[] = invRows.map((r) => ({
       category: r.category,
       semester: r.semester,
@@ -63,6 +66,7 @@ export async function listAccountsForUser(
       payments: lites.get(r.id)?.receipts ?? [],
       oemPayments: lites.get(r.id)?.oemPayments ?? [],
       selfSupplied: a.isSelf,
+      cohortPricing: cohortPx.get(r.id),
     }));
 
     const computed = computeAccount(inputs);

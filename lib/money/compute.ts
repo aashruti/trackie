@@ -19,7 +19,14 @@ import type {
 export function computeInvoice(i: InvoiceInput): InvoiceComputed {
   const adv = i.advanceAdj ?? 0;
 
-  const taxableIn = i.students * i.priceToUni; // FULL — margin basis
+  // Per-cohort pricing (old students): sum each cohort at its locked price,
+  // falling back to the invoice price when a cohort has none. Otherwise the
+  // whole invoice uses one price.
+  const cp = i.cohortPricing;
+  const taxableIn =
+    cp && cp.length > 0
+      ? cp.reduce((s, c) => s + c.count * (c.priceToUni ?? i.priceToUni), 0)
+      : i.students * i.priceToUni; // FULL — margin basis
   // The advance is a prepayment of these fees, so the university is billed the
   // NET amount once the count is known (advance was billed separately as a token).
   const billedTaxableIn = taxableIn - adv;
@@ -32,7 +39,10 @@ export function computeInvoice(i: InvoiceInput): InvoiceComputed {
 
   // taxableOut = Datagami's cost basis (used for margin). For self-supplied
   // products it's an optional internal cost; otherwise the OEM transfer price.
-  const taxableOut = i.students * i.priceToDatagami;
+  const taxableOut =
+    cp && cp.length > 0
+      ? cp.reduce((s, c) => s + c.count * (c.priceToDatagami ?? i.priceToDatagami), 0)
+      : i.students * i.priceToDatagami;
 
   // Self-supplied (Datagami is the "OEM"): no external transfer at all — no
   // payable, no OEM-side GST/TDS, no advance. Margin = revenue − internal cost.

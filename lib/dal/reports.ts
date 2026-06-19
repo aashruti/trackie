@@ -7,6 +7,7 @@ import type { InvoiceInputWithStatus, Status } from "@/lib/money/types";
 import { scopeAccountIds, type SessionUser } from "./authz";
 import { assignedIds } from "./accounts";
 import { loadPaymentLites } from "./payments";
+import { loadCohortPricing } from "./cohort-pricing";
 
 export interface ReportRow {
   id: number;
@@ -72,7 +73,9 @@ export async function getReportData(
       .select()
       .from(invoices)
       .where(and(eq(invoices.accountId, a.id), eq(invoices.yearId, year.id)));
-    const lites = await loadPaymentLites(invRows.map((r) => r.id));
+    const invIds = invRows.map((r) => r.id);
+    const lites = await loadPaymentLites(invIds);
+    const cohortPx = await loadCohortPricing(invIds);
 
     const inputs: InvoiceInputWithStatus[] = invRows.map((r) => ({
       category: r.category, semester: r.semester, students: r.students,
@@ -80,6 +83,7 @@ export async function getReportData(
       gstRate: Number(r.gstRate), tdsRate: Number(r.tdsRate), advanceAdj: Number(r.advanceAdj),
       status: r.status, payments: lites.get(r.id)?.receipts ?? [],
       oemPayments: lites.get(r.id)?.oemPayments ?? [], selfSupplied: a.isSelf,
+      cohortPricing: cohortPx.get(r.id),
     }));
 
     const c = computeAccount(inputs);
