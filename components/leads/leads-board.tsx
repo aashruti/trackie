@@ -353,20 +353,36 @@ function LeadCard({
         <span className="text-[10.5px] font-bold uppercase tracking-wide text-text-muted">Est. value</span>
         <Money value={lead.value} compact className="text-sm font-bold" />
       </div>
-      <div className="mb-2.5 flex items-center gap-1.5 rounded-[7px] bg-surface-sunken px-2.5 py-2">
-        <ClockIcon />
-        <span className="min-w-0 flex-1 truncate text-[11.5px] text-text-secondary">
-          {lead.nextAction ?? "—"}
-        </span>
-        {lead.nextDate && (
-          <span
-            className="tabular text-[11px]"
-            style={{ color: isOverdue(lead.nextDate) ? "var(--negative-text)" : "var(--text-muted)" }}
+      {(() => {
+        const overdue = !!lead.nextDate && isOverdue(lead.nextDate);
+        return (
+          <div
+            className="mb-2.5 flex items-center gap-1.5 rounded-[7px] px-2.5 py-2"
+            style={
+              overdue
+                ? { background: "var(--negative-subtle)", border: "1px solid var(--negative-border)" }
+                : { background: "var(--surface-sunken)" }
+            }
           >
-            {fmtDay(lead.nextDate)}
-          </span>
-        )}
-      </div>
+            <ClockIcon color={overdue ? "var(--negative-text)" : undefined} />
+            <span
+              className="min-w-0 flex-1 truncate text-[11.5px]"
+              style={{ color: overdue ? "var(--negative-text)" : "var(--text-secondary)" }}
+            >
+              {lead.nextAction ?? "—"}
+            </span>
+            {lead.nextDate && (
+              <span
+                className="tabular shrink-0 text-[11px] font-semibold"
+                style={{ color: overdue ? "var(--negative-text)" : "var(--text-muted)" }}
+              >
+                {fmtDay(lead.nextDate)}
+                {overdue && " · overdue"}
+              </span>
+            )}
+          </div>
+        );
+      })()}
       <div className="flex items-center justify-between gap-2 border-t border-border-subtle pt-2.5">
         <span className="inline-flex items-center gap-1.5 text-[11px] text-text-muted">
           <ChatIcon />
@@ -403,9 +419,9 @@ function Chip({ children }: { children: React.ReactNode }) {
   );
 }
 
-function ClockIcon() {
+function ClockIcon({ color }: { color?: string }) {
   return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-none">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={color ?? "var(--text-muted)"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-none">
       <circle cx="12" cy="12" r="9" />
       <polyline points="12 7 12 12 15 14" />
     </svg>
