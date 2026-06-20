@@ -20,7 +20,7 @@ import { config } from "dotenv";
 config({ path: ".env.production.local" });
 config({ path: ".env.local" });
 
-import { sql } from "drizzle-orm";
+import { neon } from "@neondatabase/serverless";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 
 const url = process.env.DATABASE_URL ?? "";
@@ -28,13 +28,44 @@ const isNeon = /neon\.tech/.test(url) || !!process.env.VERCEL;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { migrate } = isNeon ? require("drizzle-orm/neon-http/migrator") : require("drizzle-orm/postgres-js/migrator");
 
+// Use the raw neon() client for bootstrap queries — its tagged-template results
+// are always plain row arrays, avoiding Drizzle wrapper format differences.
+// Falls back to postgres.js-style db.execute() for local dev.
+async function query<T extends Record<string, unknown>>(
+  rawSql: string,
+): Promise<T[]> {
+  if (isNeon) {
+    const client = neon(url);
+    return client.query(rawSql) as Promise<T[]>;
+  }
+  // Local postgres.js path (avoid importing neon when not needed)
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const postgres = require("postgres");
+  const pg = postgres(url, { max: 1, prepare: false });
+  const result = await pg.unsafe(rawSql);
+  await pg.end();
+  return result as T[];
+}
+
+async function exec(rawSql: string): Promise<void> {
+  if (isNeon) {
+    const client = neon(url);
+    await client.query(rawSql);
+    return;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const postgres = require("postgres");
+  const pg = postgres(url, { max: 1, prepare: false });
+  await pg.unsafe(rawSql);
+  await pg.end();
+}
+
 async function main() {
   const { db } = await import("../lib/db/client");
 
-  // Ensure the drizzle tracking schema + table exist (migrate() does this too, but
-  // we need it before we can query it below).
-  await db.execute(sql`CREATE SCHEMA IF NOT EXISTS drizzle`);
-  await db.execute(sql`
+  // Ensure the drizzle tracking schema + table exist.
+  await exec(`CREATE SCHEMA IF NOT EXISTS drizzle`);
+  await exec(`
     CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations (
       id SERIAL PRIMARY KEY,
       hash text NOT NULL,
@@ -43,27 +74,26 @@ async function main() {
   `);
 
   // Check whether tracking has ever been seeded.
-  const rows = await db.execute(sql`SELECT COUNT(*)::int AS cnt FROM drizzle.__drizzle_migrations`);
-  const tracked = Number((rows as unknown as Array<{ cnt: number }>)[0]?.cnt ?? 0);
+  const [countRow] = await query<{ cnt: string }>(`SELECT COUNT(*)::text AS cnt FROM drizzle.__drizzle_migrations`);
+  const tracked = Number(countRow?.cnt ?? 0);
 
   if (tracked === 0) {
-    // Check if this is an existing DB (accounts table already exists).
-    const check = await db.execute(sql`
+    // Check if this is an existing DB (accounts table already exists from prior
+    // manual setup before migration tracking was introduced).
+    const [existsRow] = await query<{ exists: boolean }>(`
       SELECT EXISTS (
         SELECT 1 FROM information_schema.tables
         WHERE table_schema = 'public' AND table_name = 'accounts'
       ) AS "exists"
     `);
-    const dbExists = (check as unknown as Array<{ exists: boolean }>)[0]?.exists ?? false;
+    const dbExists = existsRow?.exists === true || String(existsRow?.exists) === "true";
 
     if (dbExists) {
-      // Existing DB set up before Drizzle tracking — pre-seed all migrations so
-      // migrate() sees them as already applied and skips them.
       console.log("Bootstrapping migration history for existing database…");
       const migrations = readMigrationFiles({ migrationsFolder: "./drizzle" });
       for (const m of migrations) {
-        await db.execute(
-          sql`INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES (${m.hash}, ${m.folderMillis})`,
+        await exec(
+          `INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ('${m.hash}', ${m.folderMillis})`,
         );
         console.log(`  ✓ seeded: ${m.hash.slice(0, 12)}… (${m.folderMillis})`);
       }
