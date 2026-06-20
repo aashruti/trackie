@@ -17,6 +17,10 @@ const ibmPlexMono = IBM_Plex_Mono({
   weight: ["400", "500", "600"],
 });
 
+// Run all serverless functions in Singapore to co-locate with the Neon DB.
+// Eliminates the ~200ms US-East → Singapore cross-Pacific round trip per query.
+export const preferredRegion = "sin1";
+
 export const metadata: Metadata = {
   title: "Trackie — Datagami",
   description: "Collections & payments tracker for Datagami",
