@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { addTaskAction } from "@/app/(app)/team/actions";
 import { TASK_PRIORITIES, type TaskPriority, type TaskStatus } from "@/lib/db/enums";
 import { TASK_COLUMNS, type Option } from "@/lib/board/constants";
+import { Combobox } from "@/components/ui/combobox";
 
 const fieldCls =
   "mt-1 w-full rounded-md border border-border-strong bg-surface px-3 py-2 text-sm text-text-primary outline-none focus:ring-2 focus:ring-[var(--ring)]";
@@ -108,24 +109,24 @@ export function NewTaskDialog({
           </label>
 
           <div className="grid grid-cols-2 gap-3">
-            <label className="block">
+            <div>
               <span className="text-[11px] font-medium text-text-muted">Account</span>
-              <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className={fieldCls}>
-                <option value="">Internal</option>
-                {accounts.map((a) => (
-                  <option key={a.id} value={a.id}>{a.name}</option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
+              <Combobox
+                options={accounts.map((a) => ({ id: a.id, name: a.name }))}
+                value={accountId}
+                onChange={setAccountId}
+                emptyLabel="Internal"
+              />
+            </div>
+            <div>
               <span className="text-[11px] font-medium text-text-muted">Assignee</span>
-              <select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)} className={fieldCls}>
-                <option value="">Unassigned</option>
-                {users.map((u) => (
-                  <option key={u.id} value={u.id}>{u.name}</option>
-                ))}
-              </select>
-            </label>
+              <Combobox
+                options={users.map((u) => ({ id: u.id, name: u.name }))}
+                value={assigneeId}
+                onChange={setAssigneeId}
+                emptyLabel="Unassigned"
+              />
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
