@@ -10,7 +10,7 @@ import {
 } from "@/components/dashboard/charts";
 import { AccountsTable } from "@/components/dashboard/accounts-table";
 import { TodayPanel } from "@/components/dashboard/today-panel";
-import { getCurrentYear, listYears } from "@/lib/dal/years";
+import { getYearContext } from "@/lib/dal/years";
 import { fmtCompact as fmtC } from "@/lib/money/format";
 import { myTasksToday } from "@/lib/dal/tasks";
 import { myFollowupsToday } from "@/lib/dal/leads";
@@ -18,8 +18,7 @@ import { myFollowupsToday } from "@/lib/dal/leads";
 export default async function DashboardPage() {
   const session = await auth();
   const user = session!.user;
-  const YEAR = await getCurrentYear();
-  const years = (await listYears()).map((y) => y.label);
+  const { currentYear: YEAR, years } = await getYearContext();
   const userId = Number(user.id);
   const [portfolio, myTasks, myFollowups] = await Promise.all([
     getPortfolioForUser({ id: userId, role: user.role }, YEAR),

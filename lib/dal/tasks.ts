@@ -128,14 +128,10 @@ export async function myTasksToday(userId: number): Promise<TaskRow[]> {
 
 /** Accounts + users for the New-task pickers and board filters. */
 export async function listTaskOptions(): Promise<{ accounts: Option[]; users: Option[] }> {
-  const accRows = await db
-    .select({ id: accounts.id, name: accounts.name })
-    .from(accounts)
-    .orderBy(asc(accounts.name));
-  const userRows = await db
-    .select({ id: users.id, name: users.name })
-    .from(users)
-    .orderBy(asc(users.name));
+  const [accRows, userRows] = await Promise.all([
+    db.select({ id: accounts.id, name: accounts.name }).from(accounts).orderBy(asc(accounts.name)),
+    db.select({ id: users.id, name: users.name }).from(users).orderBy(asc(users.name)),
+  ]);
   return { accounts: accRows, users: userRows };
 }
 

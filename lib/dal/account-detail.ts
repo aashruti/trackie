@@ -92,9 +92,11 @@ export async function getAccountDetail(
     cohortsByInvoice.set(c.invoiceId, list);
   }
 
-  // Payment ledger (receipts + OEM payments) per invoice.
-  const lites = await loadPaymentLites(invoiceIds);
-  const ledger = await loadPaymentLedger(invoiceIds);
+  // Payment ledger (receipts + OEM payments) per invoice — parallel fetches.
+  const [lites, ledger] = await Promise.all([
+    loadPaymentLites(invoiceIds),
+    loadPaymentLedger(invoiceIds),
+  ]);
 
   const inputs: InvoiceInputWithStatus[] = invRows.map((r) => ({
     category: r.category,

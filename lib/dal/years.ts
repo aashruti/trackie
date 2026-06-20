@@ -52,4 +52,19 @@ export async function getCurrentYear(): Promise<string> {
   return (await latestActiveYearLabel(years)) ?? "FY26–27";
 }
 
+/**
+ * Returns both the current year label and the full year list in a single
+ * `listYears()` call. Use this instead of calling `getCurrentYear()` +
+ * `listYears()` separately — pages were doing 2× listYears per request.
+ */
+export async function getYearContext(): Promise<{ currentYear: string; years: string[] }> {
+  const rows = await listYears();
+  const labels = rows.map((y) => y.label);
+  const cookieVal = (await cookies()).get(YEAR_COOKIE)?.value;
+  const currentYear = cookieVal && labels.includes(cookieVal)
+    ? cookieVal
+    : ((await latestActiveYearLabel(rows)) ?? "FY26–27");
+  return { currentYear, years: labels };
+}
+
 export { YEAR_COOKIE };

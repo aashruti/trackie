@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth/config";
 import { Topbar } from "@/components/shell/topbar";
-import { getCurrentYear, listYears } from "@/lib/dal/years";
+import { getYearContext } from "@/lib/dal/years";
 import { listUsers } from "@/lib/dal/user-admin";
 import { listAccountsForUser } from "@/lib/dal/accounts";
 import { UsersAdmin } from "@/components/admin/users-admin";
@@ -8,8 +8,7 @@ import { UsersAdmin } from "@/components/admin/users-admin";
 export default async function UsersAdminPage() {
   const session = await auth();
   const user = session!.user;
-  const YEAR = await getCurrentYear();
-  const years = (await listYears()).map((y) => y.label);
+  const { currentYear: YEAR, years } = await getYearContext();
 
   if (user.role !== "super-admin") {
     return (

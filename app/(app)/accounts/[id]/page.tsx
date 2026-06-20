@@ -11,7 +11,7 @@ import { AddInvoice } from "@/components/accounts/add-invoice";
 import { AccountReportButton } from "@/components/accounts/account-report";
 import { PrintButton } from "@/components/reports/print-button";
 import { getAccountDetail } from "@/lib/dal/account-detail";
-import { getCurrentYear, listYears } from "@/lib/dal/years";
+import { getYearContext } from "@/lib/dal/years";
 
 function Kpi({ label, value, tone }: { label: string; value: number; tone?: "default" | "positive" | "negative" | "pending" | "info" }) {
   return (
@@ -32,8 +32,7 @@ export default async function AccountDetailPage({
   const { id } = await params;
   const session = await auth();
   const user = session!.user;
-  const YEAR = await getCurrentYear();
-  const years = (await listYears()).map((y) => y.label);
+  const { currentYear: YEAR, years } = await getYearContext();
 
   const detail = await getAccountDetail(
     { id: Number(user.id), role: user.role },

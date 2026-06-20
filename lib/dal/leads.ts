@@ -101,11 +101,12 @@ export function formatDateLabel(d: Date): string {
 
 export async function listLeads(user: SessionUser): Promise<LeadRow[]> {
   assertLeadsAccess(user);
-  const rows = await db.select().from(leads).orderBy(desc(leads.value));
-  const counts = await db
-    .select({ leadId: leadActivities.leadId, n: sql<number>`count(*)::int` })
-    .from(leadActivities)
-    .groupBy(leadActivities.leadId);
+  const [rows, counts] = await Promise.all([
+    db.select().from(leads).orderBy(desc(leads.value)),
+    db.select({ leadId: leadActivities.leadId, n: sql<number>`count(*)::int` })
+      .from(leadActivities)
+      .groupBy(leadActivities.leadId),
+  ]);
   const countBy = new Map(counts.map((c) => [c.leadId, c.n]));
   return rows.map((r) => toRow(r, countBy.get(r.id) ?? 0));
 }
@@ -113,11 +114,10 @@ export async function listLeads(user: SessionUser): Promise<LeadRow[]> {
 /** All leads with their full discussion timelines (small dataset; one extra query). */
 export async function listLeadsWithActivities(user: SessionUser): Promise<LeadDetailRow[]> {
   assertLeadsAccess(user);
-  const rows = await db.select().from(leads).orderBy(desc(leads.value));
-  const acts = await db
-    .select()
-    .from(leadActivities)
-    .orderBy(desc(leadActivities.occurredAt), desc(leadActivities.id));
+  const [rows, acts] = await Promise.all([
+    db.select().from(leads).orderBy(desc(leads.value)),
+    db.select().from(leadActivities).orderBy(desc(leadActivities.occurredAt), desc(leadActivities.id)),
+  ]);
   const byLead = new Map<number, LeadActivityRow[]>();
   for (const a of acts) {
     const list = byLead.get(a.leadId) ?? [];
@@ -135,9 +135,11 @@ export async function getLead(user: SessionUser, id: number): Promise<LeadDetail
   assertLeadsAccess(user);
   const [row] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
   if (!row) return null;
-  const acts = await loadActivities(id);
-  const followups = (await loadFollowupsByLead([id])).get(id) ?? [];
-  return { ...toRow(row, acts.length), activities: acts, followups };
+  const [acts, followupsMap] = await Promise.all([
+    loadActivities(id),
+    loadFollowupsByLead([id]),
+  ]);
+  return { ...toRow(row, acts.length), activities: acts, followups: followupsMap.get(id) ?? [] };
 }
 
 /** Activities for a lead, reverse-chronological (newest first). */
