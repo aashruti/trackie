@@ -54,6 +54,7 @@ export function PaymentForm({
           <span className="text-[11px] text-text-muted">Amount (₹)</span>
           <input
             type="number"
+            autoFocus
             value={amount || ""}
             onChange={(e) => setAmount(parseFloat(e.target.value) || 0)}
             className={`tabular mt-1 block w-36 ${inputCls}`}
