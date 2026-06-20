@@ -130,6 +130,31 @@ export async function createInvoice(
 }
 
 /**
+ * Delete a single draft invoice (and its cohorts/payments via cascade).
+ * Rejected if the invoice is not in "draft" status — only drafts can be removed.
+ * Any admin who can edit the account can delete its draft invoices.
+ */
+export async function deleteDraftInvoice(
+  user: SessionUser,
+  accountId: number,
+  invoiceId: number,
+): Promise<void> {
+  const assigned = user.role === "super-admin" ? [] : await assignedIds(user.id);
+  if (!canEdit(user, accountId, assigned)) throw new Error("Not authorized for this account");
+
+  const [row] = await db
+    .select({ status: invoices.status })
+    .from(invoices)
+    .where(eq(invoices.id, invoiceId))
+    .limit(1);
+  if (!row) throw new Error("Invoice not found");
+  if (row.status !== "draft") throw new Error("Only draft invoices can be deleted");
+
+  // Payments and cohorts cascade from the invoice row.
+  await db.delete(invoices).where(eq(invoices.id, invoiceId));
+}
+
+/**
  * Permanently delete an account and all its data (invoices, payments, cohorts,
  * user assignments). Tasks are unlinked (set null), not deleted.
  * Super-admin only — no recovery once done.

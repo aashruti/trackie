@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { Card } from "@/components/ui/card";
 import { Money } from "@/components/ui/money";
 import { StatusBadge } from "@/components/ui/badge";
 import { PaymentForm } from "./payment-form";
+import { deleteDraftInvoiceAction } from "@/app/(app)/accounts/[id]/actions";
 import type { InvoiceComputed, Status } from "@/lib/money/types";
 import type { Direction, PaymentEntry } from "@/lib/dal/payments";
 
@@ -63,6 +64,8 @@ export function InvoiceLadder({
   const isAdvance = inv.category === "advance";
   const self = inv.selfSupplied === true;
   const [paying, setPaying] = useState<Direction | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, startDelete] = useTransition();
 
   return (
     <Card className="p-5">
@@ -97,6 +100,32 @@ export function InvoiceLadder({
                 >
                   Edit
                 </button>
+              )}
+              {inv.status === "draft" && (
+                confirmDelete ? (
+                  <span className="flex items-center gap-1">
+                    <button
+                      onClick={() => startDelete(async () => { await deleteDraftInvoiceAction(accountId, inv.id); })}
+                      disabled={deleting}
+                      className="rounded-md border border-[var(--negative-border)] bg-[var(--negative-subtle)] px-2.5 py-1 text-xs font-medium text-[var(--negative-text)] hover:opacity-80 disabled:opacity-50"
+                    >
+                      {deleting ? "Deleting…" : "Confirm delete"}
+                    </button>
+                    <button
+                      onClick={() => setConfirmDelete(false)}
+                      className="rounded-md border border-border-strong bg-surface px-2 py-1 text-xs text-text-muted hover:bg-surface-hover"
+                    >
+                      Cancel
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setConfirmDelete(true)}
+                    className="rounded-md border border-border-strong bg-surface px-2.5 py-1 text-xs font-medium text-[var(--negative-text)] hover:bg-[var(--negative-subtle)]"
+                  >
+                    Delete
+                  </button>
+                )
               )}
             </>
           )}
