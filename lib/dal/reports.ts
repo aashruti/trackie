@@ -68,15 +68,29 @@ export async function getReportData(
   const data: ReportData = { rows: [], byOem: [], aging: { ...empty.aging }, totals: { ...blankTotals } };
   const oemAgg = new Map<string, { billed: number; netMargin: number; payable: number }>();
 
-  for (const a of accRows) {
-    const invRows = await db
-      .select()
-      .from(invoices)
-      .where(and(eq(invoices.accountId, a.id), eq(invoices.yearId, year.id)));
-    const invIds = invRows.map((r) => r.id);
-    const lites = await loadPaymentLites(invIds);
-    const cohortPx = await loadCohortPricing(invIds);
+  if (!accRows.length) return data;
 
+  const accountIds = accRows.map((a) => a.id);
+  const allInvRows = await db
+    .select()
+    .from(invoices)
+    .where(and(inArray(invoices.accountId, accountIds), eq(invoices.yearId, year.id)));
+
+  const invsByAccount = new Map<number, typeof allInvRows>();
+  for (const inv of allInvRows) {
+    const list = invsByAccount.get(inv.accountId) ?? [];
+    list.push(inv);
+    invsByAccount.set(inv.accountId, list);
+  }
+
+  const allInvIds = allInvRows.map((r) => r.id);
+  const [lites, cohortPx] = await Promise.all([
+    loadPaymentLites(allInvIds),
+    loadCohortPricing(allInvIds),
+  ]);
+
+  for (const a of accRows) {
+    const invRows = invsByAccount.get(a.id) ?? [];
     const inputs: InvoiceInputWithStatus[] = invRows.map((r) => ({
       category: r.category, semester: r.semester, students: r.students,
       priceToUni: Number(r.priceToUni), priceToDatagami: Number(r.priceToDatagami),

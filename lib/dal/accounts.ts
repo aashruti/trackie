@@ -43,16 +43,34 @@ export async function listAccountsForUser(
     .innerJoin(oems, eq(accounts.oemId, oems.id))
     .where(scope === null ? undefined : inArray(accounts.id, scope.length ? scope : [-1]));
 
+  if (!accRows.length) return [];
+
+  // Batch: fetch all invoices for all accounts in one query (eliminates N+1 loop).
+  const accountIds = accRows.map((a) => a.id);
+  const allInvRows = await db
+    .select()
+    .from(invoices)
+    .where(and(inArray(invoices.accountId, accountIds), eq(invoices.yearId, year.id)));
+
+  // Group invoices by accountId for O(1) lookup below.
+  const invsByAccount = new Map<number, typeof allInvRows>();
+  for (const inv of allInvRows) {
+    const list = invsByAccount.get(inv.accountId) ?? [];
+    list.push(inv);
+    invsByAccount.set(inv.accountId, list);
+  }
+
+  // Batch: load payments + cohort pricing for ALL invoices at once (2 queries total).
+  const allInvIds = allInvRows.map((r) => r.id);
+  const [lites, cohortPx] = await Promise.all([
+    loadPaymentLites(allInvIds),
+    loadCohortPricing(allInvIds),
+  ]);
+
+  // Pure-JS computation per account — no more DB calls inside the loop.
   const result = [];
   for (const a of accRows) {
-    const invRows = await db
-      .select()
-      .from(invoices)
-      .where(and(eq(invoices.accountId, a.id), eq(invoices.yearId, year.id)));
-
-    const invIds = invRows.map((r) => r.id);
-    const lites = await loadPaymentLites(invIds);
-    const cohortPx = await loadCohortPricing(invIds);
+    const invRows = invsByAccount.get(a.id) ?? [];
     const inputs: InvoiceInputWithStatus[] = invRows.map((r) => ({
       category: r.category,
       semester: r.semester,

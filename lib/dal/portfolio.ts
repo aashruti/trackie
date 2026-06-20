@@ -81,15 +81,29 @@ export async function getPortfolioForUser(
   const p: Portfolio = structuredClone(empty);
   const oemMargins = new Map<string, number>();
 
-  for (const a of accRows) {
-    const invRows = await db
-      .select()
-      .from(invoices)
-      .where(and(eq(invoices.accountId, a.id), eq(invoices.yearId, year.id)));
+  if (!accRows.length) return p;
 
-    const invIds = invRows.map((r) => r.id);
-    const lites = await loadPaymentLites(invIds);
-    const cohortPx = await loadCohortPricing(invIds);
+  const accountIds = accRows.map((a) => a.id);
+  const allInvRows = await db
+    .select()
+    .from(invoices)
+    .where(and(inArray(invoices.accountId, accountIds), eq(invoices.yearId, year.id)));
+
+  const invsByAccount = new Map<number, typeof allInvRows>();
+  for (const inv of allInvRows) {
+    const list = invsByAccount.get(inv.accountId) ?? [];
+    list.push(inv);
+    invsByAccount.set(inv.accountId, list);
+  }
+
+  const allInvIds = allInvRows.map((r) => r.id);
+  const [lites, cohortPx] = await Promise.all([
+    loadPaymentLites(allInvIds),
+    loadCohortPricing(allInvIds),
+  ]);
+
+  for (const a of accRows) {
+    const invRows = invsByAccount.get(a.id) ?? [];
     const inputs: InvoiceInputWithStatus[] = invRows.map((r) => ({
       category: r.category,
       semester: r.semester,
