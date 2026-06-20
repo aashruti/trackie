@@ -13,6 +13,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:seed": "tsx scripts/seed.ts",
+    "db:seed-workspace": "tsx scripts/seed-workspace.ts",
     "create-admin": "tsx scripts/create-admin.ts",
     "reconcile": "tsx scripts/reconcile.ts"
   },

@@ -22,3 +22,19 @@ export function canEdit(user: SessionUser, accountId: number, assigned: number[]
   if (user.role === "admin") return assigned.includes(accountId);
   return false;
 }
+
+/**
+ * Leads CRM is sales-pipeline data, gated to Admin / Finance.
+ * Maps the prototype's role switch (Admin/Finance ↔ Designer/Employee):
+ *  - super-admin & admin → full access
+ *  - viewer (Designer / Employee) → locked out
+ */
+export function canAccessLeads(user: SessionUser): boolean {
+  return user.role === "super-admin" || user.role === "admin";
+}
+
+export function assertLeadsAccess(user: SessionUser): void {
+  if (!canAccessLeads(user)) {
+    throw new Error("Leads is available to Admin / Finance only");
+  }
+}

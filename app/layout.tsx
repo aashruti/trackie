@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Hanken_Grotesk, IBM_Plex_Mono } from "next/font/google";
+import { cookies } from "next/headers";
 import "./globals.css";
 
 // Brand fonts. Bound to the design-system token variables (--font-sans / --font-mono
@@ -21,15 +22,21 @@ export const metadata: Metadata = {
   description: "Collections & payments tracker for Datagami",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Theme is driven by a cookie so the server renders the correct `.dark` class —
+  // no inline script, no flash of the wrong theme. The toggle updates the cookie.
+  const theme = (await cookies()).get("theme")?.value;
+  const dark = theme === "dark";
+
   return (
     <html
       lang="en"
-      className={`${hanken.variable} ${ibmPlexMono.variable} h-full antialiased`}
+      suppressHydrationWarning
+      className={`${hanken.variable} ${ibmPlexMono.variable} h-full antialiased${dark ? " dark" : ""}`}
     >
       <body className="min-h-full flex flex-col">{children}</body>
     </html>

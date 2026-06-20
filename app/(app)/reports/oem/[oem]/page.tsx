@@ -39,7 +39,7 @@ export default async function OemReportPage({
 
   return (
     <>
-      <Topbar title="OEM report" user={user} years={years} currentYear={YEAR} />
+      <Topbar section="Reports" title="OEM report" user={user} years={years} currentYear={YEAR} />
       <main className="mx-auto w-full max-w-[1440px] space-y-5 px-6 py-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>

@@ -13,6 +13,26 @@ import { sql } from "drizzle-orm";
 import * as t from "../lib/db/schema";
 import { parseSheet } from "./excel-parse";
 import { hashPassword } from "../lib/auth/password";
+import { LEAD_FIXTURES } from "../lib/fixtures/leads";
+import { seedWorkspaceUsersAndTasks } from "./seed-tasks";
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** "16 Jun 2026" → Date (UTC noon, so it survives timezone rounding). */
+function parseDateLabel(label: string): Date {
+  const [d, mon, y] = label.split(/\s+/);
+  const m = MONTHS.indexOf(mon);
+  return new Date(Date.UTC(Number(y), m < 0 ? 0 : m, Number(d), 12));
+}
+/** "20 Jun" (or "20 Jun 2026") → "YYYY-MM-DD" (defaults the year to 2026). */
+function labelToISO(label: string | null | undefined): string | null {
+  if (!label) return null;
+  const parts = label.trim().split(/\s+/);
+  const [d, mon, y] = parts.length === 3 ? parts : [parts[0], parts[1], "2026"];
+  const m = MONTHS.indexOf(mon);
+  if (m < 0 || !d) return null;
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${y}-${p(m + 1)}-${p(Number(d))}`;
+}
 
 const XLSX_PATH = "/Users/kunalsharma/Downloads/IBM UNIVERSITY  FULL DETAILS.xlsx";
 
@@ -29,7 +49,7 @@ async function main() {
   // Reset domain tables (cascade clears cohorts/payments/invoices/user_accounts).
   await db.execute(
     sql.raw(
-      `TRUNCATE TABLE payments, cohorts, invoices, user_accounts, accounts, academic_years, oems, users RESTART IDENTITY CASCADE`,
+      `TRUNCATE TABLE lead_activities, leads, tasks, payments, cohorts, invoices, user_accounts, accounts, academic_years, oems, users RESTART IDENTITY CASCADE`,
     ),
   );
 
@@ -89,9 +109,55 @@ async function main() {
     role: "super-admin",
   });
 
+  // Workspace — demo users, account assignments, and Team board tasks
+  const ws = await seedWorkspaceUsersAndTasks(db, t);
+
+  // Workspace — Leads CRM (lead + its discussion timeline)
+  let activityCount = 0;
+  for (const lead of LEAD_FIXTURES) {
+    const priceToUni = lead.students > 0 ? Math.round(lead.value / lead.students) : 0;
+    const priceToDatagami = Math.round(priceToUni * 0.85);
+    const [row] = await db
+      .insert(t.leads)
+      .values({
+        prospect: lead.prospect,
+        city: lead.city,
+        oem: lead.oem,
+        owner: lead.owner,
+        stage: lead.stage,
+        value: String(lead.students * priceToUni),
+        students: lead.students,
+        priceToUni: String(priceToUni),
+        priceToDatagami: String(priceToDatagami),
+        nextAction: lead.nextAction,
+        nextDate: labelToISO(lead.nextDate),
+        source: lead.source,
+        contactName: lead.contact.name,
+        contactRole: lead.contact.role,
+        contactEmail: lead.contact.email,
+        contactPhone: lead.contact.phone,
+        lostReason: lead.lostReason ?? null,
+      })
+      .returning();
+    if (lead.activities.length) {
+      await db.insert(t.leadActivities).values(
+        lead.activities.map((a) => ({
+          leadId: row.id,
+          type: a.type,
+          author: a.author,
+          body: a.body,
+          dateLabel: a.dateLabel,
+          occurredAt: parseDateLabel(a.dateLabel),
+        })),
+      );
+      activityCount += lead.activities.length;
+    }
+  }
+
   console.log(
     `Seeded: ${parsedAll.length} accounts, ${oemNames.length} OEMs (${oemNames.join(", ")}), ` +
       `year FY26–27, ${invoiceCount} invoices, ${cohortCount} cohort rows.\n` +
+      `Workspace: ${ws.users} demo users, ${ws.tasks} tasks, ${LEAD_FIXTURES.length} leads, ${activityCount} discussions.\n` +
       `Super Admin: admin@datagami.local / changeme123`,
   );
   process.exit(0);

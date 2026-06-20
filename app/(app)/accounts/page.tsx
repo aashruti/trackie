@@ -16,7 +16,7 @@ export default async function AccountsPage() {
 
   return (
     <>
-      <Topbar title="Accounts" user={user} years={years} currentYear={YEAR} />
+      <Topbar section="Universities" title="Accounts" user={user} years={years} currentYear={YEAR} />
       <main className="mx-auto w-full max-w-[1440px] space-y-4 px-6 py-6">
         <p className="text-xs text-text-muted">
           {rows.length} accounts · {YEAR}

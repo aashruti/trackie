@@ -44,7 +44,7 @@ export default async function AccountDetailPage({
 
   return (
     <>
-      <Topbar title="Account" user={user} years={years} currentYear={YEAR} />
+      <Topbar section="Universities" title="Account" user={user} years={years} currentYear={YEAR} />
       <main className="mx-auto w-full max-w-[1440px] space-y-5 px-6 py-6">
         <div>
           <Link href="/accounts" className="text-xs text-text-muted hover:text-text-primary">

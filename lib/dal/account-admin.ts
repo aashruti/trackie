@@ -20,18 +20,39 @@ export async function listOems(): Promise<OemRow[]> {
   return db.select().from(oems).orderBy(asc(oems.name));
 }
 
-export async function createOem(
-  user: SessionUser,
-  name: string,
-  isSelf = false,
-): Promise<OemRow> {
-  assertSuperAdmin(user);
+/** Find an OEM by name, or create it. No authorization — internal helper. */
+export async function ensureOem(name: string, isSelf = false): Promise<OemRow> {
   const clean = name.trim();
   if (!clean) throw new Error("OEM name is required");
   const existing = await db.select().from(oems).where(eq(oems.name, clean)).limit(1);
   if (existing.length) return existing[0];
   const [row] = await db.insert(oems).values({ name: clean, isSelf }).returning();
   return row;
+}
+
+export async function createOem(
+  user: SessionUser,
+  name: string,
+  isSelf = false,
+): Promise<OemRow> {
+  assertSuperAdmin(user);
+  return ensureOem(name, isSelf);
+}
+
+/** Raw account insert. No authorization — callers must authorize first. */
+export async function insertAccount(input: {
+  name: string;
+  type: "university" | "programme";
+  city?: string | null;
+  oemId: number;
+}): Promise<{ id: number }> {
+  const name = input.name.trim();
+  if (!name) throw new Error("Account name is required");
+  const [row] = await db
+    .insert(accounts)
+    .values({ name, type: input.type, city: input.city ?? null, oemId: input.oemId })
+    .returning();
+  return { id: row.id };
 }
 
 export interface NewAccount {
@@ -48,21 +69,15 @@ export async function createAccount(
   input: NewAccount,
 ): Promise<{ id: number }> {
   assertSuperAdmin(user);
-  const name = input.name.trim();
-  if (!name) throw new Error("Account name is required");
 
   let oemId = input.oemId;
   if (!oemId) {
     if (!input.newOemName?.trim()) throw new Error("Pick an OEM or add a new one");
-    const oem = await createOem(user, input.newOemName, input.newOemIsSelf ?? false);
+    const oem = await ensureOem(input.newOemName, input.newOemIsSelf ?? false);
     oemId = oem.id;
   }
 
-  const [row] = await db
-    .insert(accounts)
-    .values({ name, type: input.type, city: input.city ?? null, oemId })
-    .returning();
-  return { id: row.id };
+  return insertAccount({ name: input.name, type: input.type, city: input.city, oemId });
 }
 
 export interface NewInvoice {

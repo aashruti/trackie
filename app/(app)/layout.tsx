@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth/config";
 import { Sidebar } from "@/components/shell/sidebar";
-import { getCurrentYear } from "@/lib/dal/years";
+import pkg from "@/package.json";
 
 export default async function AppLayout({
   children,
@@ -10,11 +10,15 @@ export default async function AppLayout({
 }) {
   const session = await auth();
   if (!session?.user) redirect("/login");
-  const year = await getCurrentYear();
+  const user = session.user;
 
   return (
     <div className="flex min-h-dvh bg-background">
-      <Sidebar year={year} role={session.user.role} />
+      <Sidebar
+        role={user.role}
+        user={{ name: user.name, role: user.role }}
+        version={pkg.version}
+      />
       <div className="flex min-w-0 flex-1 flex-col">{children}</div>
     </div>
   );

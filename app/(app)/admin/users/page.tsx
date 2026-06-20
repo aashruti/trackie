@@ -14,7 +14,7 @@ export default async function UsersAdminPage() {
   if (user.role !== "super-admin") {
     return (
       <>
-        <Topbar title="Users" user={user} years={years} currentYear={YEAR} />
+        <Topbar section="Admin" title="Users" user={user} years={years} currentYear={YEAR} />
         <main className="mx-auto w-full max-w-[1440px] px-6 py-6">
           <p className="text-sm text-text-secondary">Only a Super Admin can manage users.</p>
         </main>
@@ -30,7 +30,7 @@ export default async function UsersAdminPage() {
 
   return (
     <>
-      <Topbar title="Users & access" user={user} years={years} currentYear={YEAR} />
+      <Topbar section="Admin" title="Users & access" user={user} years={years} currentYear={YEAR} />
       <main className="mx-auto w-full max-w-[1440px] space-y-5 px-6 py-6">
         <div>
           <h2 className="text-xl font-semibold tracking-tight text-text-primary">Users &amp; access</h2>

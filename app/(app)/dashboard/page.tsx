@@ -9,24 +9,31 @@ import {
   AgingChart,
 } from "@/components/dashboard/charts";
 import { AccountsTable } from "@/components/dashboard/accounts-table";
+import { TodayPanel } from "@/components/dashboard/today-panel";
 import { getCurrentYear, listYears } from "@/lib/dal/years";
 import { fmtCompact as fmtC } from "@/lib/money/format";
+import { myTasksToday } from "@/lib/dal/tasks";
+import { myFollowupsToday } from "@/lib/dal/leads";
 
 export default async function DashboardPage() {
   const session = await auth();
   const user = session!.user;
   const YEAR = await getCurrentYear();
   const years = (await listYears()).map((y) => y.label);
-  const portfolio = await getPortfolioForUser(
-    { id: Number(user.id), role: user.role },
-    YEAR,
-  );
+  const userId = Number(user.id);
+  const [portfolio, myTasks, myFollowups] = await Promise.all([
+    getPortfolioForUser({ id: userId, role: user.role }, YEAR),
+    myTasksToday(userId),
+    myFollowupsToday({ id: userId, role: user.role }),
+  ]);
   const { totals, reserves, counts } = portfolio;
 
   return (
     <>
-      <Topbar title="Dashboard" user={user} years={years} currentYear={YEAR} />
+      <Topbar section="Overview" title="Dashboard" user={user} years={years} currentYear={YEAR} />
       <main className="mx-auto w-full max-w-[1440px] space-y-6 px-6 py-6">
+        <TodayPanel tasks={myTasks} followups={myFollowups} userId={userId} />
+
         <div>
           <h2 className="text-sm font-medium text-text-secondary">
             Portfolio overview · {YEAR}

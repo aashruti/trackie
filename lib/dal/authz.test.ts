@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { canEdit, scopeAccountIds, type SessionUser } from "./authz";
+import {
+  canEdit,
+  canAccessLeads,
+  assertLeadsAccess,
+  scopeAccountIds,
+  type SessionUser,
+} from "./authz";
 
 const superAdmin: SessionUser = { id: 1, role: "super-admin" };
 const admin: SessionUser = { id: 2, role: "admin" };
@@ -25,5 +31,19 @@ describe("canEdit", () => {
   });
   it("viewer never edits", () => {
     expect(canEdit(viewer, 10, [10])).toBe(false);
+  });
+});
+
+describe("canAccessLeads (Admin / Finance only)", () => {
+  it("super-admin and admin can access leads", () => {
+    expect(canAccessLeads(superAdmin)).toBe(true);
+    expect(canAccessLeads(admin)).toBe(true);
+  });
+  it("viewer (Designer / Employee) is locked out", () => {
+    expect(canAccessLeads(viewer)).toBe(false);
+  });
+  it("assertLeadsAccess throws for viewer, passes for admin", () => {
+    expect(() => assertLeadsAccess(viewer)).toThrow();
+    expect(() => assertLeadsAccess(admin)).not.toThrow();
   });
 });

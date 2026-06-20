@@ -1,65 +1,61 @@
 import { signOut } from "@/lib/auth/config";
-import { Badge } from "@/components/ui/badge";
 import { YearSelector } from "./year-selector";
+import { ThemeToggle } from "./theme-toggle";
+import { UserMenu } from "./user-menu";
 import type { Role } from "@/lib/db/enums";
-
-function initials(name: string) {
-  return name
-    .split(" ")
-    .map((p) => p[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
-}
 
 export function Topbar({
   title,
+  section,
   user,
   years = [],
   currentYear,
 }: {
   title: string;
-  user: { name?: string | null; role?: Role };
+  section?: string;
+  user: { name?: string | null; email?: string | null; role?: Role };
   years?: string[];
   currentYear?: string;
 }) {
-  return (
-    <header className="no-print sticky top-0 z-10 flex h-[60px] items-center gap-4 border-b border-border bg-surface/80 px-6 backdrop-blur">
-      <h1 className="text-lg font-semibold tracking-tight text-text-primary">{title}</h1>
+  async function signOutAction() {
+    "use server";
+    await signOut({ redirectTo: "/login" });
+  }
 
-      <div className="ml-auto flex items-center gap-3">
+  return (
+    <header className="no-print sticky top-0 z-10 flex h-16 items-center gap-4 border-b border-border bg-surface/80 px-6 backdrop-blur">
+      <div className="min-w-0 shrink-0">
+        {section && (
+          <div className="text-[11px] font-semibold uppercase leading-none tracking-wider text-text-muted">
+            {section}
+          </div>
+        )}
+        <h1 className="mt-0.5 text-lg font-semibold leading-tight tracking-tight text-text-primary">
+          {title}
+        </h1>
+      </div>
+
+      {/* Search (presentational) */}
+      <div className="hidden min-w-0 flex-1 justify-center md:flex">
+        <div className="flex w-full max-w-xl items-center gap-2 rounded-lg border border-border bg-surface-sunken px-3 py-2 text-sm text-text-muted">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+            <circle cx="11" cy="11" r="7" />
+            <path d="M21 21l-4.3-4.3" />
+          </svg>
+          <span className="flex-1 truncate">Search universities, invoices, OEMs…</span>
+          <kbd className="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px]">⌘K</kbd>
+        </div>
+      </div>
+
+      <div className="ml-auto flex shrink-0 items-center gap-2.5">
         {currentYear && years.length > 0 && (
           <YearSelector years={years} current={currentYear} />
         )}
-
-        <div className="hidden items-center gap-2 rounded-md border border-border bg-surface-sunken px-3 py-1.5 text-sm text-text-muted md:flex">
-          <span>Search</span>
-          <kbd className="rounded bg-surface px-1 text-[10px]">⌘K</kbd>
-        </div>
-
-        <div className="flex items-center gap-2.5">
-          <div className="grid h-8 w-8 place-items-center rounded-full bg-[var(--primary-subtle)] text-xs font-bold text-[var(--primary-text)]">
-            {initials(user.name ?? "U")}
-          </div>
-          <div className="hidden leading-tight sm:block">
-            <div className="text-sm font-medium text-text-primary">{user.name}</div>
-            {user.role && (
-              <div className="-mt-0.5">
-                <Badge tone="info">{user.role}</Badge>
-              </div>
-            )}
-          </div>
-          <form
-            action={async () => {
-              "use server";
-              await signOut({ redirectTo: "/login" });
-            }}
-          >
-            <button className="rounded-md border border-border-strong px-2.5 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover">
-              Sign out
-            </button>
-          </form>
-        </div>
+        <ThemeToggle />
+        <UserMenu
+          user={{ name: user.name, email: user.email, role: user.role }}
+          signOutAction={signOutAction}
+        />
       </div>
     </header>
   );

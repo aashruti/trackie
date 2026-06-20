@@ -13,7 +13,7 @@ export default async function NewYearPage() {
   if (user.role === "viewer") {
     return (
       <>
-        <Topbar title="New year setup" user={user} years={years} currentYear={YEAR} />
+        <Topbar section="Setup" title="New year setup" user={user} years={years} currentYear={YEAR} />
         <main className="mx-auto w-full max-w-[1440px] px-6 py-6">
           <p className="text-sm text-text-secondary">
             Viewers can&apos;t roll over years. Ask an Admin or Super Admin.
@@ -30,7 +30,7 @@ export default async function NewYearPage() {
 
   return (
     <>
-      <Topbar title="New year setup" user={user} years={years} currentYear={YEAR} />
+      <Topbar section="Setup" title="New year setup" user={user} years={years} currentYear={YEAR} />
       <main className="mx-auto w-full max-w-[1440px] space-y-5 px-6 py-6">
         <div>
           <h2 className="text-xl font-semibold tracking-tight text-text-primary">

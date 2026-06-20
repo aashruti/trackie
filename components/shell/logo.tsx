@@ -33,14 +33,10 @@ export function TrackieLogo() {
   return (
     <div className="flex items-center gap-2.5">
       <TrackieMark />
-      <div className="leading-none">
-        <div className="text-base font-bold tracking-tight text-text-primary">
-          Trackie
-        </div>
-        <div className="mt-0.5 text-[10px] font-medium uppercase tracking-wider text-text-muted">
-          Datagami
-        </div>
-      </div>
+      <span className="text-lg font-bold tracking-tight text-text-primary">Trackie</span>
+      <span className="rounded-md border border-[var(--primary-border)] bg-[var(--primary-subtle)] px-1.5 py-0.5 text-[11px] font-semibold text-[var(--primary-text)]">
+        Datagami
+      </span>
     </div>
   );
 }
