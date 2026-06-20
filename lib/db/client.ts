@@ -1,4 +1,6 @@
-import { drizzle } from "drizzle-orm/postgres-js";
+import { neon } from "@neondatabase/serverless";
+import { drizzle as drizzleNeon, type NeonHttpDatabase } from "drizzle-orm/neon-http";
+import { drizzle as drizzlePg } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema";
 
@@ -7,18 +9,18 @@ import * as schema from "./schema";
 // import the client without tripping it.
 const url = process.env.DATABASE_URL!;
 
-// Managed Postgres (Neon/Supabase/RDS) requires SSL; local Postgres.app does not.
-const needsSsl =
-  /sslmode=require|neon\.tech|supabase\.|amazonaws\.com|render\.com/.test(url) ||
-  !!process.env.VERCEL;
+// On Neon (production / Vercel) use the HTTP driver: avoids TCP connection
+// establishment on every cold-start function invocation (~800-1200ms saved).
+// On localhost use postgres.js (TCP is fine for a persistent local server).
+const isNeon = /neon\.tech/.test(url) || !!process.env.VERCEL;
 
-// On Vercel (serverless) each function instance should keep a tiny pool; local
-// dev/scripts can use a larger one. `prepare: false` keeps us compatible with
-// transaction-mode poolers (Neon pooler / PgBouncer).
-const client = postgres(url, {
-  max: process.env.VERCEL ? 1 : 5,
-  ssl: needsSsl ? "require" : undefined,
-  prepare: false,
-});
+function createDb(): NeonHttpDatabase<typeof schema> {
+  if (isNeon) {
+    return drizzleNeon(neon(url), { schema });
+  }
+  // Local dev path — cast to the canonical type (same query interface).
+  const client = postgres(url, { max: 5, prepare: false });
+  return drizzlePg(client, { schema }) as unknown as NeonHttpDatabase<typeof schema>;
+}
 
-export const db = drizzle(client, { schema });
+export const db = createDb();

@@ -15,6 +15,13 @@
       "when": 1781884795423,
       "tag": "0001_silent_proudstar",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781885095423,
+      "tag": "0002_workspace_v2",
+      "breakpoints": true
     }
   ]
 }

@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "vercel-build": "npx tsx scripts/db-migrate.ts && next build",
+    "db:migrate-run": "tsx scripts/db-migrate.ts",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
@@ -17,9 +19,11 @@
     "create-admin": "tsx scripts/create-admin.ts",
     "reconcile": "tsx scripts/reconcile.ts",
     "create-prod-users": "tsx scripts/create-prod-users.ts",
-    "import-ibm-accounts": "tsx scripts/import-ibm-accounts.ts"
+    "import-ibm-accounts": "tsx scripts/import-ibm-accounts.ts",
+    "migrate-production": "tsx scripts/migrate-production.ts"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
     "bcryptjs": "^3.0.3",
     "drizzle-orm": "^0.45.2",
     "next": "16.2.9",
