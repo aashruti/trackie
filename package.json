@@ -15,7 +15,9 @@
     "db:seed": "tsx scripts/seed.ts",
     "db:seed-workspace": "tsx scripts/seed-workspace.ts",
     "create-admin": "tsx scripts/create-admin.ts",
-    "reconcile": "tsx scripts/reconcile.ts"
+    "reconcile": "tsx scripts/reconcile.ts",
+    "create-prod-users": "tsx scripts/create-prod-users.ts",
+    "import-ibm-accounts": "tsx scripts/import-ibm-accounts.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
