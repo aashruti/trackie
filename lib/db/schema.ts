@@ -78,6 +78,7 @@ export const invoices = pgTable("invoices", {
   tdsRate: numeric("tds_rate").notNull().default("0.10"),
   advanceAdj: numeric("advance_adj").notNull().default("0"),
   invoiceDate: date("invoice_date"),
+  dueDate: date("due_date"),
   status: statusEnum("status").notNull().default("raised"),
 });
 

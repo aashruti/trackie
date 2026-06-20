@@ -8,6 +8,14 @@ import type { InvoiceInputWithStatus, Status } from "@/lib/money/types";
 import { type SessionUser } from "./authz";
 import { assignedIds } from "./accounts";
 import { loadPaymentLites, loadPaymentLedger, type PaymentEntry } from "./payments";
+import { todayISO } from "@/lib/dates";
+
+function effStatus(dbStatus: Status, dueDate: string | null | undefined, today: string): Status {
+  if (dueDate && dueDate < today && (dbStatus === "raised" || dbStatus === "partially-paid")) {
+    return "overdue";
+  }
+  return dbStatus;
+}
 
 export interface Cohort {
   enrollmentYear: string;
@@ -20,6 +28,8 @@ export type DetailInvoice = ReturnType<typeof computeAccount>["invoices"][number
   id: number;
   cohorts: Cohort[];
   ledger: PaymentEntry[];
+  invoiceDate: string | null;
+  dueDate: string | null;
 };
 
 export interface AccountDetail {
@@ -98,6 +108,7 @@ export async function getAccountDetail(
     loadPaymentLedger(invoiceIds),
   ]);
 
+  const today = todayISO();
   const inputs: InvoiceInputWithStatus[] = invRows.map((r) => ({
     category: r.category,
     semester: r.semester,
@@ -107,7 +118,9 @@ export async function getAccountDetail(
     gstRate: Number(r.gstRate),
     tdsRate: Number(r.tdsRate),
     advanceAdj: Number(r.advanceAdj),
-    status: r.status,
+    status: effStatus(r.status, r.dueDate, today),
+    invoiceDate: r.invoiceDate,
+    dueDate: r.dueDate,
     payments: lites.get(r.id)?.receipts ?? [],
     oemPayments: lites.get(r.id)?.oemPayments ?? [],
     selfSupplied: acc.isSelf,
@@ -126,6 +139,8 @@ export async function getAccountDetail(
       b.enrollmentYear.localeCompare(a.enrollmentYear),
     ),
     ledger: ledger.get(invRows[i].id) ?? [],
+    invoiceDate: invRows[i].invoiceDate,
+    dueDate: invRows[i].dueDate,
   }));
   // Total students = sum of student-bearing invoices (advance has students=1, exclude it).
   const totalStudents = c.invoices

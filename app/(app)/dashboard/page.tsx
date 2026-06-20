@@ -14,16 +14,19 @@ import { getYearContext } from "@/lib/dal/years";
 import { fmtCompact as fmtC } from "@/lib/money/format";
 import { myTasksToday } from "@/lib/dal/tasks";
 import { myFollowupsToday } from "@/lib/dal/leads";
+import { listOverdueInvoices } from "@/lib/dal/accounts";
 
 export default async function DashboardPage() {
   const session = await auth();
   const user = session!.user;
   const { currentYear: YEAR, years } = await getYearContext();
   const userId = Number(user.id);
-  const [portfolio, myTasks, myFollowups] = await Promise.all([
-    getPortfolioForUser({ id: userId, role: user.role }, YEAR),
+  const actor = { id: userId, role: user.role };
+  const [portfolio, myTasks, myFollowups, overdueInvoices] = await Promise.all([
+    getPortfolioForUser(actor, YEAR),
     myTasksToday(userId),
-    myFollowupsToday({ id: userId, role: user.role }),
+    myFollowupsToday(actor),
+    listOverdueInvoices(actor),
   ]);
   const { totals, reserves, counts } = portfolio;
 
@@ -31,7 +34,7 @@ export default async function DashboardPage() {
     <>
       <Topbar section="Overview" title="Dashboard" user={user} years={years} currentYear={YEAR} />
       <main className="mx-auto w-full max-w-[1440px] space-y-6 px-6 py-6">
-        <TodayPanel tasks={myTasks} followups={myFollowups} userId={userId} />
+        <TodayPanel tasks={myTasks} followups={myFollowups} overdueInvoices={overdueInvoices} userId={userId} />
 
         <div>
           <h2 className="text-sm font-medium text-text-secondary">

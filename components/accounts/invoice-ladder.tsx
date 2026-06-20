@@ -8,6 +8,7 @@ import { PaymentForm } from "./payment-form";
 import { deleteDraftInvoiceAction } from "@/app/(app)/accounts/[id]/actions";
 import type { InvoiceComputed, Status } from "@/lib/money/types";
 import type { Direction, PaymentEntry } from "@/lib/dal/payments";
+import { fmtDay, isOverdue } from "@/lib/dates";
 
 const CATEGORY_LABEL: Record<string, string> = {
   advance: "Advance bill",
@@ -48,6 +49,8 @@ export type LadderInvoice = InvoiceComputed & {
   id: number;
   status: Status;
   ledger: PaymentEntry[];
+  invoiceDate: string | null;
+  dueDate: string | null;
 };
 
 export function InvoiceLadder({
@@ -75,6 +78,16 @@ export function InvoiceLadder({
           <p className="text-xs text-text-muted">
             {inv.students} {inv.students === 1 ? "unit" : "students"} · GST {(inv.gstRate * 100).toFixed(0)}% · TDS {(inv.tdsRate * 100).toFixed(0)}%
           </p>
+          {(inv.invoiceDate || inv.dueDate) && (
+            <p className="mt-0.5 flex gap-3 text-[11px] text-text-muted">
+              {inv.invoiceDate && <span>Raised {fmtDay(inv.invoiceDate)}</span>}
+              {inv.dueDate && (
+                <span className={isOverdue(inv.dueDate) && inv.status !== "paid" ? "font-semibold text-[var(--negative-text)]" : ""}>
+                  Due {fmtDay(inv.dueDate)}{isOverdue(inv.dueDate) && inv.status !== "paid" ? " · overdue" : ""}
+                </span>
+              )}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {canEdit && (

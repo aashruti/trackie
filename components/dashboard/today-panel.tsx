@@ -2,20 +2,29 @@ import Link from "next/link";
 import { Card, CardHeader } from "@/components/ui/card";
 import { PRIORITY_META, stageLabel, type TaskRow } from "@/lib/board/constants";
 import type { LeadFollowup } from "@/lib/dal/leads";
+import type { OverdueInvoice } from "@/lib/dal/accounts";
 import { fmtDay, isToday } from "@/lib/dates";
+
+const CATEGORY_LABEL: Record<string, string> = {
+  advance: "Advance bill",
+  old: "Old students",
+  new: "New students",
+};
 
 /** Daily action panel: the signed-in user's tasks + lead follow-ups due today/overdue. */
 export function TodayPanel({
   tasks,
   followups,
+  overdueInvoices,
   userId,
 }: {
   tasks: TaskRow[];
   followups: LeadFollowup[];
+  overdueInvoices: OverdueInvoice[];
   userId: number;
 }) {
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
       <Card>
         <CardHeader
           title={`My tasks today${tasks.length ? ` · ${tasks.length}` : ""}`}
@@ -68,6 +77,35 @@ export function TodayPanel({
               </div>
               <DateBadge iso={l.dueDate} />
             </div>
+          ))}
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader
+          title={`Overdue invoices${overdueInvoices.length ? ` · ${overdueInvoices.length}` : ""}`}
+          subtitle="Past due date · unpaid or partially paid"
+          action={<ViewLink href="/accounts" />}
+        />
+        <div className="divide-y divide-border-subtle">
+          {overdueInvoices.length === 0 && <Empty>No overdue invoices. 🎉</Empty>}
+          {overdueInvoices.map((inv) => (
+            <Link
+              key={inv.invoiceId}
+              href={`/accounts/${inv.accountId}`}
+              className="flex items-center gap-3 px-5 py-2.5 hover:bg-surface-hover"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[13px] font-medium text-text-primary">{inv.accountName}</div>
+                <div className="truncate text-[11px] text-text-muted">
+                  {CATEGORY_LABEL[inv.category] ?? inv.category}
+                  {inv.semester !== "none" ? ` · ${inv.semester === "1" ? "1st" : "2nd"} sem` : ""}
+                </div>
+              </div>
+              <span className="tabular shrink-0 text-[11px] font-semibold text-[var(--negative-text)]">
+                {fmtDay(inv.dueDate)} · overdue
+              </span>
+            </Link>
           ))}
         </div>
       </Card>

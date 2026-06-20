@@ -20,6 +20,8 @@ interface Props {
     gstRate: number;
     tdsRate: number;
     advanceAdj: number;
+    invoiceDate: string | null;
+    dueDate: string | null;
     status: Status;
   };
   onClose: () => void;
@@ -61,6 +63,8 @@ export function InvoiceEditor({ accountId, invoiceId, category, semester, initia
   const [gstPct, setGstPct] = useState(initial.gstRate * 100);
   const [tdsPct, setTdsPct] = useState(initial.tdsRate * 100);
   const [advanceAdj, setAdvanceAdj] = useState(initial.advanceAdj);
+  const [invoiceDate, setInvoiceDate] = useState(initial.invoiceDate ?? "");
+  const [dueDate, setDueDate] = useState(initial.dueDate ?? "");
   const [status, setStatus] = useState<Status>(initial.status);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -87,6 +91,8 @@ export function InvoiceEditor({ accountId, invoiceId, category, semester, initia
           gstRate: gstPct / 100,
           tdsRate: tdsPct / 100,
           advanceAdj,
+          invoiceDate: invoiceDate || null,
+          dueDate: dueDate || null,
           status,
         });
         onClose();
@@ -114,6 +120,25 @@ export function InvoiceEditor({ accountId, invoiceId, category, semester, initia
         <Field label="GST" value={gstPct} onChange={setGstPct} suffix="%" />
         <Field label="TDS" value={tdsPct} onChange={setTdsPct} suffix="%" />
         <Field label="Advance adj" value={advanceAdj} onChange={setAdvanceAdj} suffix="₹" />
+        <label className="block">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">Invoice date</span>
+          <input
+            type="date"
+            value={invoiceDate}
+            onChange={(e) => setInvoiceDate(e.target.value)}
+            className="mt-1 w-full rounded-md border border-border-strong bg-surface px-2 py-1.5 text-sm text-text-primary outline-none focus:ring-2 focus:ring-[var(--ring)]"
+          />
+        </label>
+        <label className="block">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">Due date</span>
+          <input
+            type="date"
+            value={dueDate}
+            min={invoiceDate || undefined}
+            onChange={(e) => setDueDate(e.target.value)}
+            className="mt-1 w-full rounded-md border border-border-strong bg-surface px-2 py-1.5 text-sm text-text-primary outline-none focus:ring-2 focus:ring-[var(--ring)]"
+          />
+        </label>
         <label className="block">
           <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">Status</span>
           <select

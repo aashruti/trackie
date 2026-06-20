@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { computeInvoice } from "@/lib/money/compute";
 import { Money } from "@/components/ui/money";
 import type { Category, Semester, Status } from "@/lib/money/types";
+import { todayISO } from "@/lib/dates";
 import { createInvoiceAction } from "@/app/(app)/accounts/[id]/actions";
 
 const INVOICE_STATUSES: { value: Status; label: string }[] = [
@@ -43,6 +44,8 @@ export function AddInvoice({
   const [gstPct, setGstPct] = useState(18);
   const [tdsPct, setTdsPct] = useState(10);
   const [advanceAdj, setAdvanceAdj] = useState(0);
+  const [invoiceDate, setInvoiceDate] = useState(todayISO());
+  const [dueDate, setDueDate] = useState("");
   const [status, setStatus] = useState<Status>("raised");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -86,6 +89,8 @@ export function AddInvoice({
           gstRate: gstPct / 100,
           tdsRate: tdsPct / 100,
           advanceAdj: isAdvance ? 0 : advanceAdj,
+          invoiceDate: invoiceDate || null,
+          dueDate: dueDate || null,
           status,
         });
         reset();
@@ -159,6 +164,14 @@ export function AddInvoice({
             <input type="number" value={advanceAdj || ""} onChange={(e) => setAdvanceAdj(parseFloat(e.target.value) || 0)} className={`tabular ${inputCls}`} />
           </label>
         )}
+        <label className="block">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">Invoice date</span>
+          <input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} className={inputCls} />
+        </label>
+        <label className="block">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">Due date</span>
+          <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} min={invoiceDate || undefined} className={inputCls} />
+        </label>
         <label className="block">
           <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">Status</span>
           <select value={status} onChange={(e) => setStatus(e.target.value as Status)} className={inputCls}>

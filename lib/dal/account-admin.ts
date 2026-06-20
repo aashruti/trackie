@@ -89,6 +89,8 @@ export interface NewInvoice {
   gstRate: number; // fraction
   tdsRate: number; // fraction
   advanceAdj?: number;
+  invoiceDate?: string | null;
+  dueDate?: string | null;
   status?: Status;
 }
 
@@ -123,6 +125,8 @@ export async function createInvoice(
       gstRate: String(Math.max(0, Math.min(1, input.gstRate))),
       tdsRate: String(Math.max(0, Math.min(1, input.tdsRate))),
       advanceAdj: String(Math.max(0, input.advanceAdj ?? 0)),
+      invoiceDate: input.invoiceDate ?? null,
+      dueDate: input.dueDate ?? null,
       status: input.status ?? "draft",
     })
     .returning();

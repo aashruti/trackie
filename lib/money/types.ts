@@ -55,6 +55,8 @@ export interface InvoiceComputed extends InvoiceInput {
 
 export interface InvoiceInputWithStatus extends InvoiceInput {
   status: Status;
+  invoiceDate?: string | null;
+  dueDate?: string | null;
 }
 
 export interface AccountComputed {

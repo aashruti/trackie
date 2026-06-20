@@ -17,6 +17,8 @@ type Inv = InvoiceComputed & {
   status: Status;
   cohorts: { enrollmentYear: string; count: number; priceToUni: number | null; priceToDatagami: number | null }[];
   ledger: PaymentEntry[];
+  invoiceDate: string | null;
+  dueDate: string | null;
 };
 
 const CATEGORY_LABEL: Record<string, string> = {
@@ -82,6 +84,8 @@ export function DetailTabs({
                   gstRate: inv.gstRate,
                   tdsRate: inv.tdsRate,
                   advanceAdj: inv.advanceAdj,
+                  invoiceDate: inv.invoiceDate,
+                  dueDate: inv.dueDate,
                   status: inv.status,
                 }}
                 onClose={() => setEditingId(null)}

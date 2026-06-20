@@ -1,12 +1,20 @@
 import "server-only";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, lt } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { accounts, invoices, academicYears, oems, userAccounts } from "@/lib/db/schema";
 import { computeAccount } from "@/lib/money/compute";
-import type { InvoiceInputWithStatus } from "@/lib/money/types";
+import type { InvoiceInputWithStatus, Status } from "@/lib/money/types";
 import { scopeAccountIds, type SessionUser } from "./authz";
 import { loadPaymentLites } from "./payments";
 import { loadCohortPricing } from "./cohort-pricing";
+import { todayISO } from "@/lib/dates";
+
+function effStatus(dbStatus: Status, dueDate: string | null | undefined, today: string): Status {
+  if (dueDate && dueDate < today && (dbStatus === "raised" || dbStatus === "partially-paid")) {
+    return "overdue";
+  }
+  return dbStatus;
+}
 
 /** Account ids assigned to a user (for admin/viewer scoping). */
 export async function assignedIds(userId: number): Promise<number[]> {
@@ -68,6 +76,7 @@ export async function listAccountsForUser(
   ]);
 
   // Pure-JS computation per account — no more DB calls inside the loop.
+  const today = todayISO();
   const result = [];
   for (const a of accRows) {
     const invRows = invsByAccount.get(a.id) ?? [];
@@ -80,7 +89,7 @@ export async function listAccountsForUser(
       gstRate: Number(r.gstRate),
       tdsRate: Number(r.tdsRate),
       advanceAdj: Number(r.advanceAdj),
-      status: r.status,
+      status: effStatus(r.status, r.dueDate, today),
       payments: lites.get(r.id)?.receipts ?? [],
       oemPayments: lites.get(r.id)?.oemPayments ?? [],
       selfSupplied: a.isSelf,
@@ -104,4 +113,57 @@ export async function listAccountsForUser(
     });
   }
   return result;
+}
+
+export interface OverdueInvoice {
+  invoiceId: number;
+  accountId: number;
+  accountName: string;
+  category: string;
+  semester: string;
+  dueDate: string;
+}
+
+/** Invoices past their due date that are still unpaid (raised or partially-paid). */
+export async function listOverdueInvoices(
+  user: SessionUser,
+): Promise<OverdueInvoice[]> {
+  const today = todayISO();
+  let accFilter;
+  if (user.role !== "super-admin") {
+    const allowed = await assignedIds(user.id);
+    if (allowed.length === 0) return [];
+    accFilter = inArray(invoices.accountId, allowed);
+  }
+
+  const rows = await db
+    .select({
+      invoiceId: invoices.id,
+      accountId: accounts.id,
+      accountName: accounts.name,
+      category: invoices.category,
+      semester: invoices.semester,
+      dueDate: invoices.dueDate,
+    })
+    .from(invoices)
+    .innerJoin(accounts, eq(invoices.accountId, accounts.id))
+    .where(
+      and(
+        lt(invoices.dueDate, today),
+        inArray(invoices.status, ["raised", "partially-paid"] as Status[]),
+        accFilter,
+      ),
+    )
+    .orderBy(asc(invoices.dueDate));
+
+  return rows
+    .filter((r): r is typeof r & { dueDate: string } => r.dueDate != null)
+    .map((r) => ({
+      invoiceId: r.invoiceId,
+      accountId: r.accountId,
+      accountName: r.accountName,
+      category: r.category,
+      semester: r.semester,
+      dueDate: r.dueDate,
+    }));
 }
