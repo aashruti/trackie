@@ -25,15 +25,28 @@ function Item({
  * Set-aside reserves — money owed to / recoverable from the government. Visually
  * distinct from profit (info-toned, "set aside" framing) so it's never mistaken
  * for earnings.
+ *
+ * "Reserve needed" = Net GST payable + TDS payable — the cash Datagami must
+ * actually keep aside to remit. TDS receivable is excluded (it's an asset,
+ * recovered via tax credit) and advance TDS is already in net margin.
  */
 export function ReservesStrip({ reserves }: { reserves: Portfolio["reserves"] }) {
+  const reserveNeeded = reserves.netGst + reserves.tdsPayable;
+
   return (
     <div className="rounded-xl border border-[var(--info-border)] bg-[var(--info-subtle)]">
-      <div className="flex items-center gap-2 border-b border-[var(--info-border)] px-5 py-2.5">
+      <div className="flex items-center gap-3 border-b border-[var(--info-border)] px-5 py-2.5">
         <span className="text-xs font-semibold uppercase tracking-wide text-[var(--info-text)]">
           Set aside for government
         </span>
         <span className="text-[11px] text-text-muted">— reserves, not profit</span>
+        <div className="ml-auto flex items-center gap-1.5">
+          <span className="text-[11px] text-text-muted">Reserve needed:</span>
+          <span className="text-xs font-semibold text-[var(--info-text)]">
+            <Money value={reserveNeeded} compact tone="info" />
+          </span>
+          <span className="text-[10px] text-text-muted">(GST + TDS payable)</span>
+        </div>
       </div>
       <div className="flex flex-wrap divide-x divide-[var(--info-border)]">
         <Item label="Net GST payable" value={reserves.netGst} hint="output − input GST, remit to govt" />
