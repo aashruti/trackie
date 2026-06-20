@@ -23,6 +23,48 @@ export interface AccountRow {
 const PAGE_SIZE = 10;
 const STATUSES: Status[] = ["raised", "partially-paid", "paid", "overdue"];
 
+type SortKey = "name" | "billing" | "received" | "outstanding" | "netMargin";
+type SortDir = "asc" | "desc";
+
+function sortRows(rows: AccountRow[], key: SortKey, dir: SortDir): AccountRow[] {
+  return [...rows].sort((a, b) => {
+    const av = a[key];
+    const bv = b[key];
+    const cmp =
+      typeof av === "string" && typeof bv === "string"
+        ? av.localeCompare(bv)
+        : (av as number) - (bv as number);
+    return dir === "asc" ? cmp : -cmp;
+  });
+}
+
+function SortTh({
+  col, label, align, sk, sd, onSort, padLeft,
+}: {
+  col: SortKey;
+  label: string;
+  align: "left" | "right";
+  sk: SortKey;
+  sd: SortDir;
+  onSort: (k: SortKey) => void;
+  padLeft?: boolean;
+}) {
+  const active = sk === col;
+  const arrow = active ? (sd === "asc" ? " ↑" : " ↓") : "";
+  return (
+    <th
+      className={`${padLeft ? "px-5" : "px-3"} py-2.5 font-medium ${align === "right" ? "text-right" : ""}`}
+    >
+      <button
+        onClick={() => onSort(col)}
+        className={`select-none hover:text-text-primary ${active ? "text-text-primary" : ""}`}
+      >
+        {label}{arrow}
+      </button>
+    </th>
+  );
+}
+
 function toCsv(rows: AccountRow[]): string {
   const head = ["Account", "OEM", "Billed", "Received", "Outstanding", "Net margin", "Status"];
   const body = rows.map((r) =>
@@ -38,18 +80,31 @@ export function AccountsExplorer({ rows, canCreate = false }: { rows: AccountRow
   const [oem, setOem] = useState("all");
   const [status, setStatus] = useState("all");
   const [page, setPage] = useState(1);
+  const [sortKey, setSortKey] = useState<SortKey>("billing");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const oems = useMemo(() => [...new Set(rows.map((r) => r.oem))].sort(), [rows]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return rows.filter(
+    const base = rows.filter(
       (r) =>
         (!q || r.name.toLowerCase().includes(q)) &&
         (oem === "all" || r.oem === oem) &&
         (status === "all" || r.status === status),
     );
-  }, [rows, query, oem, status]);
+    return sortRows(base, sortKey, sortDir);
+  }, [rows, query, oem, status, sortKey, sortDir]);
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "name" ? "asc" : "desc");
+    }
+    setPage(1);
+  }
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const current = Math.min(page, pageCount);
@@ -143,12 +198,12 @@ export function AccountsExplorer({ rows, canCreate = false }: { rows: AccountRow
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border-subtle text-left text-xs text-text-muted">
-                <th className="px-5 py-2.5 font-medium">Account</th>
+                <SortTh col="name" label="Account" align="left" sk={sortKey} sd={sortDir} onSort={toggleSort} padLeft />
                 <th className="px-3 py-2.5 font-medium">OEM</th>
-                <th className="px-3 py-2.5 text-right font-medium">Billed</th>
-                <th className="px-3 py-2.5 text-right font-medium">Received</th>
-                <th className="px-3 py-2.5 text-right font-medium">Outstanding</th>
-                <th className="px-3 py-2.5 text-right font-medium">Net margin</th>
+                <SortTh col="billing" label="Billed" align="right" sk={sortKey} sd={sortDir} onSort={toggleSort} />
+                <SortTh col="received" label="Received" align="right" sk={sortKey} sd={sortDir} onSort={toggleSort} />
+                <SortTh col="outstanding" label="Outstanding" align="right" sk={sortKey} sd={sortDir} onSort={toggleSort} />
+                <SortTh col="netMargin" label="Net margin" align="right" sk={sortKey} sd={sortDir} onSort={toggleSort} />
                 <th className="px-5 py-2.5 font-medium">Status</th>
               </tr>
             </thead>
