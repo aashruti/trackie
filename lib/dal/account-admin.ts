@@ -128,3 +128,22 @@ export async function createInvoice(
     .returning();
   return { id: row.id };
 }
+
+/**
+ * Permanently delete an account and all its data (invoices, payments, cohorts,
+ * user assignments). Tasks are unlinked (set null), not deleted.
+ * Super-admin only — no recovery once done.
+ *
+ * Invoices have no CASCADE on accounts.id in the DB, so we delete them
+ * explicitly first; their payments and cohorts then cascade automatically.
+ */
+export async function deleteAccount(
+  user: SessionUser,
+  accountId: number,
+): Promise<void> {
+  assertSuperAdmin(user);
+  // Delete invoices first — payments and cohorts cascade from invoice deletion.
+  await db.delete(invoices).where(eq(invoices.accountId, accountId));
+  // Delete the account — userAccounts cascades; tasks.accountId set null.
+  await db.delete(accounts).where(eq(accounts.id, accountId));
+}

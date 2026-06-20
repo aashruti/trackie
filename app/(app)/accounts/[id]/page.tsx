@@ -10,6 +10,7 @@ import { DetailTabs } from "@/components/accounts/detail-tabs";
 import { AddInvoice } from "@/components/accounts/add-invoice";
 import { AccountReportButton } from "@/components/accounts/account-report";
 import { PrintButton } from "@/components/reports/print-button";
+import { DeleteAccountButton } from "@/components/accounts/delete-account-button";
 import { getAccountDetail } from "@/lib/dal/account-detail";
 import { getYearContext } from "@/lib/dal/years";
 
@@ -55,6 +56,9 @@ export default async function AccountDetailPage({
             </h2>
             <StatusBadge status={detail.status} />
             <div className="ml-auto flex gap-2">
+              {user.role === "super-admin" && (
+                <DeleteAccountButton accountId={detail.id} accountName={detail.name} />
+              )}
               <AccountReportButton detail={detail} year={YEAR} />
               <PrintButton label="Print / PDF" />
             </div>
