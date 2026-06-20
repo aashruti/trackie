@@ -89,8 +89,8 @@ async function main() {
         priceToUni: String(priceToUni),
         priceToDatagami: String(priceToDatagami),
         createdByUserId: creatorId(lead.owner),
-        nextAction: lead.nextAction,
-        nextDate: labelToISO(lead.nextDate),
+        nextAction: cacheAction,
+        nextDate: cacheDate,
         source: lead.source,
         contactName: lead.contact.name,
         contactRole: lead.contact.role,
@@ -112,11 +112,18 @@ async function main() {
       );
       activityCount += lead.activities.length;
     }
+    // Insert follow-up rows for open leads.
+    if (fus.length) {
+      await db.insert(t.leadFollowups).values(
+        fus.map((f) => ({ leadId: row.id, action: f.action ?? "Follow up", dueDate: f.dueISO || null, done: false })),
+      );
+      followupCount += fus.length;
+    }
   }
 
   console.log(
     `Workspace seeded: ${summary.users} demo users, ${summary.assignments} account assignments, ` +
-      `${summary.tasks} tasks, ${LEAD_FIXTURES.length} leads, ${activityCount} discussions.\n` +
+      `${summary.tasks} tasks, ${LEAD_FIXTURES.length} leads, ${activityCount} discussions, ${followupCount} follow-ups.\n` +
       `Demo logins (password "changeme123"): ramesh@ / arjun@ (admin), priya@ / neha@ (viewer) @datagami.local`,
   );
   process.exit(0);
