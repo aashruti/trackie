@@ -3,8 +3,16 @@
 import { useState, useTransition } from "react";
 import { computeInvoice } from "@/lib/money/compute";
 import { Money } from "@/components/ui/money";
-import type { Category, Semester } from "@/lib/money/types";
+import type { Category, Semester, Status } from "@/lib/money/types";
 import { createInvoiceAction } from "@/app/(app)/accounts/[id]/actions";
+
+const INVOICE_STATUSES: { value: Status; label: string }[] = [
+  { value: "raised", label: "Raised" },
+  { value: "draft", label: "Draft" },
+  { value: "partially-paid", label: "Partially Paid" },
+  { value: "paid", label: "Paid" },
+  { value: "overdue", label: "Overdue" },
+];
 
 const CATEGORIES: { value: Category; label: string }[] = [
   { value: "advance", label: "Advance bill" },
@@ -35,6 +43,7 @@ export function AddInvoice({
   const [gstPct, setGstPct] = useState(18);
   const [tdsPct, setTdsPct] = useState(10);
   const [advanceAdj, setAdvanceAdj] = useState(0);
+  const [status, setStatus] = useState<Status>("raised");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -77,7 +86,7 @@ export function AddInvoice({
           gstRate: gstPct / 100,
           tdsRate: tdsPct / 100,
           advanceAdj: isAdvance ? 0 : advanceAdj,
-          status: "draft",
+          status,
         });
         reset();
         setOpen(false);
@@ -150,6 +159,12 @@ export function AddInvoice({
             <input type="number" value={advanceAdj || ""} onChange={(e) => setAdvanceAdj(parseFloat(e.target.value) || 0)} className={`tabular ${inputCls}`} />
           </label>
         )}
+        <label className="block">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">Status</span>
+          <select value={status} onChange={(e) => setStatus(e.target.value as Status)} className={inputCls}>
+            {INVOICE_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
+        </label>
       </div>
 
       <div className="mt-4 flex items-center justify-between rounded-lg bg-surface-sunken px-4 py-3 text-sm">
@@ -168,7 +183,7 @@ export function AddInvoice({
           Cancel
         </button>
         <button onClick={save} disabled={pending} className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-fg hover:opacity-90 disabled:opacity-50">
-          {pending ? "Adding…" : "Add invoice (Draft)"}
+          {pending ? "Adding…" : "Add invoice"}
         </button>
       </div>
     </div>
