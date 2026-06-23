@@ -6,8 +6,12 @@
  *   npx tsx scripts/import-ibm-accounts.ts
  */
 import { config } from "dotenv";
-config({ path: ".env.production.local" });
-config({ path: ".env.local" });
+if (process.env.IMPORT_LOCAL) {
+  config({ path: ".env.local" });
+} else {
+  config({ path: ".env.production.local" });
+  config({ path: ".env.local" });
+}
 
 import { eq } from "drizzle-orm";
 import * as t from "../lib/db/schema";

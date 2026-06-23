@@ -9,6 +9,7 @@ import { deleteDraftInvoiceAction } from "@/app/(app)/accounts/[id]/actions";
 import type { InvoiceComputed, Status } from "@/lib/money/types";
 import type { Direction, PaymentEntry } from "@/lib/dal/payments";
 import { fmtDay, isOverdue } from "@/lib/dates";
+import { fmt } from "@/lib/money/format";
 
 const CATEGORY_LABEL: Record<string, string> = {
   advance: "Advance bill",
@@ -48,19 +49,39 @@ function Line({
 export type LadderInvoice = InvoiceComputed & {
   id: number;
   status: Status;
+  cohorts: { enrollmentYear: string; count: number; priceToUni: number | null; priceToDatagami: number | null }[];
   ledger: PaymentEntry[];
   invoiceDate: string | null;
   dueDate: string | null;
 };
 
+function startYear(label: string): number | null {
+  const m = label.match(/(\d{4})|(?:FY)?(\d{2})\D/);
+  if (m?.[1]) return parseInt(m[1], 10);
+  if (m?.[2]) return 2000 + parseInt(m[2], 10);
+  return null;
+}
+
+function yearOfStudy(enrollmentYear: string, currentYear: string): string | null {
+  const enroll = startYear(enrollmentYear);
+  const cur = startYear(currentYear);
+  if (enroll == null || cur == null) return null;
+  const n = cur - enroll + 1;
+  if (n < 1) return null;
+  const ord = ["", "1st", "2nd", "3rd", "4th", "5th", "6th", "7th"][n] ?? `${n}th`;
+  return `${ord} year`;
+}
+
 export function InvoiceLadder({
   inv,
   accountId,
+  currentYear,
   canEdit = false,
   onEdit,
 }: {
   inv: LadderInvoice;
   accountId: number;
+  currentYear?: string;
   canEdit?: boolean;
   onEdit?: () => void;
 }) {
@@ -145,6 +166,46 @@ export function InvoiceLadder({
           <StatusBadge status={inv.status} />
         </div>
       </div>
+
+      {inv.category === "old" && inv.cohorts.length > 0 && currentYear && (
+        <div className="mb-4 rounded-lg border border-border-subtle bg-surface-sunken px-4 py-3">
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+            Batch breakdown
+          </div>
+          <div className="space-y-1">
+            {inv.cohorts.map((c) => {
+              const yos = yearOfStudy(c.enrollmentYear, currentYear);
+              const ptu = c.priceToUni ?? inv.priceToUni;
+              const ptd = c.priceToDatagami ?? inv.priceToDatagami;
+              return (
+                <div key={c.enrollmentYear} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-4 text-xs">
+                  <span>
+                    {yos ? (
+                      <>
+                        <span className="font-medium text-text-primary">{yos}</span>
+                        <span className="ml-1.5 text-text-muted">· {c.enrollmentYear}</span>
+                      </>
+                    ) : (
+                      <span className="text-text-secondary">{c.enrollmentYear}</span>
+                    )}
+                  </span>
+                  <span className="tabular text-right text-text-secondary">{c.count} stu</span>
+                  <span className="tabular text-right text-text-muted">× {fmt(ptu)}</span>
+                  <Money value={c.count * ptu} className="text-xs text-right" />
+                </div>
+              );
+            })}
+            {inv.cohorts.length > 1 && (
+              <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-4 border-t border-border-subtle pt-1.5 text-xs font-semibold">
+                <span className="text-text-secondary">Total</span>
+                <span className="tabular text-right text-text-muted">{inv.students} stu</span>
+                <span />
+                <Money value={inv.taxableIn} className="text-xs text-right" />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-x-8 gap-y-1 md:grid-cols-2">
         {/* Inflow */}

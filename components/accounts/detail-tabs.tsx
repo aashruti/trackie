@@ -95,6 +95,7 @@ export function DetailTabs({
                 key={i}
                 inv={inv}
                 accountId={accountId}
+                currentYear={currentYear}
                 canEdit={canEdit}
                 onEdit={canEdit ? () => setEditingId(inv.id) : undefined}
               />
