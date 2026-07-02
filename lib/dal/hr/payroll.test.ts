@@ -1,5 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { computePay, cycleRange, SALARY_SPLIT, DAYS_IN_MONTH } from "./payroll";
+import { computePay, computeLines, cycleRange, SALARY_SPLIT, DAYS_IN_MONTH } from "./payroll";
+
+type Rec = { dayType: string; isLate: boolean; lopDays: string; source: string };
+const SETTINGS = { cycleStartDay: 26, lateLopMode: "late-count", latesPerLopDay: 3, absentIsLop: true };
+const rec = (dayType: string, source = "scanner", lopDays = "0", isLate = false): Rec => ({ dayType, source, lopDays, isLate });
+// Run one employee (gross 30000, no fixed deductions) through the engine.
+function line(recs: Rec[], settings = SETTINGS) {
+  const emp = { id: 1, code: "E1", name: "Emp", base: 30000, insurance: 0, professionalTax: 0, tds: 0 };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return computeLines([emp] as any, new Map([[1, recs as any]]), settings as any)[0];
+}
 
 /**
  * Ground truth: "Copy of Datagami - Salary June 2026.xlsx" → sheet "June 2026".
@@ -76,6 +86,65 @@ describe("computePay — invariants", () => {
   it("additions are added; insurance/PT/TDS are deducted", () => {
     const p = computePay({ gross: 30000, lopDays: 0, additions: 1000, insurance: 500, professionalTax: 200, tds: 300 });
     expect(p.netPay).toBe(30000 + 1000 - 500 - 200 - 300);
+  });
+});
+
+describe("computeLines — LOP is real unpaid time, not scanner noise", () => {
+  it("scanner 'absent' (no punch) does NOT dock pay", () => {
+    const l = line(Array.from({ length: 10 }, () => rec("absent", "scanner", "1")));
+    expect(l.lopDays).toBe(0);
+    expect(l.netPay).toBe(30000);
+  });
+
+  it("scanner 'half-day' does NOT dock pay (the Kunal case)", () => {
+    const l = line([rec("half-day", "scanner", "0.5", true), rec("half-day", "scanner", "0.5", true)]);
+    expect(l.lopDays).toBe(0);
+    expect(l.netPay).toBe(30000);
+  });
+
+  it("imported manual-grid 'absent' DOES dock pay", () => {
+    const l = line(Array.from({ length: 5 }, () => rec("absent", "import", "1")));
+    expect(l.lopDays).toBe(5);
+    expect(l.daysWorked).toBe(25);
+    expect(l.earnedGross).toBe(25000); // 30000/30 × 25
+  });
+
+  it("HR-overridden (manual) unpaid day and approved unpaid leave dock pay", () => {
+    expect(line([rec("absent", "manual", "1")]).lopDays).toBe(1);
+    expect(line([rec("unpaid-leave", "leave", "1")]).lopDays).toBe(1);
+    expect(line([rec("half-day", "import", "0.5")]).lopDays).toBe(0.5);
+  });
+
+  it("present-ish codes (office/WFH/OV/comp-off) never dock; paid leave is tracked separately", () => {
+    const l = line([rec("office", "import"), rec("wfh", "import"), rec("official-visit", "import"), rec("comp-off", "import"), rec("paid-leave", "leave"), rec("weekly-off", "import")]);
+    expect(l.lopDays).toBe(0);
+    expect(l.presentDays).toBe(4); // office+wfh+OV+comp
+    expect(l.paidLeaveDays).toBe(1);
+    expect(l.netPay).toBe(30000);
+  });
+
+  it("late-count policy: floor(lates / latesPerLopDay) LOP days", () => {
+    const sixLates = Array.from({ length: 6 }, () => rec("office", "scanner", "0", true));
+    expect(line(sixLates).lopDays).toBe(2); // 6 / 3
+    expect(line(Array.from({ length: 2 }, () => rec("office", "scanner", "0", true))).lopDays).toBe(0); // 2 / 3
+  });
+
+  it("late-count can be turned off by policy", () => {
+    const sixLates = Array.from({ length: 6 }, () => rec("office", "scanner", "0", true));
+    expect(line(sixLates, { ...SETTINGS, lateLopMode: "half-day-threshold" }).lopDays).toBe(0);
+  });
+
+  it("combined month: imported absences + lates, net reflects only real LOP", () => {
+    const recs = [
+      ...Array.from({ length: 20 }, () => rec("office", "scanner")), // present, some scanner noise
+      ...Array.from({ length: 3 }, () => rec("absent", "import", "1")), // 3 real unpaid days
+      ...Array.from({ length: 3 }, () => rec("office", "scanner", "0", true)), // 3 lates → 1 LOP
+    ];
+    const l = line(recs);
+    expect(l.lopDays).toBe(4); // 3 imported + 1 from lates
+    expect(l.daysWorked).toBe(26);
+    expect(l.earnedGross).toBe(26000);
+    expect(l.netPay).toBe(26000);
   });
 });
 

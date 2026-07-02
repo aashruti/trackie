@@ -181,9 +181,11 @@ export function computeLines(emps: EmpInput[], recsByEmp: Map<number, RecInput[]
         if (PRESENT_TYPES.includes(r.dayType)) presentDays += 1;
         else if (r.dayType === "half-day") presentDays += 0.5;
         else if (r.dayType === "paid-leave") paidLeaveDays += 1;
-        // Raw scanner "absent" (missing punch) is unreliable → never auto-LOP it.
-        const scannerAbsent = r.dayType === "absent" && r.source === "scanner";
-        if (!scannerAbsent) lopFromDays += Number(r.lopDays);
+        // Scanner punches establish presence/times but are NOT authoritative for
+        // loss-of-pay — unpaid time is an HR/leave decision (the manual grid import,
+        // HR cell-overrides, or approved unpaid leave). So scanner-sourced days never
+        // auto-dock pay; only import/manual/leave rows contribute LOP.
+        if (r.source !== "scanner") lopFromDays += Number(r.lopDays);
         if (r.isLate) lateCount += 1;
       }
       const lopFromLate = settings.lateLopMode === "late-count" ? Math.floor(lateCount / Math.max(1, settings.latesPerLopDay)) : 0;
