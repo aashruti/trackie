@@ -43,7 +43,6 @@ const ROSTER_PATH = expand(argVal("--roster", `${os.homedir()}/Downloads/Attenda
 const SCANNER_PATH = expand(argVal("--scanner", `${os.homedir()}/Downloads/June Month Report.xls`));
 
 const norm = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
-const firstTok = (s: string) => norm(s).split(" ")[0];
 function toNum(v: unknown): number {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
@@ -134,16 +133,27 @@ function parseScannerEnrollment(path: string): Map<string, string> {
 
 function matchRoster(userName: string, roster: RosterEmp[]): RosterEmp | null {
   const un = norm(userName);
+  const ut = un.split(" ");
   for (const e of roster) {
     const rn = norm(e.name);
-    if (rn === un || rn.startsWith(un) || un.startsWith(rn) || firstTok(rn) === firstTok(un)) return e;
+    const rt = rn.split(" ");
+    // exact, or a single-name that prefixes the full name ("Dhaval" → "Dhaval Shah",
+    // "Bini" → "Biniyamin Bhoraniya"), or both multi-token with first AND last matching
+    // (so "Rahul Sharma" ≠ "Rahul Verma").
+    if (rn === un) return e;
+    if ((ut.length === 1 || rt.length === 1) && (rn.startsWith(un) || un.startsWith(rn))) return e;
+    if (ut.length >= 2 && rt.length >= 2 && ut[0] === rt[0] && ut[ut.length - 1] === rt[rt.length - 1]) return e;
   }
   return null;
 }
 function matchBiometric(name: string, enroll: Map<string, string>): string | null {
-  const ft = firstTok(name);
+  const n = norm(name);
+  const t = n.split(" ");
   for (const [enm, ec] of enroll) {
-    if (firstTok(enm) === ft || enm.includes(norm(name)) || norm(name).includes(enm)) return ec;
+    const et = enm.split(" ");
+    if (enm === n || enm.includes(n) || n.includes(enm)) return ec;
+    // first + last token match (handles a middle name in the scanner's version)
+    if (t.length >= 2 && et.length >= 2 && t[0] === et[0] && t[t.length - 1] === et[t.length - 1]) return ec;
   }
   return null;
 }

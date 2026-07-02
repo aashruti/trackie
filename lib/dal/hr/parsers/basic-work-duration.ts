@@ -70,14 +70,26 @@ function durationToMinutes(v: unknown): number {
   return Number(mt[1]) * 60 + Number(mt[2]);
 }
 
-const ANNOTATION_TOKENS = ["WFH", "Leave", "Official", "Visit", "Holiday", "No", "Punch-in", "HD", "Id"];
+// Canonical annotation phrases, matched precisely so unrelated cell text (e.g.
+// a word merely starting with "No"/"Id") isn't mistaken for an annotation.
+const ANNOTATION_PATTERNS: [RegExp, string][] = [
+  [/wfh/i, "WFH"],
+  [/official\s*visit/i, "Official Visit"],
+  [/holiday/i, "Holiday"],
+  [/\bleave\b/i, "Leave"],
+  [/no\s*punch/i, "No Punch-in"],
+  [/half[-\s]*day|\bHD\b/i, "HD"],
+  [/\bcomp/i, "Comp-off"],
+];
 function annotationFrom(inRaw: unknown, outRaw: unknown): string | null {
-  const parts = [str(inRaw), str(outRaw)].filter((p) => p && !/^\d{1,2}:\d{2}/.test(p));
-  if (!parts.length) return null;
-  const joined = parts.join(" ").replace(/\s+/g, " ").trim();
+  const joined = [str(inRaw), str(outRaw)]
+    .filter((p) => p && !/^\d{1,2}:\d{2}/.test(p))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!joined) return null;
-  // Only treat as an annotation if it looks like one of the known tokens.
-  return ANNOTATION_TOKENS.some((t) => joined.includes(t)) ? joined : null;
+  for (const [re, label] of ANNOTATION_PATTERNS) if (re.test(joined)) return label;
+  return null;
 }
 
 export function parseBasicWorkDurationReport(buffer: Buffer | ArrayBuffer): ParsedReport {
@@ -104,20 +116,27 @@ export function parseBasicWorkDurationReport(buffer: Buffer | ArrayBuffer): Pars
     if (mt) dayByCol.set(c, Number(mt[1]));
   }
 
-  // Column → ISO date, using the segment (anchor) the column falls under.
-  function colToDate(col: number): string | null {
-    const day = dayByCol.get(col);
-    if (!day) return null;
-    // pick the last anchor whose column is <= this column
-    let anchor = anchors[0];
-    for (const a of anchors) if (a.col <= col) anchor = a;
-    if (!anchor) return null;
-    return `${anchor.y}-${String(anchor.m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  // Column → ISO date. The report segments run e.g. 26..31 then 1..25 across two
+  // months; assign each column to a month anchor by walking the day numbers in
+  // column order and advancing to the next anchor whenever the day RESETS
+  // (current < previous) — robust to where the device places the anchor cells.
+  const dateCols = [...dayByCol.keys()].sort((a, b) => a - b);
+  const dateByCol = new Map<number, string>();
+  {
+    let seg = 0;
+    let prevDay = 0;
+    for (const c of dateCols) {
+      const day = dayByCol.get(c)!;
+      if (day < prevDay) seg = Math.min(seg + 1, Math.max(anchors.length - 1, 0));
+      prevDay = day;
+      const anchor = anchors[seg] ?? anchors[anchors.length - 1];
+      if (anchor) dateByCol.set(c, `${anchor.y}-${String(anchor.m).padStart(2, "0")}-${String(day).padStart(2, "0")}`);
+    }
   }
+  const colToDate = (col: number): string | null => dateByCol.get(col) ?? null;
 
   // --- Employee blocks: find each "Emp. Code:" row. ---
   const days: NormalizedDay[] = [];
-  const dateCols = [...dayByCol.keys()].sort((a, b) => a - b);
   for (let r = 0; r < rows.length; r++) {
     if (!str(cell(rows, r, 0)).startsWith("Emp. Code")) continue;
     const code = str(cell(rows, r, 2));

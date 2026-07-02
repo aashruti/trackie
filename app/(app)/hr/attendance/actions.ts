@@ -19,10 +19,13 @@ async function actor() {
   return { id: Number(session.user.id), role: session.user.role };
 }
 
-async function fileBytes(formData: FormData): Promise<{ bytes: Buffer; name: string; type: string } | null> {
+const MAX_UPLOAD_BYTES = 8 * 1024 * 1024; // 8 MB — device reports are ~100 KB
+
+async function fileBytes(formData: FormData): Promise<{ bytes: Buffer; name: string; type: string } | { error: string } | null> {
   const f = formData.get("file");
   if (!f || typeof f === "string") return null;
   const file = f as File;
+  if (file.size > MAX_UPLOAD_BYTES) return { error: "That file is too large (max 8 MB)." };
   return { bytes: Buffer.from(await file.arrayBuffer()), name: file.name, type: file.type || "application/vnd.ms-excel" };
 }
 
@@ -32,6 +35,7 @@ export async function previewAttendanceAction(
   try {
     const f = await fileBytes(formData);
     if (!f) return { ok: false, error: "No file selected." };
+    if ("error" in f) return { ok: false, error: f.error };
     const preview = await previewAttendance(await actor(), f.bytes);
     if (!preview.matched.length && !preview.unmatched.length)
       return { ok: false, error: "No attendance rows found — is this the ZKTeco 'Basic Work Duration Report'?" };
@@ -48,6 +52,7 @@ export async function commitAttendanceAction(
   try {
     const f = await fileBytes(formData);
     if (!f) return { ok: false, error: "No file selected." };
+    if ("error" in f) return { ok: false, error: f.error };
     // Store the raw file for audit (best-effort — never blocks the commit).
     let blobUrl: string | null = null;
     if (isStorageConfigured()) {

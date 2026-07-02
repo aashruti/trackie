@@ -4,8 +4,9 @@ import { and, asc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { attendanceRecords, attendanceUploads, employeeProfiles, shifts, users } from "@/lib/db/schema";
 import { assertHrAccess, type SessionUser } from "@/lib/dal/authz";
+import { UserError } from "@/lib/dal/errors";
 import { getEmployeeForUser } from "./leave";
-import type { AttendanceDayType } from "@/lib/db/enums";
+import { ATTENDANCE_DAY_TYPES, type AttendanceDayType } from "@/lib/db/enums";
 import { parseBasicWorkDurationReport, type NormalizedDay } from "./parsers/basic-work-duration";
 
 // Fallback schedule when an employee has no shift assigned.
@@ -315,7 +316,8 @@ export function lopForDayType(dt: AttendanceDayType): number {
   return 0;
 }
 
-/** HR override of a single day — sets day_type manually, preserving punch times. */
+/** HR override of a single day — sets day_type manually and clears late/early
+ *  flags (a manual designation isn't a scanned late arrival). */
 export async function overrideAttendanceDay(
   user: SessionUser,
   employeeId: number,
@@ -323,13 +325,20 @@ export async function overrideAttendanceDay(
   dayType: AttendanceDayType,
 ): Promise<void> {
   assertHrAccess(user);
+  if (!(ATTENDANCE_DAY_TYPES as readonly string[]).includes(dayType)) {
+    throw new UserError("Unknown day type.");
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new UserError("Invalid date.");
+  }
   const lop = String(lopForDayType(dayType));
+  const cleared = { isLate: false, lateMinutes: 0, isEarlyLeave: false, earlyMinutes: 0 };
   await db
     .insert(attendanceRecords)
-    .values({ employeeId, date, dayType, source: "manual", overriddenByUserId: user.id, lopDays: lop })
+    .values({ employeeId, date, dayType, source: "manual", overriddenByUserId: user.id, lopDays: lop, ...cleared })
     .onConflictDoUpdate({
       target: [attendanceRecords.employeeId, attendanceRecords.date],
-      set: { dayType, lopDays: lop, source: "manual", overriddenByUserId: user.id, updatedAt: sql`now()` },
+      set: { dayType, lopDays: lop, source: "manual", overriddenByUserId: user.id, updatedAt: sql`now()`, ...cleared },
     });
 }
 
