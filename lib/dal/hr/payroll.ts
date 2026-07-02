@@ -2,7 +2,7 @@ import "server-only";
 
 import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { attendanceRecords, employeeProfiles, holidays, hrSettings, payrollRuns, payslips, users } from "@/lib/db/schema";
+import { attendanceRecords, employeeProfiles, hrSettings, payrollRuns, payslips, users } from "@/lib/db/schema";
 import { assertHrAccess, type SessionUser } from "@/lib/dal/authz";
 import { UserError } from "@/lib/dal/errors";
 import { getEmployeeForUser } from "./leave";
@@ -13,6 +13,68 @@ const PRESENT_TYPES: AttendanceDayType[] = ["office", "wfh", "official-visit", "
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+// ---- Pure pay computation (calibrated to the Datagami monthly salary sheet) --
+// Standard Indian "30-day month" convention: per-day = gross ÷ 30, and the
+// employee is paid for (30 − lopDays) days. Components are fixed % of gross.
+// Net = earned + additions − insurance − professional tax − TDS (floored at 0).
+export const SALARY_SPLIT = { basic: 0.4, hra: 0.16, other: 0.44 } as const;
+export const DAYS_IN_MONTH = 30;
+export const DEFAULT_PROFESSIONAL_TAX = 200; // ₹200/mo (Maharashtra PT), 0 for non-salaried
+
+export type PayInput = {
+  gross: number;
+  lopDays: number;
+  insurance?: number;
+  professionalTax?: number;
+  tds?: number;
+  additions?: number;
+  daysInMonth?: number;
+};
+export type PayComputed = {
+  gross: number;
+  basic: number;
+  hra: number;
+  otherAllowance: number;
+  perDay: number;
+  lopDays: number;
+  daysWorked: number;
+  earnedGross: number;
+  insurance: number;
+  professionalTax: number;
+  tds: number;
+  additions: number;
+  netPay: number;
+};
+
+export function computePay(i: PayInput): PayComputed {
+  const days = i.daysInMonth ?? DAYS_IN_MONTH;
+  const gross = Math.max(0, i.gross);
+  const lopDays = Math.min(days, Math.max(0, i.lopDays));
+  const daysWorked = round2(days - lopDays);
+  // Compute earned from gross directly (NOT rounded perDay) so full-month pay is exact.
+  const earnedGross = round2((gross * daysWorked) / days);
+  const insurance = Math.max(0, i.insurance ?? 0);
+  const professionalTax = Math.max(0, i.professionalTax ?? 0);
+  const tds = Math.max(0, i.tds ?? 0);
+  const additions = i.additions ?? 0;
+  const netPay = Math.max(0, round2(earnedGross + additions - insurance - professionalTax - tds));
+  return {
+    gross,
+    basic: round2(gross * SALARY_SPLIT.basic),
+    hra: round2(gross * SALARY_SPLIT.hra),
+    otherAllowance: round2(gross * SALARY_SPLIT.other),
+    perDay: round2(gross / days),
+    lopDays,
+    daysWorked,
+    earnedGross,
+    insurance,
+    professionalTax,
+    tds,
+    additions,
+    netPay,
+  };
+}
 
 /** Cycle [start, end] (inclusive, ISO) for a run labelled by its END month.
  *  cycleStartDay=26 → run (2026, 6) = 2026-05-26 … 2026-06-25. */
@@ -28,14 +90,22 @@ export function cycleRange(year: number, month: number, cycleStartDay: number): 
 }
 
 export type PayslipBreakdown = {
-  base: number;
-  workingDays: number;
+  gross: number;
+  perDay: number;
+  daysInMonth: number;
   presentDays: number;
   paidLeaveDays: number;
   lop: { fromDays: number; fromLate: number; total: number };
   lateCount: number;
-  perDayRate: number;
-  lopAmount: number;
+  daysWorked: number;
+  earnedGross: number;
+  basic: number;
+  hra: number;
+  otherAllowance: number;
+  insurance: number;
+  professionalTax: number;
+  tds: number;
+  additions: number;
   netPay: number;
 };
 
@@ -43,12 +113,21 @@ export type PayslipLine = {
   employeeId: number;
   employeeCode: string;
   name: string;
-  baseSalary: number;
-  workingDays: number;
+  baseSalary: number; // gross
+  perDay: number;
   presentDays: number;
   paidLeaveDays: number;
   lopDays: number;
-  lopAmount: number;
+  daysWorked: number;
+  earnedGross: number;
+  basic: number;
+  hra: number;
+  otherAllowance: number;
+  insurance: number;
+  professionalTax: number;
+  tds: number;
+  additions: number;
+  lopAmount: number; // gross − earned (the loss-of-pay deduction)
   netPay: number;
   breakdown: PayslipBreakdown | null;
 };
@@ -77,19 +156,23 @@ async function loadSettings(): Promise<Settings> {
   return s ?? { cycleStartDay: 26, lateLopMode: "late-count", latesPerLopDay: 3, absentIsLop: true };
 }
 
-/** Pure engine: build one payslip line per active employee. No DB access. */
-function computeLines(
-  emps: { id: number; code: string; name: string; base: number; weeklyOffDay: number }[],
-  recsByEmp: Map<number, { date: string; dayType: AttendanceDayType; isLate: boolean; lopDays: string }[]>,
-  cycle: { dates: string[] },
-  holidaySet: Set<string>,
-  settings: Settings,
-): PayslipLine[] {
-  const dow = (iso: string) => new Date(iso + "T00:00:00Z").getUTCDay();
+type EmpInput = {
+  id: number;
+  code: string;
+  name: string;
+  base: number;
+  insurance: number;
+  professionalTax: number;
+  tds: number;
+};
+type RecInput = { dayType: AttendanceDayType; isLate: boolean; lopDays: string; source: string };
+
+/** Pure engine: build one payslip line per active employee. No DB access.
+ *  LOP is real unpaid time — raw scanner "absent" (no punch) is NOT auto-docked;
+ *  only unpaid leave, HR-marked days, and the late-count policy reduce pay. */
+export function computeLines(emps: EmpInput[], recsByEmp: Map<number, RecInput[]>, settings: Settings): PayslipLine[] {
   return emps
     .map((e) => {
-      // Denominator: calendar cycle days minus this employee's weekly-offs and holidays.
-      const workingDays = cycle.dates.filter((d) => dow(d) !== e.weeklyOffDay && !holidaySet.has(d)).length;
       let presentDays = 0;
       let paidLeaveDays = 0;
       let lopFromDays = 0;
@@ -98,37 +181,54 @@ function computeLines(
         if (PRESENT_TYPES.includes(r.dayType)) presentDays += 1;
         else if (r.dayType === "half-day") presentDays += 0.5;
         else if (r.dayType === "paid-leave") paidLeaveDays += 1;
-        lopFromDays += Number(r.lopDays);
+        // Raw scanner "absent" (missing punch) is unreliable → never auto-LOP it.
+        const scannerAbsent = r.dayType === "absent" && r.source === "scanner";
+        if (!scannerAbsent) lopFromDays += Number(r.lopDays);
         if (r.isLate) lateCount += 1;
       }
       const lopFromLate = settings.lateLopMode === "late-count" ? Math.floor(lateCount / Math.max(1, settings.latesPerLopDay)) : 0;
       const lopDays = round2(lopFromDays + lopFromLate);
-      const perDayRate = workingDays > 0 ? e.base / workingDays : 0;
-      // Cap the deduction at the base — payroll can zero out a salary but never go negative.
-      const lopAmount = round2(Math.min(perDayRate * lopDays, e.base));
-      const netPay = round2(e.base - lopAmount);
+      const pay = computePay({ gross: e.base, lopDays, insurance: e.insurance, professionalTax: e.professionalTax, tds: e.tds });
+      const lopAmount = round2(pay.gross - pay.earnedGross);
       const breakdown: PayslipBreakdown = {
-        base: e.base,
-        workingDays,
+        gross: pay.gross,
+        perDay: pay.perDay,
+        daysInMonth: DAYS_IN_MONTH,
         presentDays,
         paidLeaveDays,
         lop: { fromDays: round2(lopFromDays), fromLate: lopFromLate, total: lopDays },
         lateCount,
-        perDayRate: round2(perDayRate),
-        lopAmount,
-        netPay,
+        daysWorked: pay.daysWorked,
+        earnedGross: pay.earnedGross,
+        basic: pay.basic,
+        hra: pay.hra,
+        otherAllowance: pay.otherAllowance,
+        insurance: pay.insurance,
+        professionalTax: pay.professionalTax,
+        tds: pay.tds,
+        additions: pay.additions,
+        netPay: pay.netPay,
       };
       return {
         employeeId: e.id,
         employeeCode: e.code,
         name: e.name,
-        baseSalary: e.base,
-        workingDays,
+        baseSalary: pay.gross,
+        perDay: pay.perDay,
         presentDays,
         paidLeaveDays,
         lopDays,
+        daysWorked: pay.daysWorked,
+        earnedGross: pay.earnedGross,
+        basic: pay.basic,
+        hra: pay.hra,
+        otherAllowance: pay.otherAllowance,
+        insurance: pay.insurance,
+        professionalTax: pay.professionalTax,
+        tds: pay.tds,
+        additions: pay.additions,
         lopAmount,
-        netPay,
+        netPay: pay.netPay,
         breakdown,
       };
     })
@@ -139,14 +239,16 @@ async function buildPreview(year: number, month: number): Promise<PayrollPreview
   const settings = await loadSettings();
   const cycle = cycleRange(year, month, settings.cycleStartDay);
 
-  const [empRows, recRows, holRows] = await Promise.all([
+  const [empRows, recRows] = await Promise.all([
     db
       .select({
         id: employeeProfiles.id,
         code: employeeProfiles.employeeCode,
         name: users.name,
         base: employeeProfiles.monthlySalary,
-        weeklyOffDay: employeeProfiles.weeklyOffDay,
+        insurance: employeeProfiles.insuranceMonthly,
+        professionalTax: employeeProfiles.professionalTax,
+        tds: employeeProfiles.tdsMonthly,
       })
       .from(employeeProfiles)
       .innerJoin(users, eq(employeeProfiles.userId, users.id))
@@ -154,26 +256,32 @@ async function buildPreview(year: number, month: number): Promise<PayrollPreview
     db
       .select({
         employeeId: attendanceRecords.employeeId,
-        date: attendanceRecords.date,
         dayType: attendanceRecords.dayType,
         isLate: attendanceRecords.isLate,
         lopDays: attendanceRecords.lopDays,
+        source: attendanceRecords.source,
       })
       .from(attendanceRecords)
       .where(and(gte(attendanceRecords.date, cycle.start), lte(attendanceRecords.date, cycle.end))),
-    db.select({ date: holidays.date }).from(holidays).where(and(gte(holidays.date, cycle.start), lte(holidays.date, cycle.end))),
   ]);
 
-  const recsByEmp = new Map<number, { date: string; dayType: AttendanceDayType; isLate: boolean; lopDays: string }[]>();
+  const recsByEmp = new Map<number, RecInput[]>();
   for (const r of recRows) {
     const arr = recsByEmp.get(r.employeeId) ?? [];
-    arr.push({ date: r.date, dayType: r.dayType, isLate: r.isLate, lopDays: r.lopDays });
+    arr.push({ dayType: r.dayType, isLate: r.isLate, lopDays: r.lopDays, source: r.source });
     recsByEmp.set(r.employeeId, arr);
   }
-  const holidaySet = new Set(holRows.map((h) => h.date));
-  const emps = empRows.map((e) => ({ id: e.id, code: e.code, name: e.name, base: Number(e.base), weeklyOffDay: e.weeklyOffDay ?? 0 }));
+  const emps: EmpInput[] = empRows.map((e) => ({
+    id: e.id,
+    code: e.code,
+    name: e.name,
+    base: Number(e.base),
+    insurance: Number(e.insurance),
+    professionalTax: Number(e.professionalTax),
+    tds: Number(e.tds),
+  }));
 
-  const lines = computeLines(emps, recsByEmp, cycle, holidaySet, settings);
+  const lines = computeLines(emps, recsByEmp, settings);
   const totals = lines.reduce(
     (t, l) => ({ base: t.base + l.baseSalary, lop: t.lop + l.lopAmount, net: t.net + l.netPay }),
     { base: 0, lop: 0, net: 0 },
@@ -227,10 +335,19 @@ export async function getPayrollRun(user: SessionUser, runId: number): Promise<P
       code: employeeProfiles.employeeCode,
       name: users.name,
       baseSalary: payslips.baseSalary,
-      workingDays: payslips.workingDays,
+      perDay: payslips.perDay,
       presentDays: payslips.presentDays,
       paidLeaveDays: payslips.paidLeaveDays,
       lopDays: payslips.lopDays,
+      daysWorked: payslips.daysWorked,
+      earnedGross: payslips.earnedGross,
+      basic: payslips.basic,
+      hra: payslips.hra,
+      otherAllowance: payslips.otherAllowance,
+      insurance: payslips.insurance,
+      professionalTax: payslips.professionalTax,
+      tds: payslips.tds,
+      additions: payslips.additions,
       lopAmount: payslips.lopAmount,
       netPay: payslips.netPay,
       breakdown: payslips.breakdown,
@@ -248,10 +365,19 @@ export async function getPayrollRun(user: SessionUser, runId: number): Promise<P
     employeeCode: r.code,
     name: r.name,
     baseSalary: Number(r.baseSalary),
-    workingDays: Number(r.workingDays),
+    perDay: Number(r.perDay),
     presentDays: Number(r.presentDays),
     paidLeaveDays: Number(r.paidLeaveDays),
     lopDays: Number(r.lopDays),
+    daysWorked: Number(r.daysWorked),
+    earnedGross: Number(r.earnedGross),
+    basic: Number(r.basic),
+    hra: Number(r.hra),
+    otherAllowance: Number(r.otherAllowance),
+    insurance: Number(r.insurance),
+    professionalTax: Number(r.professionalTax),
+    tds: Number(r.tds),
+    additions: Number(r.additions),
     lopAmount: Number(r.lopAmount),
     netPay: Number(r.netPay),
     breakdown: (r.breakdown as PayslipBreakdown | null),
@@ -303,11 +429,21 @@ export async function generatePayrollRun(user: SessionUser, year: number, month:
         runId: runId!,
         employeeId: l.employeeId,
         baseSalary: String(l.baseSalary),
-        workingDays: String(l.workingDays),
+        workingDays: String(DAYS_IN_MONTH),
         presentDays: String(l.presentDays),
         paidLeaveDays: String(l.paidLeaveDays),
         lopDays: String(l.lopDays),
         lopAmount: String(l.lopAmount),
+        perDay: String(l.perDay),
+        daysWorked: String(l.daysWorked),
+        earnedGross: String(l.earnedGross),
+        basic: String(l.basic),
+        hra: String(l.hra),
+        otherAllowance: String(l.otherAllowance),
+        insurance: String(l.insurance),
+        professionalTax: String(l.professionalTax),
+        tds: String(l.tds),
+        additions: String(l.additions),
         netPay: String(l.netPay),
         breakdown: l.breakdown,
       })),
@@ -333,12 +469,21 @@ export type MyPayslip = {
   year: number;
   cycleStart: string;
   cycleEnd: string;
-  baseSalary: number;
-  workingDays: number;
+  baseSalary: number; // gross
+  perDay: number;
+  daysWorked: number;
+  earnedGross: number;
   presentDays: number;
   paidLeaveDays: number;
   lopDays: number;
   lopAmount: number;
+  basic: number;
+  hra: number;
+  otherAllowance: number;
+  insurance: number;
+  professionalTax: number;
+  tds: number;
+  additions: number;
   netPay: number;
   breakdown: PayslipBreakdown | null;
 };
@@ -353,11 +498,20 @@ export async function getMyPayslips(user: SessionUser): Promise<{ isEmployee: bo
       month: payrollRuns.month,
       year: payrollRuns.year,
       baseSalary: payslips.baseSalary,
-      workingDays: payslips.workingDays,
+      perDay: payslips.perDay,
+      daysWorked: payslips.daysWorked,
+      earnedGross: payslips.earnedGross,
       presentDays: payslips.presentDays,
       paidLeaveDays: payslips.paidLeaveDays,
       lopDays: payslips.lopDays,
       lopAmount: payslips.lopAmount,
+      basic: payslips.basic,
+      hra: payslips.hra,
+      otherAllowance: payslips.otherAllowance,
+      insurance: payslips.insurance,
+      professionalTax: payslips.professionalTax,
+      tds: payslips.tds,
+      additions: payslips.additions,
       netPay: payslips.netPay,
       breakdown: payslips.breakdown,
     })
@@ -376,11 +530,20 @@ export async function getMyPayslips(user: SessionUser): Promise<{ isEmployee: bo
       cycleStart: cycle.start,
       cycleEnd: cycle.end,
       baseSalary: Number(r.baseSalary),
-      workingDays: Number(r.workingDays),
+      perDay: Number(r.perDay),
+      daysWorked: Number(r.daysWorked),
+      earnedGross: Number(r.earnedGross),
       presentDays: Number(r.presentDays),
       paidLeaveDays: Number(r.paidLeaveDays),
       lopDays: Number(r.lopDays),
       lopAmount: Number(r.lopAmount),
+      basic: Number(r.basic),
+      hra: Number(r.hra),
+      otherAllowance: Number(r.otherAllowance),
+      insurance: Number(r.insurance),
+      professionalTax: Number(r.professionalTax),
+      tds: Number(r.tds),
+      additions: Number(r.additions),
       netPay: Number(r.netPay),
       breakdown: (r.breakdown as PayslipBreakdown | null),
     };

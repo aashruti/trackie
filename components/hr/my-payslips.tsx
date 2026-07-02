@@ -29,11 +29,17 @@ export function MyPayslipsView({ slips }: { slips: MyPayslip[] }) {
                 </div>
               </div>
               <dl className="mt-3 space-y-1 border-t border-border-subtle pt-3 text-sm">
-                <Row k="Base salary" v={inr(s.baseSalary)} />
-                <Row k="Working days" v={String(s.workingDays)} />
-                <Row k="Present days" v={String(s.presentDays)} />
-                <Row k="Paid leave" v={String(s.paidLeaveDays)} />
-                <Row k="Loss of pay" v={`${s.lopDays} day${s.lopDays === 1 ? "" : "s"} · − ${inr(s.lopAmount)}`} tone={s.lopDays ? "text-[var(--negative-text)]" : undefined} />
+                <Row k="Gross salary" v={inr(s.baseSalary)} />
+                <Row k="Per day (÷30)" v={inr(s.perDay)} />
+                <Row k="Days worked" v={`${s.daysWorked} / 30`} />
+                <Row k="Earned" v={inr(s.earnedGross)} />
+                {s.lopDays > 0 && (
+                  <Row k="Loss of pay" v={`${s.lopDays} day${s.lopDays === 1 ? "" : "s"} · − ${inr(s.lopAmount)}`} tone="text-[var(--negative-text)]" />
+                )}
+                {s.insurance > 0 && <Row k="Insurance" v={`− ${inr(s.insurance)}`} tone="text-[var(--negative-text)]" />}
+                {s.professionalTax > 0 && <Row k="Professional tax" v={`− ${inr(s.professionalTax)}`} tone="text-[var(--negative-text)]" />}
+                {s.tds > 0 && <Row k="TDS" v={`− ${inr(s.tds)}`} tone="text-[var(--negative-text)]" />}
+                {s.additions > 0 && <Row k="Additions" v={`+ ${inr(s.additions)}`} tone="text-[var(--positive-text)]" />}
               </dl>
             </div>
           ))}

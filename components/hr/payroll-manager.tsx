@@ -10,6 +10,7 @@ import type { PayrollPreview, PayrollRunDetail, PayrollRunRow, PayslipLine } fro
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const inr = (n: number) => "₹" + n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
 const iso = (d: string) => new Date(d + "T00:00:00Z").toLocaleDateString("en-GB", { day: "2-digit", month: "short", timeZone: "UTC" });
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export function PayrollManager({
   preview,
@@ -112,17 +113,19 @@ export function PayrollManager({
             <thead>
               <tr className="border-b border-border bg-surface-sunken text-[11px] font-semibold uppercase tracking-wider text-text-muted">
                 <th className="px-3 py-2 text-left">Employee</th>
-                <th className="px-3 py-2 text-right">Base</th>
-                <th className="px-3 py-2 text-right">Work days</th>
-                <th className="px-3 py-2 text-right">Present</th>
-                <th className="px-3 py-2 text-right">Paid leave</th>
+                <th className="px-3 py-2 text-right">Gross</th>
+                <th className="px-3 py-2 text-right">Per day</th>
+                <th className="px-3 py-2 text-right">Days worked</th>
                 <th className="px-3 py-2 text-right">LOP days</th>
-                <th className="px-3 py-2 text-right">LOP ₹</th>
+                <th className="px-3 py-2 text-right">Earned</th>
+                <th className="px-3 py-2 text-right">Deductions</th>
                 <th className="px-3 py-2 text-right">Net ₹</th>
               </tr>
             </thead>
             <tbody>
-              {lines.map((l) => (
+              {lines.map((l) => {
+                const deductions = round2(l.insurance + l.professionalTax + l.tds - l.additions);
+                return (
                 <tr key={l.employeeId} onClick={() => setDetail(l)}
                   className="cursor-pointer border-b border-border-subtle last:border-0 hover:bg-surface-hover">
                   <td className="px-3 py-2">
@@ -130,14 +133,15 @@ export function PayrollManager({
                     <div className="text-[11px] text-text-muted">{l.employeeCode}</div>
                   </td>
                   <td className="px-3 py-2 text-right tabular text-text-secondary">{l.baseSalary.toLocaleString("en-IN")}</td>
-                  <td className="px-3 py-2 text-right tabular text-text-secondary">{l.workingDays}</td>
-                  <td className="px-3 py-2 text-right tabular text-text-secondary">{l.presentDays}</td>
-                  <td className="px-3 py-2 text-right tabular text-text-secondary">{l.paidLeaveDays}</td>
+                  <td className="px-3 py-2 text-right tabular text-text-secondary">{l.perDay.toLocaleString("en-IN")}</td>
+                  <td className={`px-3 py-2 text-right tabular ${l.lopDays ? "text-[var(--negative-text)]" : "text-text-secondary"}`}>{l.daysWorked}</td>
                   <td className={`px-3 py-2 text-right tabular ${l.lopDays ? "text-[var(--negative-text)]" : "text-text-muted"}`}>{l.lopDays}</td>
-                  <td className={`px-3 py-2 text-right tabular ${l.lopAmount ? "text-[var(--negative-text)]" : "text-text-muted"}`}>{l.lopAmount.toLocaleString("en-IN")}</td>
+                  <td className="px-3 py-2 text-right tabular text-text-secondary">{l.earnedGross.toLocaleString("en-IN")}</td>
+                  <td className={`px-3 py-2 text-right tabular ${deductions ? "text-[var(--negative-text)]" : "text-text-muted"}`}>{deductions.toLocaleString("en-IN")}</td>
                   <td className="px-3 py-2 text-right font-semibold tabular text-text-primary">{l.netPay.toLocaleString("en-IN")}</td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -198,17 +202,25 @@ function BreakdownModal({ line, onClose }: { line: PayslipLine; onClose: () => v
         <div className="mb-3 text-sm font-semibold text-text-primary">{line.name} · {line.employeeCode}</div>
         {b ? (
           <dl className="space-y-1.5 text-sm">
-            <Row k="Base salary" v={inr(b.base)} />
-            <Row k="Working days (cycle − offs − holidays)" v={String(b.workingDays)} />
-            <Row k="Per-day rate" v={inr(b.perDayRate)} />
+            <Row k="Gross salary" v={inr(b.gross)} />
+            <Row k="Basic (40%)" v={inr(b.basic)} />
+            <Row k="HRA (16%)" v={inr(b.hra)} />
+            <Row k="Other allowance (44%)" v={inr(b.otherAllowance)} />
             <div className="my-2 border-t border-border-subtle" />
+            <Row k={`Per day (gross ÷ ${b.daysInMonth})`} v={inr(b.perDay)} />
             <Row k="Present days" v={String(b.presentDays)} />
             <Row k="Paid leave days" v={String(b.paidLeaveDays)} />
-            <Row k="LOP from attendance (absent/unpaid/½)" v={String(b.lop.fromDays)} />
+            <Row k="LOP from unpaid days (unpaid/½/HR-marked)" v={String(b.lop.fromDays)} />
             <Row k={`LOP from lates (${b.lateCount} late ÷ policy)`} v={String(b.lop.fromLate)} />
             <Row k="Total LOP days" v={String(b.lop.total)} strong />
+            <Row k={`Days worked (${b.daysInMonth} − LOP)`} v={String(b.daysWorked)} strong />
             <div className="my-2 border-t border-border-subtle" />
-            <Row k="LOP deduction" v={"− " + inr(b.lopAmount)} tone="text-[var(--negative-text)]" />
+            <Row k="Earned (per day × days worked)" v={inr(b.earnedGross)} strong />
+            {b.insurance > 0 && <Row k="Insurance" v={"− " + inr(b.insurance)} tone="text-[var(--negative-text)]" />}
+            {b.professionalTax > 0 && <Row k="Professional tax" v={"− " + inr(b.professionalTax)} tone="text-[var(--negative-text)]" />}
+            {b.tds > 0 && <Row k="TDS" v={"− " + inr(b.tds)} tone="text-[var(--negative-text)]" />}
+            {b.additions > 0 && <Row k="Additions" v={"+ " + inr(b.additions)} tone="text-[var(--positive-text)]" />}
+            <div className="my-2 border-t border-border-subtle" />
             <Row k="Net pay" v={inr(b.netPay)} strong tone="text-[var(--positive-text)]" />
           </dl>
         ) : (
