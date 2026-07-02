@@ -6,8 +6,9 @@ import { auth } from "@/lib/auth/config";
 import { updateInvoice, setCohorts, type InvoiceEdit, type CohortInput } from "@/lib/dal/mutations";
 import { addPayment, deletePayment, type NewPayment } from "@/lib/dal/payments";
 import { createInvoice, deleteAccount, deleteDraftInvoice, type NewInvoice } from "@/lib/dal/account-admin";
+import type { Role } from "@/lib/db/enums";
 
-function sessionUser(session: { user: { id: string; role: "super-admin" | "admin" | "viewer" } }) {
+function sessionUser(session: { user: { id: string; role: Role } }) {
   return { id: Number(session.user.id), role: session.user.role };
 }
 

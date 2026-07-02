@@ -29,6 +29,27 @@
       "when": 1781923256000,
       "tag": "0003_invoice_due_date",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1782973120769,
+      "tag": "0004_hr_module",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1782988483850,
+      "tag": "0005_hr_module",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782990739420,
+      "tag": "0006_hr_module",
+      "breakpoints": true
     }
   ]
 }

@@ -9,6 +9,9 @@ import {
   deleteUser,
 } from "@/lib/dal/user-admin";
 import type { Role } from "@/lib/db/enums";
+import { makeVerifyToken } from "@/lib/auth/email-verify";
+import { sendVerificationEmail } from "@/lib/email/verify";
+import { appBaseUrl } from "@/lib/http/base-url";
 
 async function actor() {
   const session = await auth();
@@ -22,7 +25,16 @@ export async function createUserAction(input: {
   password: string;
   role: Role;
 }) {
-  await createUser(await actor(), input);
+  const { id } = await createUser(await actor(), input);
+  // Best-effort: send the new user a verification link (never blocks creation).
+  try {
+    const email = input.email.trim().toLowerCase();
+    const token = makeVerifyToken(id, email);
+    const link = `${await appBaseUrl()}/verify-email?token=${encodeURIComponent(token)}`;
+    await sendVerificationEmail(email, input.name.trim(), link);
+  } catch (e) {
+    console.error("[user:verify-email] send failed:", e instanceof Error ? e.message : e);
+  }
   revalidatePath("/admin/users");
   return { ok: true };
 }

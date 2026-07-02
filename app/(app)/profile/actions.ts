@@ -5,6 +5,37 @@ import { db } from "@/lib/db/client";
 import { users } from "@/lib/db/schema";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { auth } from "@/lib/auth/config";
+import { makeVerifyToken } from "@/lib/auth/email-verify";
+import { getUserEmailInfo } from "@/lib/dal/email-verify";
+import { sendVerificationEmail } from "@/lib/email/verify";
+import { appBaseUrl } from "@/lib/http/base-url";
+
+export async function sendVerificationAction(): Promise<
+  { ok: true; message: string } | { ok: false; error: string }
+> {
+  const session = await auth();
+  const userId = session?.user?.id ? Number(session.user.id) : null;
+  if (!userId) return { ok: false, error: "Not signed in." };
+
+  const info = await getUserEmailInfo(userId);
+  if (!info) return { ok: false, error: "User not found." };
+  if (info.emailVerifiedAt) return { ok: true, message: "Your email is already verified." };
+
+  const token = makeVerifyToken(info.id, info.email);
+  const link = `${await appBaseUrl()}/verify-email?token=${encodeURIComponent(token)}`;
+
+  const res = await sendVerificationEmail(info.email, info.name, link);
+  if (!res.sent) {
+    return {
+      ok: false,
+      error:
+        res.skippedReason === "acs-not-configured"
+          ? "Email isn't configured on the server yet."
+          : "Could not send the email. Please try again.",
+    };
+  }
+  return { ok: true, message: `Verification email sent to ${info.email}.` };
+}
 
 export async function changePasswordAction(
   currentPassword: string,
