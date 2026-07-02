@@ -307,3 +307,75 @@ export async function getMyAttendanceMonth(user: SessionUser, year: number, mont
   }
   return { isEmployee: true, days, cells, summary };
 }
+
+/** Per-day LOP implied by a day type (used when HR overrides a cell). */
+export function lopForDayType(dt: AttendanceDayType): number {
+  if (dt === "absent" || dt === "unpaid-leave") return 1;
+  if (dt === "half-day") return 0.5;
+  return 0;
+}
+
+/** HR override of a single day — sets day_type manually, preserving punch times. */
+export async function overrideAttendanceDay(
+  user: SessionUser,
+  employeeId: number,
+  date: string,
+  dayType: AttendanceDayType,
+): Promise<void> {
+  assertHrAccess(user);
+  const lop = String(lopForDayType(dayType));
+  await db
+    .insert(attendanceRecords)
+    .values({ employeeId, date, dayType, source: "manual", overriddenByUserId: user.id, lopDays: lop })
+    .onConflictDoUpdate({
+      target: [attendanceRecords.employeeId, attendanceRecords.date],
+      set: { dayType, lopDays: lop, source: "manual", overriddenByUserId: user.id, updatedAt: sql`now()` },
+    });
+}
+
+export async function listActiveEmployees(user: SessionUser): Promise<{ id: number; code: string; name: string }[]> {
+  assertHrAccess(user);
+  return db
+    .select({ id: employeeProfiles.id, code: employeeProfiles.employeeCode, name: users.name })
+    .from(employeeProfiles)
+    .innerJoin(users, eq(employeeProfiles.userId, users.id))
+    .where(eq(employeeProfiles.status, "active"))
+    .orderBy(asc(employeeProfiles.employeeCode));
+}
+
+/** HR view of one employee's month calendar + summary. */
+export async function getEmployeeCalendar(
+  user: SessionUser,
+  employeeId: number,
+  year: number,
+  month: number,
+): Promise<{ name: string; code: string } & MyAttendance> {
+  assertHrAccess(user);
+  const [emp] = await db
+    .select({ code: employeeProfiles.employeeCode, name: users.name })
+    .from(employeeProfiles)
+    .innerJoin(users, eq(employeeProfiles.userId, users.id))
+    .where(eq(employeeProfiles.id, employeeId))
+    .limit(1);
+  const start = `${year}-${String(month).padStart(2, "0")}-01`;
+  const endDate = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const end = `${year}-${String(month).padStart(2, "0")}-${String(endDate).padStart(2, "0")}`;
+  const days = Array.from({ length: endDate }, (_, i) => `${year}-${String(month).padStart(2, "0")}-${String(i + 1).padStart(2, "0")}`);
+  const recs = await db
+    .select()
+    .from(attendanceRecords)
+    .where(and(eq(attendanceRecords.employeeId, employeeId), gte(attendanceRecords.date, start), lte(attendanceRecords.date, end)))
+    .orderBy(asc(attendanceRecords.date));
+  const cells: Record<string, MonthGridCell> = {};
+  const summary = { present: 0, wfh: 0, leave: 0, absent: 0, lateCount: 0, lopDays: 0 };
+  for (const r of recs) {
+    cells[r.date] = { date: r.date, dayType: r.dayType, isLate: r.isLate, isEarlyLeave: r.isEarlyLeave, lopDays: Number(r.lopDays) };
+    if (r.dayType === "office" || r.dayType === "half-day") summary.present++;
+    else if (r.dayType === "wfh") summary.wfh++;
+    else if (r.dayType === "paid-leave" || r.dayType === "unpaid-leave") summary.leave++;
+    else if (r.dayType === "absent") summary.absent++;
+    if (r.isLate) summary.lateCount++;
+    summary.lopDays += Number(r.lopDays);
+  }
+  return { name: emp?.name ?? "", code: emp?.code ?? "", isEmployee: true, days, cells, summary };
+}

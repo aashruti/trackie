@@ -4,7 +4,10 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { AttendancePreview, MonthGridRow, MonthGridCell } from "@/lib/dal/hr/attendance";
 import type { AttendanceDayType } from "@/lib/db/enums";
-import { previewAttendanceAction, commitAttendanceAction } from "@/app/(app)/hr/attendance/actions";
+import { previewAttendanceAction, commitAttendanceAction, overrideAttendanceAction, getEmployeeCalendarAction } from "@/app/(app)/hr/attendance/actions";
+import type { MyAttendance } from "@/lib/dal/hr/attendance";
+
+const OVERRIDE_OPTIONS: AttendanceDayType[] = ["office", "half-day", "wfh", "official-visit", "comp-off", "paid-leave", "unpaid-leave", "weekly-off", "holiday", "absent"];
 
 // day_type → short label + tone chip
 const DAY_META: Record<AttendanceDayType, { label: string; cls: string }> = {
@@ -51,14 +54,20 @@ function Legend() {
   );
 }
 
-type Tab = "upload" | "grid";
+type Tab = "upload" | "grid" | "calendar";
 
 export function AttendanceManager({
   grid,
   monthLabel,
+  employees,
+  year,
+  month,
 }: {
   grid: { days: string[]; rows: MonthGridRow[] };
   monthLabel: string;
+  employees: { id: number; code: string; name: string }[];
+  year: number;
+  month: number;
 }) {
   const [tab, setTab] = useState<Tab>("upload");
   return (
@@ -68,14 +77,16 @@ export function AttendanceManager({
         <p className="mt-0.5 text-sm text-text-secondary">Upload the fingerprint scanner file, review, then commit.</p>
       </div>
       <div className="flex gap-1 border-b border-border">
-        {([["upload", "Upload device file"], ["grid", `Month grid · ${monthLabel}`]] as [Tab, string][]).map(([k, l]) => (
+        {([["upload", "Upload device file"], ["grid", `Month grid · ${monthLabel}`], ["calendar", "Employee calendar"]] as [Tab, string][]).map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)}
             className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${tab === k ? "border-[var(--primary)] text-text-primary" : "border-transparent text-text-secondary hover:text-text-primary"}`}>
             {l}
           </button>
         ))}
       </div>
-      {tab === "upload" ? <UploadPanel /> : <GridPanel grid={grid} />}
+      {tab === "upload" && <UploadPanel />}
+      {tab === "grid" && <GridPanel grid={grid} />}
+      {tab === "calendar" && <EmployeeCalendarPanel employees={employees} year={year} month={month} monthLabel={monthLabel} />}
     </div>
   );
 }
@@ -202,11 +213,25 @@ function PreviewGrid({ dates, matched }: { dates: string[]; matched: AttendanceP
 }
 
 function GridPanel({ grid }: { grid: { days: string[]; rows: MonthGridRow[] } }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [edit, setEdit] = useState<{ employeeId: number; name: string; date: string } | null>(null);
+
+  function apply(dayType: AttendanceDayType) {
+    if (!edit) return;
+    startTransition(async () => {
+      await overrideAttendanceAction(edit.employeeId, edit.date, dayType);
+      setEdit(null);
+      router.refresh();
+    });
+  }
+
   if (!grid.rows.length) return <div className="rounded-xl border border-border bg-surface px-4 py-12 text-center text-sm text-text-muted">No employees.</div>;
   const anyData = grid.rows.some((r) => Object.keys(r.cells).length);
   return (
     <div className="space-y-3">
       <Legend />
+      <p className="text-[11px] text-text-muted">Click any cell to override it.</p>
       {!anyData && <p className="text-sm text-text-muted">No attendance committed for this month yet — upload a device file.</p>}
       <div className="overflow-x-auto rounded-xl border border-border bg-surface">
         <table className="border-collapse text-sm">
@@ -225,12 +250,111 @@ function GridPanel({ grid }: { grid: { days: string[]; rows: MonthGridRow[] } })
                 </td>
                 {grid.days.map((d) => {
                   const c: MonthGridCell | undefined = e.cells[d];
-                  return <td key={d} className="px-0.5 py-1">{c ? <Cell dayType={c.dayType} isLate={c.isLate} isEarlyLeave={c.isEarlyLeave} /> : <div className="h-7 w-10" />}</td>;
+                  return (
+                    <td key={d} className="px-0.5 py-1">
+                      <button onClick={() => setEdit({ employeeId: e.employeeId, name: e.name, date: d })} className="att-cell rounded transition-shadow hover:shadow-[inset_0_0_0_2px_var(--primary)]">
+                        {c ? <Cell dayType={c.dayType} isLate={c.isLate} isEarlyLeave={c.isEarlyLeave} /> : <div className="grid h-7 w-10 place-items-center text-text-muted">·</div>}
+                      </button>
+                    </td>
+                  );
                 })}
               </tr>
             ))}
           </tbody>
         </table>
+      </div>
+      {edit && <OverrideModal edit={edit} pending={pending} onPick={apply} onClose={() => setEdit(null)} />}
+    </div>
+  );
+}
+
+function OverrideModal({ edit, pending, onPick, onClose }: { edit: { name: string; date: string }; pending: boolean; onPick: (dt: AttendanceDayType) => void; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center p-6" onClick={onClose}>
+      <div className="absolute inset-0 bg-slate-950/40 backdrop-blur-[1px]" />
+      <div className="relative w-full max-w-sm rounded-xl border border-border bg-surface p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-text-muted">Override day</div>
+        <div className="mb-3 text-sm font-semibold text-text-primary">{edit.name} · {new Date(edit.date + "T00:00:00Z").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" })}</div>
+        <div className="grid grid-cols-2 gap-2">
+          {OVERRIDE_OPTIONS.map((dt) => (
+            <button key={dt} disabled={pending} onClick={() => onPick(dt)}
+              className="flex items-center gap-2 rounded-md border border-border px-2.5 py-2 text-sm text-text-secondary transition-colors hover:bg-surface-hover disabled:opacity-50">
+              <Cell dayType={dt} /> <span className="capitalize">{dt.replace("-", " ")}</span>
+            </button>
+          ))}
+        </div>
+        <button onClick={onClose} className="mt-3 w-full rounded-md px-3 py-2 text-sm text-text-secondary hover:bg-surface-hover">Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+function EmployeeCalendarPanel({ employees, year, month, monthLabel }: { employees: { id: number; code: string; name: string }[]; year: number; month: number; monthLabel: string }) {
+  const [empId, setEmpId] = useState<number | "">(employees[0]?.id ?? "");
+  const [pending, startTransition] = useTransition();
+  const [data, setData] = useState<(MyAttendance & { name: string; code: string }) | null>(null);
+
+  function load(id: number) {
+    startTransition(async () => {
+      const res = await getEmployeeCalendarAction(id, year, month);
+      if (res.ok) setData(res.data);
+    });
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <select
+          value={empId}
+          onChange={(e) => { const id = Number(e.target.value); setEmpId(id); load(id); }}
+          className="rounded-md border border-border-strong bg-surface px-3 py-2 text-sm text-text-primary focus:border-[var(--primary)] focus:outline-none"
+        >
+          {employees.map((e) => <option key={e.id} value={e.id}>{e.code} · {e.name}</option>)}
+        </select>
+        <button onClick={() => empId !== "" && load(Number(empId))} disabled={pending}
+          className="rounded-md border border-border-strong px-3 py-2 text-sm font-medium text-text-secondary hover:bg-surface-hover disabled:opacity-50">
+          {pending ? "Loading…" : data ? "Reload" : "Show calendar"}
+        </button>
+        <span className="text-sm text-text-muted">{monthLabel}</span>
+      </div>
+      {!data && !pending && <p className="text-sm text-text-muted">Pick an employee and click “Show calendar”.</p>}
+      {data && <CalendarView data={data} />}
+    </div>
+  );
+}
+
+function CalendarView({ data }: { data: MyAttendance & { name: string; code: string } }) {
+  const firstDow = data.days.length ? new Date(data.days[0] + "T00:00:00Z").getUTCDay() : 0;
+  const s = data.summary;
+  return (
+    <div className="space-y-3">
+      <div className="text-sm font-semibold text-text-primary">{data.name} <span className="text-text-muted">{data.code}</span></div>
+      <div className="flex flex-wrap gap-4 text-sm text-text-secondary">
+        <span>Present <b className="tabular text-text-primary">{s.present}</b></span>
+        <span>WFH <b className="tabular text-text-primary">{s.wfh}</b></span>
+        <span>Leave <b className="tabular text-text-primary">{s.leave}</b></span>
+        <span>Absent <b className="tabular text-[var(--negative-text)]">{s.absent}</b></span>
+        <span>Late <b className="tabular text-[var(--pending-text)]">{s.lateCount}</b></span>
+        <span>LOP <b className="tabular text-[var(--negative-text)]">{s.lopDays}</b></span>
+      </div>
+      <div className="rounded-xl border border-border bg-surface p-4">
+        <div className="mb-2 grid grid-cols-7 gap-1.5 text-center text-[11px] font-semibold text-text-muted">
+          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => <div key={d}>{d}</div>)}
+        </div>
+        <div className="grid grid-cols-7 gap-1.5">
+          {Array.from({ length: firstDow }).map((_, i) => <div key={`p${i}`} />)}
+          {data.days.map((d) => {
+            const c = data.cells[d];
+            const m = c ? DAY_META[c.dayType] : null;
+            return (
+              <div key={d} className={`relative grid aspect-square place-items-center rounded-md border border-border-subtle ${m ? m.cls : "bg-surface-sunken/40"}`}>
+                <span className="absolute left-1 top-0.5 text-[9px] text-text-muted">{dayNum(d)}</span>
+                {m && <span className="text-[11px] font-semibold">{m.label}</span>}
+                {c?.isLate && <span className="absolute right-0.5 top-0.5 rounded-sm bg-[var(--pending)] px-0.5 text-[7px] font-bold text-[var(--primary-fg)]">LC</span>}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

@@ -2,7 +2,7 @@ import { auth } from "@/lib/auth/config";
 import { Topbar } from "@/components/shell/topbar";
 import { getYearContext } from "@/lib/dal/years";
 import { canManageHr } from "@/lib/dal/authz";
-import { getMonthGrid } from "@/lib/dal/hr/attendance";
+import { getMonthGrid, listActiveEmployees } from "@/lib/dal/hr/attendance";
 import { AttendanceManager } from "@/components/hr/attendance-manager";
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -34,13 +34,13 @@ export default async function HrAttendancePage({
     ? [Number(month.slice(0, 4)), Number(month.slice(5, 7))]
     : [now.getUTCFullYear(), now.getUTCMonth() + 1];
 
-  const grid = await getMonthGrid(actor, y, m);
+  const [grid, employees] = await Promise.all([getMonthGrid(actor, y, m), listActiveEmployees(actor)]);
 
   return (
     <>
       <Topbar section="HR" title="Attendance" user={user} years={years} currentYear={YEAR} />
       <main className="mx-auto w-full max-w-[1440px] px-6 py-6">
-        <AttendanceManager grid={grid} monthLabel={`${MONTHS[m - 1]} ${y}`} />
+        <AttendanceManager grid={grid} employees={employees} year={y} month={m} monthLabel={`${MONTHS[m - 1]} ${y}`} />
       </main>
     </>
   );

@@ -2,7 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth/config";
-import { previewAttendance, commitAttendance, type AttendancePreview } from "@/lib/dal/hr/attendance";
+import {
+  previewAttendance,
+  commitAttendance,
+  overrideAttendanceDay,
+  getEmployeeCalendar,
+  type AttendancePreview,
+} from "@/lib/dal/hr/attendance";
+import type { AttendanceDayType } from "@/lib/db/enums";
 import { isStorageConfigured, uploadBlob } from "@/lib/storage/blob";
 import { isUserError } from "@/lib/dal/errors";
 
@@ -58,5 +65,30 @@ export async function commitAttendanceAction(
   } catch (e) {
     console.error("[attendance:commit]", e);
     return { ok: false, error: isUserError(e) ? e.message : "Could not commit attendance." };
+  }
+}
+
+export async function overrideAttendanceAction(
+  employeeId: number,
+  date: string,
+  dayType: AttendanceDayType,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await overrideAttendanceDay(await actor(), employeeId, date, dayType);
+    revalidatePath("/hr/attendance");
+    return { ok: true };
+  } catch (e) {
+    console.error("[attendance:override]", e);
+    return { ok: false, error: isUserError(e) ? e.message : "Could not update that day." };
+  }
+}
+
+export async function getEmployeeCalendarAction(employeeId: number, year: number, month: number) {
+  try {
+    const data = await getEmployeeCalendar(await actor(), employeeId, year, month);
+    return { ok: true as const, data };
+  } catch (e) {
+    console.error("[attendance:calendar]", e);
+    return { ok: false as const, error: isUserError(e) ? e.message : "Could not load the calendar." };
   }
 }
