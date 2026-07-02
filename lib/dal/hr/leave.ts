@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
   employeeProfiles,
@@ -250,72 +250,92 @@ export async function reviewLeaveRequest(
   if (!req) throw new Error("Leave request not found");
   if (req.status !== "pending") throw new Error("This request has already been reviewed");
 
+  const employeeId = req.employeeId as number;
+  const leaveTypeId = req.leaveTypeId as number;
   const days = n(req.days);
-  const year = new Date(req.startDate as string).getUTCFullYear();
+  const isHalf = req.isHalfDay as boolean;
+  // Calendar-year balances: a leave crossing New Year still debits its start year
+  // (a documented limitation — leave rarely spans the boundary).
+  const year = new Date((req.startDate as string) + "T00:00:00Z").getUTCFullYear();
+
+  let isPaid = true;
+  if (decision === "approved") {
+    const [type] = await db
+      .select({ isPaid: leaveTypes.isPaid })
+      .from(leaveTypes)
+      .where(eq(leaveTypes.id, leaveTypeId))
+      .limit(1);
+    isPaid = type?.isPaid ?? true;
+
+    // Balance-sufficiency guard for paid types (best-effort; the real ceiling is
+    // enforced here before we claim the request).
+    if (isPaid) {
+      const [bal] = await db
+        .select()
+        .from(leaveBalances)
+        .where(and(eq(leaveBalances.employeeId, employeeId), eq(leaveBalances.leaveTypeId, leaveTypeId), eq(leaveBalances.year, year)))
+        .limit(1);
+      const available = n(bal?.carriedForward ?? "0") + n(bal?.accrued ?? "0") - n(bal?.used ?? "0");
+      if (days > available) {
+        throw new Error(
+          `Insufficient ${req.leaveTypeName} balance: ${available} day(s) available, ${days} requested. Reduce the request or use an unpaid type.`,
+        );
+      }
+    }
+  }
+
+  // Atomically claim the request: only one caller can flip it out of 'pending',
+  // so a double-click / concurrent approval can't double-debit.
+  const claimed = await db
+    .update(leaveRequests)
+    .set({ status: decision, reviewedByUserId: user.id, reviewedAt: new Date(), reviewNote: note })
+    .where(and(eq(leaveRequests.id, requestId), eq(leaveRequests.status, "pending")))
+    .returning({ id: leaveRequests.id });
+  if (!claimed.length) throw new Error("This request has already been reviewed");
 
   if (decision === "approved") {
-    const [type] = await db.select().from(leaveTypes).where(eq(leaveTypes.id, req.leaveTypeId as number)).limit(1);
-    const isPaid = type?.isPaid ?? true;
-
-    // Ensure a balance row exists, then debit used (paid) or unpaidTaken (unpaid).
-    const [bal] = await db
-      .select()
-      .from(leaveBalances)
-      .where(
-        and(
-          eq(leaveBalances.employeeId, req.employeeId as number),
-          eq(leaveBalances.leaveTypeId, req.leaveTypeId as number),
-          eq(leaveBalances.year, year),
-        ),
-      )
-      .limit(1);
-    if (!bal) {
-      await db.insert(leaveBalances).values({
-        employeeId: req.employeeId as number,
-        leaveTypeId: req.leaveTypeId as number,
+    // Atomic insert-or-increment — no read-modify-write race on the balance.
+    await db
+      .insert(leaveBalances)
+      .values({
+        employeeId,
+        leaveTypeId,
         year,
         used: isPaid ? String(days) : "0",
         unpaidTaken: isPaid ? "0" : String(days),
+      })
+      .onConflictDoUpdate({
+        target: [leaveBalances.employeeId, leaveBalances.leaveTypeId, leaveBalances.year],
+        set: isPaid
+          ? { used: sql`${leaveBalances.used} + ${days}` }
+          : { unpaidTaken: sql`${leaveBalances.unpaidTaken} + ${days}` },
       });
-    } else {
-      await db
-        .update(leaveBalances)
-        .set(
-          isPaid
-            ? { used: String(n(bal.used) + days) }
-            : { unpaidTaken: String(n(bal.unpaidTaken) + days) },
-        )
-        .where(eq(leaveBalances.id, bal.id));
-    }
 
-    // Write leave days into the attendance truth table (inclusive span).
+    // Write leave days into the attendance truth table — exactly the days that
+    // were counted (exclude Sundays; a half-day is a single 0.5 day). Keeps the
+    // balance debit and the attendance rows in agreement.
     const dayType: AttendanceDayType = isPaid ? "paid-leave" : "unpaid-leave";
-    const dates = enumerateDates(req.startDate as string, req.endDate as string);
+    const dates = isHalf
+      ? [req.startDate as string]
+      : enumerateDates(req.startDate as string, req.endDate as string).filter(
+          (d) => new Date(d + "T00:00:00Z").getUTCDay() !== 0,
+        );
+    const perDayLop = isPaid ? "0" : isHalf ? "0.5" : "1";
     if (dates.length) {
       await db
         .insert(attendanceRecords)
         .values(
           dates.map((d) => ({
-            employeeId: req.employeeId as number,
+            employeeId,
             date: d,
             dayType,
             source: "leave" as const,
-            lopDays: isPaid ? "0" : "1",
+            lopDays: perDayLop,
           })),
         )
         .onConflictDoNothing({ target: [attendanceRecords.employeeId, attendanceRecords.date] });
     }
   }
-
-  await db
-    .update(leaveRequests)
-    .set({
-      status: decision,
-      reviewedByUserId: user.id,
-      reviewedAt: new Date(),
-      reviewNote: note,
-    })
-    .where(eq(leaveRequests.id, requestId));
 
   return {
     employeeName: req.employeeName as string,

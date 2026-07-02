@@ -82,11 +82,15 @@ async function seedDemoEmployees() {
     console.log("  demo employees: none to add");
     return;
   }
-  // Continue numbering after any existing DG codes.
-  const [{ n }] = await db
-    .select({ n: sql<number>`count(*)::int` })
+  // Continue numbering after the highest existing DG#### code (not count(*),
+  // which collides when codes are non-contiguous after a deletion).
+  const existingCodes = await db
+    .select({ code: employeeProfiles.employeeCode })
     .from(employeeProfiles);
-  let seq = Number(n);
+  let seq = existingCodes.reduce((max, r) => {
+    const m = /^DG(\d+)$/.exec(r.code);
+    return m ? Math.max(max, Number(m[1])) : max;
+  }, 0);
   const salaries = [65000, 58000, 72000, 49000, 55000, 61000, 47000, 68000, 52000, 60000];
   const values = candidates.map((c, i) => {
     seq += 1;
