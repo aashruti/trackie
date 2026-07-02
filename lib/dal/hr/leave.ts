@@ -4,6 +4,7 @@ import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
   employeeProfiles,
+  hrSettings,
   leaveBalances,
   leaveRequests,
   leaveTypes,
@@ -11,6 +12,7 @@ import {
   attendanceRecords,
 } from "@/lib/db/schema";
 import { assertHrAccess, canManageHr, type SessionUser } from "@/lib/dal/authz";
+import { UserError } from "@/lib/dal/errors";
 import type { AttendanceDayType, LeaveRequestStatus } from "@/lib/db/enums";
 
 export type LeaveTypeRow = {
@@ -249,8 +251,8 @@ export async function reviewLeaveRequest(
     .innerJoin(leaveTypes, eq(leaveRequests.leaveTypeId, leaveTypes.id))
     .where(eq(leaveRequests.id, requestId))
     .limit(1);
-  if (!req) throw new Error("Leave request not found");
-  if (req.status !== "pending") throw new Error("This request has already been reviewed");
+  if (!req) throw new UserError("Leave request not found");
+  if (req.status !== "pending") throw new UserError("This request has already been reviewed");
 
   const employeeId = req.employeeId as number;
   const leaveTypeId = req.leaveTypeId as number;
@@ -279,7 +281,7 @@ export async function reviewLeaveRequest(
         .limit(1);
       const available = n(bal?.carriedForward ?? "0") + n(bal?.accrued ?? "0") - n(bal?.used ?? "0");
       if (days > available) {
-        throw new Error(
+        throw new UserError(
           `Insufficient ${req.leaveTypeName} balance: ${available} day(s) available, ${days} requested. Reduce the request or use an unpaid type.`,
         );
       }
@@ -295,7 +297,7 @@ export async function reviewLeaveRequest(
     .set({ status: decision, reviewedByUserId: user.id, reviewedAt: new Date(), reviewNote: note })
     .where(and(eq(leaveRequests.id, requestId), eq(leaveRequests.status, "pending")))
     .returning({ id: leaveRequests.id });
-  if (!claimed.length) throw new Error("This request has already been reviewed");
+  if (!claimed.length) throw new UserError("This request has already been reviewed");
 
   if (decision === "approved") {
     try {
@@ -317,7 +319,7 @@ export async function reviewLeaveRequest(
           .returning({ id: leaveBalances.id });
         if (!debited.length) {
           // No balance row for this year, or insufficient remaining balance.
-          throw new Error(
+          throw new UserError(
             `Insufficient ${req.leaveTypeName} balance for ${days} day(s). Reduce the request or use an unpaid type.`,
           );
         }
@@ -383,7 +385,13 @@ export async function reviewLeaveRequest(
  * Self-service (an employee acting on their own leave)               *
  * ------------------------------------------------------------------ */
 
-export type SelfEmployee = { employeeId: number; name: string; employeeCode: string };
+export type SelfEmployee = {
+  employeeId: number;
+  name: string;
+  employeeCode: string;
+  email: string;
+  emailVerified: boolean;
+};
 
 /** The caller's employee identity, or null if they aren't an employee. */
 export async function getEmployeeForUser(userId: number): Promise<SelfEmployee | null> {
@@ -392,12 +400,21 @@ export async function getEmployeeForUser(userId: number): Promise<SelfEmployee |
       employeeId: employeeProfiles.id,
       name: users.name,
       employeeCode: employeeProfiles.employeeCode,
+      email: users.email,
+      emailVerifiedAt: users.emailVerifiedAt,
     })
     .from(employeeProfiles)
     .innerJoin(users, eq(employeeProfiles.userId, users.id))
     .where(and(eq(employeeProfiles.userId, userId), eq(employeeProfiles.status, "active")))
     .limit(1);
-  return row ?? null;
+  if (!row) return null;
+  return {
+    employeeId: row.employeeId,
+    name: row.name,
+    employeeCode: row.employeeCode,
+    email: row.email,
+    emailVerified: row.emailVerifiedAt != null,
+  };
 }
 
 /** Count leave days: half-day → 0.5, else inclusive span minus Sundays. */
@@ -419,19 +436,28 @@ export type ApplyLeaveInput = {
 export async function applyForLeave(
   user: SessionUser,
   input: ApplyLeaveInput,
-): Promise<{ requestId: number; employeeName: string; leaveTypeName: string; days: number; startDate: string; endDate: string }> {
+): Promise<{
+  requestId: number;
+  employeeName: string;
+  employeeEmail: string;
+  employeeEmailVerified: boolean;
+  leaveTypeName: string;
+  days: number;
+  startDate: string;
+  endDate: string;
+}> {
   const me = await getEmployeeForUser(user.id);
-  if (!me) throw new Error("You are not registered as an employee");
-  if (input.endDate < input.startDate) throw new Error("End date is before start date");
+  if (!me) throw new UserError("You are not registered as an employee");
+  if (input.endDate < input.startDate) throw new UserError("End date is before start date");
   const days = countLeaveDays(input.startDate, input.endDate, input.isHalfDay);
-  if (days <= 0) throw new Error("Selected range has no working days");
+  if (days <= 0) throw new UserError("Selected range has no working days");
 
   const [type] = await db
     .select({ name: leaveTypes.name })
     .from(leaveTypes)
     .where(eq(leaveTypes.id, input.leaveTypeId))
     .limit(1);
-  if (!type) throw new Error("Unknown leave type");
+  if (!type) throw new UserError("Unknown leave type");
 
   const [row] = await db
     .insert(leaveRequests)
@@ -449,6 +475,8 @@ export async function applyForLeave(
   return {
     requestId: row.id,
     employeeName: me.name,
+    employeeEmail: me.email,
+    employeeEmailVerified: me.emailVerified,
     leaveTypeName: type.name,
     days,
     startDate: input.startDate,
@@ -506,16 +534,23 @@ export async function listMyBalances(
 }
 
 /**
- * Emails of everyone who can approve leave (HR + super-admin) AND has verified
- * their email — notification targets. Unverified addresses are never emailed.
+ * Recipients for leave-application notifications:
+ *  - individual HR / super-admin users who have VERIFIED their email, plus
+ *  - the shared HR inbox from hr_settings.notification_email (a controlled
+ *    address, so no verification is required for it).
+ * Deduplicated, lowercased.
  */
 export async function hrRecipientEmails(): Promise<string[]> {
-  const rows = await db
-    .select({ email: users.email, role: users.role, verified: users.emailVerifiedAt })
-    .from(users);
-  return rows
+  const [rows, settings] = await Promise.all([
+    db.select({ email: users.email, role: users.role, verified: users.emailVerifiedAt }).from(users),
+    db.select({ email: hrSettings.notificationEmail }).from(hrSettings).limit(1),
+  ]);
+  const verified = rows
     .filter((r) => canManageHr({ id: 0, role: r.role }) && r.verified != null)
     .map((r) => r.email);
+  const shared = settings[0]?.email?.trim();
+  const all = shared ? [...verified, shared] : verified;
+  return [...new Set(all.map((e) => e.toLowerCase()))];
 }
 
 /** Inclusive list of ISO dates between start and end (bounded to 366). */

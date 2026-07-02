@@ -1,7 +1,6 @@
 "use server";
 
 import { eq } from "drizzle-orm";
-import { headers } from "next/headers";
 import { db } from "@/lib/db/client";
 import { users } from "@/lib/db/schema";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
@@ -9,6 +8,7 @@ import { auth } from "@/lib/auth/config";
 import { makeVerifyToken } from "@/lib/auth/email-verify";
 import { getUserEmailInfo } from "@/lib/dal/email-verify";
 import { sendVerificationEmail } from "@/lib/email/verify";
+import { appBaseUrl } from "@/lib/http/base-url";
 
 export async function sendVerificationAction(): Promise<
   { ok: true; message: string } | { ok: false; error: string }
@@ -22,10 +22,7 @@ export async function sendVerificationAction(): Promise<
   if (info.emailVerifiedAt) return { ok: true, message: "Your email is already verified." };
 
   const token = makeVerifyToken(info.id, info.email);
-  const h = await headers();
-  const host = h.get("host") ?? "";
-  const proto = h.get("x-forwarded-proto") ?? (host.includes("localhost") ? "http" : "https");
-  const link = `${proto}://${host}/verify-email?token=${encodeURIComponent(token)}`;
+  const link = `${await appBaseUrl()}/verify-email?token=${encodeURIComponent(token)}`;
 
   const res = await sendVerificationEmail(info.email, info.name, link);
   if (!res.sent) {

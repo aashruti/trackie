@@ -49,6 +49,25 @@ export async function notifyLeaveRequested(
   });
 }
 
+/** Confirmation to the applicant that their leave request was submitted. */
+export async function notifyLeaveSubmitted(
+  employeeEmail: string,
+  req: { employeeName: string; leaveTypeName: string; startDate: string; endDate: string; days: number },
+) {
+  const html = shell(
+    `<h2 style="margin:0 0 8px">Leave request submitted</h2>
+     <p>Hi ${esc(req.employeeName)}, your <b>${esc(req.leaveTypeName)}</b> leave request has been submitted for approval.</p>
+     <p style="margin:4px 0"><b>Dates:</b> ${range(req.startDate, req.endDate)} · <b>${req.days}</b> day(s)</p>
+     <p>You'll get an email once HR approves or rejects it.</p>`,
+  );
+  return sendEmail({
+    to: employeeEmail,
+    subject: `Leave request submitted — ${req.leaveTypeName} (${range(req.startDate, req.endDate)})`,
+    html,
+    text: `Your ${req.leaveTypeName} leave request for ${range(req.startDate, req.endDate)} (${req.days} days) has been submitted for approval.`,
+  });
+}
+
 /** Approval / rejection → notify the employee. */
 export async function notifyLeaveDecision(
   employeeEmail: string,

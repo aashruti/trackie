@@ -316,6 +316,9 @@ export const hrSettings = pgTable("hr_settings", {
   workingDaysBasis: text("working_days_basis").notNull().default("calendar-minus-offs"),
   // Attendance/payroll cycle runs cycleStartDay → (start-1) of next month (26→25).
   cycleStartDay: integer("cycle_start_day").notNull().default(26),
+  // Shared inbox always CC'd on leave-application notifications (no verification
+  // needed — it's a controlled address). Blank → no shared CC.
+  notificationEmail: text("notification_email").default("hr@datagami.in"),
   updatedByUserId: integer("updated_by_user_id").references(() => users.id, {
     onDelete: "set null",
   }),

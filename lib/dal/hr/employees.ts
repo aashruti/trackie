@@ -4,6 +4,7 @@ import { and, asc, eq, notInArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { employeeProfiles, shifts, users } from "@/lib/db/schema";
 import { assertHrAccess, type SessionUser } from "@/lib/dal/authz";
+import { UserError } from "@/lib/dal/errors";
 import type { EmployeeStatus } from "@/lib/db/enums";
 
 export type EmergencyContact = { name: string; relation: string; number: string };
@@ -141,8 +142,8 @@ export async function enableEmployee(
     // Surface the two UNIQUE constraints (user_id, employee_code) as a clear message.
     const msg = e instanceof Error ? e.message : String(e);
     if (/unique|duplicate/i.test(msg)) {
-      if (/employee_code/.test(msg)) throw new Error(`Employee code "${input.employeeCode}" is already in use.`);
-      throw new Error("This user is already registered as an employee.");
+      if (/employee_code/.test(msg)) throw new UserError(`Employee code "${input.employeeCode}" is already in use.`);
+      throw new UserError("This user is already registered as an employee.");
     }
     throw e;
   }

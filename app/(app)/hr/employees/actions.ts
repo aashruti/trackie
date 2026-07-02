@@ -8,6 +8,7 @@ import {
   setEmployeeStatus,
   type EmployeeInput,
 } from "@/lib/dal/hr/employees";
+import { isUserError } from "@/lib/dal/errors";
 import type { EmployeeStatus } from "@/lib/db/enums";
 
 async function actor() {
@@ -20,7 +21,7 @@ export type ActionResult = { ok: true } | { ok: false; error: string };
 
 function fail(e: unknown): ActionResult {
   console.error("[hr:employees]", e);
-  return { ok: false, error: e instanceof Error ? e.message : "Could not save. Please try again." };
+  return { ok: false, error: isUserError(e) ? e.message : "Could not save. Please try again." };
 }
 
 export async function enableEmployeeAction(userId: number, input: EmployeeInput): Promise<ActionResult> {

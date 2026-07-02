@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth/config";
 import { reviewLeaveRequest } from "@/lib/dal/hr/leave";
 import { notifyLeaveDecision } from "@/lib/email/hr-leave";
+import { isUserError } from "@/lib/dal/errors";
 
 async function actor() {
   const session = await auth();
@@ -26,7 +27,7 @@ export async function reviewLeaveAction(
     // (Next redacts thrown server-action errors). These are HR-facing validation
     // messages (insufficient balance, already reviewed, not authorized).
     console.error("[leave:review]", e);
-    return { ok: false, error: e instanceof Error ? e.message : "Could not process this request." };
+    return { ok: false, error: isUserError(e) ? e.message : "Could not process this request." };
   }
   // Only email verified addresses; failures never block the decision.
   try {

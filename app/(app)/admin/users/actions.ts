@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { headers } from "next/headers";
 import { auth } from "@/lib/auth/config";
 import {
   createUser,
@@ -12,6 +11,7 @@ import {
 import type { Role } from "@/lib/db/enums";
 import { makeVerifyToken } from "@/lib/auth/email-verify";
 import { sendVerificationEmail } from "@/lib/email/verify";
+import { appBaseUrl } from "@/lib/http/base-url";
 
 async function actor() {
   const session = await auth();
@@ -30,10 +30,7 @@ export async function createUserAction(input: {
   try {
     const email = input.email.trim().toLowerCase();
     const token = makeVerifyToken(id, email);
-    const h = await headers();
-    const host = h.get("host") ?? "";
-    const proto = h.get("x-forwarded-proto") ?? (host.includes("localhost") ? "http" : "https");
-    const link = `${proto}://${host}/verify-email?token=${encodeURIComponent(token)}`;
+    const link = `${await appBaseUrl()}/verify-email?token=${encodeURIComponent(token)}`;
     await sendVerificationEmail(email, input.name.trim(), link);
   } catch (e) {
     console.error("[user:verify-email] send failed:", e instanceof Error ? e.message : e);

@@ -1,4 +1,5 @@
 import type { Role } from "@/lib/db/enums";
+import { UserError } from "@/lib/dal/errors";
 
 export type SessionUser = { id: number; role: Role };
 
@@ -35,7 +36,7 @@ export function canAccessLeads(user: SessionUser): boolean {
 
 export function assertLeadsAccess(user: SessionUser): void {
   if (!canAccessLeads(user)) {
-    throw new Error("Leads is available to Admin / Finance only");
+    throw new UserError("Leads is available to Admin / Finance only");
   }
 }
 
@@ -52,6 +53,6 @@ export function canManageHr(user: SessionUser): boolean {
 
 export function assertHrAccess(user: SessionUser): void {
   if (!canManageHr(user)) {
-    throw new Error("HR administration is available to HR / Super Admin only");
+    throw new UserError("HR administration is available to HR / Super Admin only");
   }
 }

@@ -43,6 +43,13 @@
       "when": 1782988483850,
       "tag": "0005_hr_module",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782990739420,
+      "tag": "0006_hr_module",
+      "breakpoints": true
     }
   ]
 }
