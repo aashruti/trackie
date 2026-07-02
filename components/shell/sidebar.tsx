@@ -27,14 +27,14 @@ const WORKSPACE: Item[] = [
 const HR: Item[] = [
   { label: "Employees", href: "/hr/employees", icon: "M16 14a4 4 0 10-8 0M12 7a3 3 0 110 6 3 3 0 010-6M3 20a6 6 0 0118 0" },
   { label: "Leave", href: "/hr/leave", icon: "M4 6h16v14H4zM4 10h16M8 3v4M16 3v4" },
-  { label: "Attendance", href: "/hr/attendance", icon: "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z", soon: true },
+  { label: "Attendance", href: "/hr/attendance", icon: "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z" },
   { label: "Payroll", href: "/hr/payroll", icon: "M3 6h18v12H3zM3 10h18M7 15h4", soon: true },
   { label: "HR settings", href: "/hr/settings", icon: "M12 9a3 3 0 100 6 3 3 0 000-6M4 12h2M18 12h2M12 4v2M12 18v2M6 6l1.5 1.5M16.5 16.5L18 18M18 6l-1.5 1.5M7.5 16.5L6 18", soon: true },
 ];
 
 const ME: Item[] = [
   { label: "Apply for leave", href: "/me/leave", icon: "M12 5v14M5 12h14" },
-  { label: "My attendance", href: "/me/attendance", icon: "M4 6h16v14H4zM4 10h16M8 3v4M16 3v4", soon: true },
+  { label: "My attendance", href: "/me/attendance", icon: "M4 6h16v14H4zM4 10h16M8 3v4M16 3v4" },
   { label: "My payslips", href: "/me/payslips", icon: "M6 3h9l3 3v15H6zM9 12h6M9 16h4", soon: true },
 ];
 
