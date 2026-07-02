@@ -1,0 +1,62 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { auth } from "@/lib/auth/config";
+import { previewAttendance, commitAttendance, type AttendancePreview } from "@/lib/dal/hr/attendance";
+import { isStorageConfigured, uploadBlob } from "@/lib/storage/blob";
+import { isUserError } from "@/lib/dal/errors";
+
+async function actor() {
+  const session = await auth();
+  if (!session?.user) throw new Error("Not authenticated");
+  return { id: Number(session.user.id), role: session.user.role };
+}
+
+async function fileBytes(formData: FormData): Promise<{ bytes: Buffer; name: string; type: string } | null> {
+  const f = formData.get("file");
+  if (!f || typeof f === "string") return null;
+  const file = f as File;
+  return { bytes: Buffer.from(await file.arrayBuffer()), name: file.name, type: file.type || "application/vnd.ms-excel" };
+}
+
+export async function previewAttendanceAction(
+  formData: FormData,
+): Promise<{ ok: true; preview: AttendancePreview } | { ok: false; error: string }> {
+  try {
+    const f = await fileBytes(formData);
+    if (!f) return { ok: false, error: "No file selected." };
+    const preview = await previewAttendance(await actor(), f.bytes);
+    if (!preview.matched.length && !preview.unmatched.length)
+      return { ok: false, error: "No attendance rows found — is this the ZKTeco 'Basic Work Duration Report'?" };
+    return { ok: true, preview };
+  } catch (e) {
+    console.error("[attendance:preview]", e);
+    return { ok: false, error: isUserError(e) ? e.message : "Could not read that file. Check it's the scanner .xls export." };
+  }
+}
+
+export async function commitAttendanceAction(
+  formData: FormData,
+): Promise<{ ok: true; committed: number; matchedEmployees: number; unmatched: number } | { ok: false; error: string }> {
+  try {
+    const f = await fileBytes(formData);
+    if (!f) return { ok: false, error: "No file selected." };
+    // Store the raw file for audit (best-effort — never blocks the commit).
+    let blobUrl: string | null = null;
+    if (isStorageConfigured()) {
+      try {
+        const safe = f.name.replace(/[^\w.\-]+/g, "_");
+        const res = await uploadBlob(`attendance/${new Date().getFullYear()}/${Date.now()}-${safe}`, f.bytes, f.type);
+        blobUrl = res.url;
+      } catch (e) {
+        console.error("[attendance:blob] upload failed:", e instanceof Error ? e.message : e);
+      }
+    }
+    const result = await commitAttendance(await actor(), f.bytes, f.name, blobUrl);
+    revalidatePath("/hr/attendance");
+    return { ok: true, ...result };
+  } catch (e) {
+    console.error("[attendance:commit]", e);
+    return { ok: false, error: isUserError(e) ? e.message : "Could not commit attendance." };
+  }
+}

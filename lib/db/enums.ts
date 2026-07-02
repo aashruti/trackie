@@ -35,6 +35,7 @@ export const ATTENDANCE_DAY_TYPES = [
   "weekly-off",
   "holiday",
   "absent",
+  "half-day",
 ] as const;
 // Where an attendance record came from.
 export const ATTENDANCE_SOURCES = ["scanner", "manual", "import", "leave", "auto-off"] as const;
