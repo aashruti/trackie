@@ -9,7 +9,7 @@ export function MyPayslipsView({ slips }: { slips: MyPayslip[] }) {
     <div className="space-y-5">
       <div>
         <h2 className="text-xl font-semibold tracking-tight text-text-primary">My payslips</h2>
-        <p className="mt-0.5 text-sm text-text-secondary">Finalized monthly payslips. Draft runs stay hidden until HR locks them.</p>
+        <p className="mt-0.5 text-sm text-text-secondary">Your monthly payslips.</p>
       </div>
 
       {slips.length === 0 ? (
