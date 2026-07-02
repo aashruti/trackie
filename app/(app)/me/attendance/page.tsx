@@ -30,7 +30,7 @@ export default async function MyAttendancePage({
     <>
       <Topbar section="Me" title="My attendance" user={user} years={years} currentYear={YEAR} />
       <main className="mx-auto w-full max-w-[1440px] px-6 py-6">
-        <MyAttendanceView data={data} monthLabel={`${MONTHS[m - 1]} ${y}`} />
+        <MyAttendanceView data={data} monthLabel={`${MONTHS[m - 1]} ${y}`} year={y} month={m} />
       </main>
     </>
   );
