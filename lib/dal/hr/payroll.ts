@@ -50,7 +50,7 @@ export type PayslipLine = {
   lopDays: number;
   lopAmount: number;
   netPay: number;
-  breakdown: PayslipBreakdown;
+  breakdown: PayslipBreakdown | null;
 };
 
 export type PayrollPreview = {
@@ -254,7 +254,7 @@ export async function getPayrollRun(user: SessionUser, runId: number): Promise<P
     lopDays: Number(r.lopDays),
     lopAmount: Number(r.lopAmount),
     netPay: Number(r.netPay),
-    breakdown: (r.breakdown as PayslipBreakdown) ?? null,
+    breakdown: (r.breakdown as PayslipBreakdown | null),
   }));
   const totals = lines.reduce(
     (t, l) => ({ base: t.base + l.baseSalary, lop: t.lop + l.lopAmount, net: t.net + l.netPay }),
@@ -382,7 +382,7 @@ export async function getMyPayslips(user: SessionUser): Promise<{ isEmployee: bo
       lopDays: Number(r.lopDays),
       lopAmount: Number(r.lopAmount),
       netPay: Number(r.netPay),
-      breakdown: (r.breakdown as PayslipBreakdown) ?? null,
+      breakdown: (r.breakdown as PayslipBreakdown | null),
     };
   });
   return { isEmployee: true, slips };
