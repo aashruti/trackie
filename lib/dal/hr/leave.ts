@@ -103,6 +103,7 @@ const requestSelect = {
   employeeName: users.name,
   employeeCode: employeeProfiles.employeeCode,
   employeeEmail: users.email,
+  employeeEmailVerified: users.emailVerifiedAt,
   leaveTypeId: leaveRequests.leaveTypeId,
   leaveTypeName: leaveTypes.name,
   leaveTypeCode: leaveTypes.code,
@@ -232,6 +233,7 @@ export async function reviewLeaveRequest(
 ): Promise<{
   employeeName: string;
   employeeEmail: string;
+  employeeEmailVerified: boolean;
   leaveTypeName: string;
   startDate: string;
   endDate: string;
@@ -368,6 +370,7 @@ export async function reviewLeaveRequest(
   return {
     employeeName: req.employeeName as string,
     employeeEmail: req.employeeEmail as string,
+    employeeEmailVerified: req.employeeEmailVerified != null,
     leaveTypeName: req.leaveTypeName as string,
     startDate: req.startDate as string,
     endDate: req.endDate as string,
@@ -502,10 +505,17 @@ export async function listMyBalances(
   });
 }
 
-/** Emails of everyone who can approve leave (HR + super-admin) — notification targets. */
+/**
+ * Emails of everyone who can approve leave (HR + super-admin) AND has verified
+ * their email — notification targets. Unverified addresses are never emailed.
+ */
 export async function hrRecipientEmails(): Promise<string[]> {
-  const rows = await db.select({ email: users.email, role: users.role }).from(users);
-  return rows.filter((r) => canManageHr({ id: 0, role: r.role })).map((r) => r.email);
+  const rows = await db
+    .select({ email: users.email, role: users.role, verified: users.emailVerifiedAt })
+    .from(users);
+  return rows
+    .filter((r) => canManageHr({ id: 0, role: r.role }) && r.verified != null)
+    .map((r) => r.email);
 }
 
 /** Inclusive list of ISO dates between start and end (bounded to 366). */

@@ -74,13 +74,17 @@ export function LeaveApply({
 
     startTransition(async () => {
       try {
-        await applyLeaveAction({
+        const res = await applyLeaveAction({
           leaveTypeId: Number(leaveTypeId),
           startDate,
           endDate: end,
           isHalfDay,
           reason: reason.trim(),
         });
+        if (res && !res.ok) {
+          setError(res.error);
+          return;
+        }
         setOk(true);
         setReason("");
         setStartDate("");

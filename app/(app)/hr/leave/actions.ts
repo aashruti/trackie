@@ -11,23 +11,36 @@ async function actor() {
   return { id: Number(session.user.id), role: session.user.role };
 }
 
+export type ActionResult = { ok: true } | { ok: false; error: string };
+
 export async function reviewLeaveAction(
   requestId: number,
   decision: "approved" | "rejected",
   note: string | null,
-) {
-  const info = await reviewLeaveRequest(await actor(), requestId, decision, note);
-  // Fire-and-forget email; failures never block the decision.
+): Promise<ActionResult> {
+  let info;
   try {
-    await notifyLeaveDecision(info.employeeEmail, {
-      employeeName: info.employeeName,
-      leaveTypeName: info.leaveTypeName,
-      startDate: info.startDate,
-      endDate: info.endDate,
-      days: info.days,
-      decision: info.decision,
-      note,
-    });
+    info = await reviewLeaveRequest(await actor(), requestId, decision, note);
+  } catch (e) {
+    // Return (don't throw) so the message survives to the client in production
+    // (Next redacts thrown server-action errors). These are HR-facing validation
+    // messages (insufficient balance, already reviewed, not authorized).
+    console.error("[leave:review]", e);
+    return { ok: false, error: e instanceof Error ? e.message : "Could not process this request." };
+  }
+  // Only email verified addresses; failures never block the decision.
+  try {
+    if (info.employeeEmailVerified) {
+      await notifyLeaveDecision(info.employeeEmail, {
+        employeeName: info.employeeName,
+        leaveTypeName: info.leaveTypeName,
+        startDate: info.startDate,
+        endDate: info.endDate,
+        days: info.days,
+        decision: info.decision,
+        note,
+      });
+    }
   } catch (e) {
     console.error("[leave:notify] failed to notify employee of decision:", e instanceof Error ? e.message : e);
   }

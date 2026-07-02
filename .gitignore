@@ -43,3 +43,6 @@ next-env.d.ts
 
 # graphify knowledge graph output
 graphify-out/
+
+# Local DB backups — contain real prod data, never commit
+dumps/

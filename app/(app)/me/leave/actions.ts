@@ -11,8 +11,17 @@ async function actor() {
   return { id: Number(session.user.id), role: session.user.role };
 }
 
-export async function applyLeaveAction(input: ApplyLeaveInput) {
-  const created = await applyForLeave(await actor(), input);
+export type ActionResult = { ok: true } | { ok: false; error: string };
+
+export async function applyLeaveAction(input: ApplyLeaveInput): Promise<ActionResult> {
+  let created;
+  try {
+    created = await applyForLeave(await actor(), input);
+  } catch (e) {
+    // Return the validation message (not an employee / end before start / no
+    // working days) so it survives to the client in production.
+    return { ok: false, error: e instanceof Error ? e.message : "Could not submit your request." };
+  }
   // Notification is best-effort: the request is already saved, so a recipient
   // lookup or send failure must not make the user think it failed (and resubmit).
   try {

@@ -236,10 +236,12 @@ function ProfileDrawer({
     };
     startTransition(async () => {
       try {
-        if (isEdit && row) {
-          await updateEmployeeAction(row.employeeId, input);
-        } else {
-          await enableEmployeeAction(Number(userId), input);
+        const res = isEdit
+          ? await updateEmployeeAction(row!.employeeId, input)
+          : await enableEmployeeAction(Number(userId), input);
+        if (res && !res.ok) {
+          setError(res.error);
+          return;
         }
         router.refresh();
         onClose();
@@ -253,10 +255,14 @@ function ProfileDrawer({
     if (!row) return;
     startTransition(async () => {
       try {
-        await setEmployeeStatusAction(
+        const res = await setEmployeeStatusAction(
           row.employeeId,
           row.status === "active" ? "inactive" : "active",
         );
+        if (res && !res.ok) {
+          setError(res.error);
+          return;
+        }
         router.refresh();
         onClose();
       } catch (e) {

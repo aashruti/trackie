@@ -110,11 +110,22 @@ function ApprovalCard({ r }: { r: LeaveRequestRow }) {
   const [pending, startTransition] = useTransition();
   const [rejecting, setRejecting] = useState(false);
   const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   function decide(decision: "approved" | "rejected") {
+    setError(null);
     startTransition(async () => {
-      await reviewLeaveAction(r.id, decision, decision === "rejected" ? note.trim() || null : null);
-      router.refresh();
+      try {
+        const res = await reviewLeaveAction(r.id, decision, decision === "rejected" ? note.trim() || null : null);
+        if (res && !res.ok) {
+          // e.g. insufficient-balance guard — show it inline instead of crashing.
+          setError(res.error);
+          return;
+        }
+        router.refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Could not process this request.");
+      }
     });
   }
 
@@ -159,6 +170,11 @@ function ApprovalCard({ r }: { r: LeaveRequestRow }) {
       </div>
       {r.reason && !rejecting && (
         <p className="mt-2 border-t border-border-subtle pt-2 text-sm text-text-secondary">{r.reason}</p>
+      )}
+      {error && (
+        <p className="mt-2 rounded-md border border-[var(--negative-border)] bg-[var(--negative-subtle)] px-3 py-2 text-sm text-[var(--negative-text)]">
+          {error}
+        </p>
       )}
       {rejecting && (
         <div className="mt-3 flex items-center gap-2 border-t border-border-subtle pt-3">
