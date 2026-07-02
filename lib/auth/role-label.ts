@@ -9,6 +9,8 @@ export function roleLabel(role?: Role | string): string {
       return "Admin / Finance";
     case "viewer":
       return "Designer / Employee";
+    case "hr":
+      return "HR admin";
     default:
       return role ?? "";
   }
@@ -23,6 +25,8 @@ export function roleShort(role?: Role | string): string {
       return "Admin";
     case "viewer":
       return "Designer";
+    case "hr":
+      return "HR";
     default:
       return role ?? "";
   }

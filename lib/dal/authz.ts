@@ -38,3 +38,20 @@ export function assertLeadsAccess(user: SessionUser): void {
     throw new Error("Leads is available to Admin / Finance only");
   }
 }
+
+/**
+ * Can this user manage the HR module (employees, leave approvals, attendance
+ * overrides, payroll, HR settings)?
+ *  - super-admin & hr → full access
+ *  - everyone else → no (they may still be employees with self-service access,
+ *    which is gated separately on having an employee_profiles row).
+ */
+export function canManageHr(user: SessionUser): boolean {
+  return user.role === "super-admin" || user.role === "hr";
+}
+
+export function assertHrAccess(user: SessionUser): void {
+  if (!canManageHr(user)) {
+    throw new Error("HR administration is available to HR / Super Admin only");
+  }
+}
