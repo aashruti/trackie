@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import type { AttendancePreview, MonthGridRow, MonthGridCell } from "@/lib/dal/hr/attendance";
 import type { AttendanceDayType } from "@/lib/db/enums";
 import { MonthSwitcher } from "@/components/hr/month-switcher";
-import { previewAttendanceAction, commitAttendanceAction, overrideAttendanceAction, getEmployeeCalendarAction } from "@/app/(app)/hr/attendance/actions";
-import type { MyAttendance } from "@/lib/dal/hr/attendance";
+import { previewAttendanceAction, commitAttendanceAction, overrideAttendanceAction, setAttendanceLateAction, getDayAttendanceAction, getEmployeeCalendarAction } from "@/app/(app)/hr/attendance/actions";
+import type { MyAttendance, DayMark } from "@/lib/dal/hr/attendance";
 
 const OVERRIDE_OPTIONS: AttendanceDayType[] = ["office", "half-day", "wfh", "official-visit", "comp-off", "paid-leave", "unpaid-leave", "weekly-off", "holiday", "absent"];
 
@@ -59,11 +59,17 @@ function Legend() {
   );
 }
 
-type Tab = "today" | "upload" | "grid" | "calendar";
+type Tab = "day" | "upload" | "grid" | "calendar";
 
 function localToday() {
   const t = new Date();
   return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+}
+
+function addDays(iso: string, delta: number) {
+  const t = Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10))) + delta * 86_400_000;
+  const d = new Date(t);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 }
 
 export function AttendanceManager({
@@ -79,15 +85,15 @@ export function AttendanceManager({
   year: number;
   month: number;
 }) {
-  const [tab, setTab] = useState<Tab>("today");
+  const [tab, setTab] = useState<Tab>("day");
   return (
     <div className="space-y-5">
       <div>
         <h2 className="text-xl font-semibold tracking-tight text-text-primary">Attendance</h2>
-        <p className="mt-0.5 text-sm text-text-secondary">Mark today, upload the scanner file, or review the month.</p>
+        <p className="mt-0.5 text-sm text-text-secondary">Mark attendance day by day, upload the scanner file, or review the month.</p>
       </div>
       <div className="flex items-center gap-1 border-b border-border">
-        {([["today", "Mark today"], ["upload", "Upload device file"], ["grid", "Month grid"], ["calendar", "Employee calendar"]] as [Tab, string][]).map(([k, l]) => (
+        {([["day", "Mark day wise"], ["upload", "Upload device file"], ["grid", "Month grid"], ["calendar", "Employee calendar"]] as [Tab, string][]).map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)}
             className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${tab === k ? "border-[var(--primary)] text-text-primary" : "border-transparent text-text-secondary hover:text-text-primary"}`}>
             {l}
@@ -95,7 +101,7 @@ export function AttendanceManager({
         ))}
         {(tab === "grid" || tab === "calendar") && <div className="ml-auto pb-1.5"><MonthSwitcher year={year} month={month} /></div>}
       </div>
-      {tab === "today" && <MarkTodayPanel employees={employees} grid={grid} />}
+      {tab === "day" && <MarkDayPanel employees={employees} grid={grid} />}
       {tab === "upload" && <UploadPanel />}
       {tab === "grid" && <GridPanel grid={grid} />}
       {tab === "calendar" && <EmployeeCalendarPanel employees={employees} year={year} month={month} monthLabel={monthLabel} />}
@@ -108,25 +114,48 @@ const QUICK_MARKS: [AttendanceDayType, string][] = [
   ["paid-leave", "Leave"], ["half-day", "Half day"], ["absent", "Absent"], ["weekly-off", "Off"],
 ];
 
-function MarkTodayPanel({ employees, grid }: { employees: { id: number; code: string; name: string }[]; grid: { days: string[]; rows: MonthGridRow[] } }) {
+function MarkDayPanel({ employees, grid }: { employees: { id: number; code: string; name: string }[]; grid: { days: string[]; rows: MonthGridRow[] } }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [savingId, setSavingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const today = localToday();
-  const todayInGrid = grid.days.includes(today);
-  const cellByEmp = new Map(grid.rows.map((r) => [r.employeeId, r.cells[today]]));
+  const [date, setDate] = useState(today);
+  // Seed today's marks from the already-loaded grid to avoid an initial flash.
+  const [marks, setMarks] = useState<Record<number, DayMark>>(() => {
+    const seed: Record<number, DayMark> = {};
+    for (const r of grid.rows) { const c = r.cells[today]; if (c) seed[r.employeeId] = { dayType: c.dayType, isLate: c.isLate, isEarlyLeave: c.isEarlyLeave }; }
+    return seed;
+  });
 
-  function mark(employeeId: number, dayType: AttendanceDayType) {
+  function load(d: string) {
+    startTransition(async () => {
+      const res = await getDayAttendanceAction(d);
+      if (res.ok) setMarks(res.data);
+    });
+  }
+  // Reload whenever the date changes (skip the seeded first render for today).
+  const firstDate = useRef(true);
+  useEffect(() => {
+    if (firstDate.current && date === today) { firstDate.current = false; return; }
+    firstDate.current = false;
+    load(date);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date]);
+
+  function run(employeeId: number, fn: () => Promise<{ ok: boolean; error?: string }>) {
     setError(null);
     setSavingId(employeeId);
     startTransition(async () => {
-      const res = await overrideAttendanceAction(employeeId, today, dayType);
+      const res = await fn();
       setSavingId(null);
-      if (!res.ok) { setError(res.error); return; }
+      if (!res.ok) { setError(res.error ?? "Something went wrong."); return; }
+      load(date);
       router.refresh();
     });
   }
+  const mark = (id: number, dt: AttendanceDayType) => run(id, () => overrideAttendanceAction(id, date, dt));
+  const toggleLate = (id: number, next: boolean) => run(id, () => setAttendanceLateAction(id, date, next));
 
   if (!employees.length) return <div className="rounded-xl border border-border bg-surface px-4 py-12 text-center text-sm text-text-muted">No active employees.</div>;
 
@@ -134,13 +163,20 @@ function MarkTodayPanel({ employees, grid }: { employees: { id: number; code: st
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm text-text-secondary">Marking attendance for</span>
-        <span className="rounded-md bg-[var(--primary-subtle)] px-2.5 py-1 text-sm font-semibold text-[var(--primary-text)]">{fmtDate(today)}</span>
+        <div className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-surface p-0.5">
+          <DayNav label="Previous day" onClick={() => setDate(addDays(date, -1))} d="M15 6l-6 6 6 6" />
+          <span className="min-w-[150px] px-1 text-center text-sm font-semibold text-text-primary">{fmtDate(date)}</span>
+          <DayNav label="Next day" onClick={() => setDate(addDays(date, 1))} d="M9 6l6 6-6 6" disabled={date >= today} />
+        </div>
+        <input type="date" value={date} max={today} onChange={(e) => e.target.value && setDate(e.target.value)}
+          className="rounded-md border border-border-strong bg-surface px-2 py-1 text-sm text-text-primary focus:border-[var(--primary)] focus:outline-none" />
+        {date !== today && <button onClick={() => setDate(today)} className="text-xs font-medium text-[var(--primary-text)] hover:underline">Today</button>}
       </div>
-      {!todayInGrid && <p className="text-[11px] text-text-muted">Switch the Month grid to this month to see today’s marks in context.</p>}
       {error && <p className="rounded-md border border-[var(--negative-border)] bg-[var(--negative-subtle)] px-3 py-2 text-sm text-[var(--negative-text)]">{error}</p>}
       <div className="overflow-hidden rounded-xl border border-border bg-surface">
         {employees.map((e) => {
-          const cur = cellByEmp.get(e.id);
+          const cur = marks[e.id];
+          const busy = pending && savingId === e.id;
           return (
             <div key={e.id} className="flex flex-wrap items-center gap-2 border-b border-border-subtle px-3 py-2 last:border-0">
               <div className="min-w-[150px] leading-tight">
@@ -148,19 +184,34 @@ function MarkTodayPanel({ employees, grid }: { employees: { id: number; code: st
                 <div className="text-[11px] text-text-muted">{e.code}</div>
               </div>
               {cur ? <Cell dayType={cur.dayType} isLate={cur.isLate} isEarlyLeave={cur.isEarlyLeave} /> : <span className="text-[11px] text-text-muted">— not marked</span>}
-              <div className="ml-auto flex flex-wrap gap-1">
+              <div className="ml-auto flex flex-wrap items-center gap-1">
                 {QUICK_MARKS.map(([dt, label]) => (
-                  <button key={dt} disabled={pending && savingId === e.id} onClick={() => mark(e.id, dt)}
+                  <button key={dt} disabled={busy} onClick={() => mark(e.id, dt)}
                     className={`rounded-md border px-2 py-1 text-xs font-medium transition-colors disabled:opacity-40 ${cur?.dayType === dt ? "border-[var(--primary)] bg-[var(--primary-subtle)] text-[var(--primary-text)]" : "border-border text-text-secondary hover:bg-surface-hover"}`}>
                     {label}
                   </button>
                 ))}
+                <span className="mx-0.5 h-4 w-px bg-border" />
+                <button disabled={busy} onClick={() => toggleLate(e.id, !cur?.isLate)} title="Flag a late arrival"
+                  className={`rounded-md border px-2 py-1 text-xs font-semibold transition-colors disabled:opacity-40 ${cur?.isLate ? "border-[var(--pending-border)] bg-[var(--pending-subtle)] text-[var(--pending-text)]" : "border-border text-text-secondary hover:bg-surface-hover"}`}>
+                  Late
+                </button>
               </div>
             </div>
           );
         })}
       </div>
+      <p className="text-[11px] text-text-muted">“Late” flags a present day as a late arrival (feeds the late→LOP policy). Use the arrows or the picker to mark any past date.</p>
     </div>
+  );
+}
+
+function DayNav({ label, onClick, d, disabled }: { label: string; onClick: () => void; d: string; disabled?: boolean }) {
+  return (
+    <button type="button" aria-label={label} onClick={onClick} disabled={disabled}
+      className="grid h-7 w-7 place-items-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:pointer-events-none disabled:opacity-30">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>
+    </button>
   );
 }
 

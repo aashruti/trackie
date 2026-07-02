@@ -342,6 +342,35 @@ export async function overrideAttendanceDay(
     });
 }
 
+/** Toggle the late flag on a day (keeps the day-type; auto-marks office if unset). */
+export async function setAttendanceLate(user: SessionUser, employeeId: number, date: string, isLate: boolean): Promise<void> {
+  assertHrAccess(user);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new UserError("Invalid date.");
+  await db
+    .insert(attendanceRecords)
+    .values({ employeeId, date, dayType: "office", source: "manual", overriddenByUserId: user.id, lopDays: "0", isLate, lateMinutes: 0, isEarlyLeave: false, earlyMinutes: 0 })
+    .onConflictDoUpdate({
+      target: [attendanceRecords.employeeId, attendanceRecords.date],
+      // Preserve day_type/source; only flip the late flag (zero minutes when clearing).
+      set: { isLate, lateMinutes: isLate ? sql`${attendanceRecords.lateMinutes}` : 0, overriddenByUserId: user.id, updatedAt: sql`now()` },
+    });
+}
+
+export type DayMark = { dayType: AttendanceDayType; isLate: boolean; isEarlyLeave: boolean };
+
+/** Every active employee's mark (if any) on a single date — for the day-wise marker. */
+export async function getDayAttendance(user: SessionUser, date: string): Promise<Record<number, DayMark>> {
+  assertHrAccess(user);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new UserError("Invalid date.");
+  const rows = await db
+    .select({ employeeId: attendanceRecords.employeeId, dayType: attendanceRecords.dayType, isLate: attendanceRecords.isLate, isEarlyLeave: attendanceRecords.isEarlyLeave })
+    .from(attendanceRecords)
+    .where(eq(attendanceRecords.date, date));
+  const out: Record<number, DayMark> = {};
+  for (const r of rows) out[r.employeeId] = { dayType: r.dayType, isLate: r.isLate, isEarlyLeave: r.isEarlyLeave };
+  return out;
+}
+
 export async function listActiveEmployees(user: SessionUser): Promise<{ id: number; code: string; name: string }[]> {
   assertHrAccess(user);
   return db
