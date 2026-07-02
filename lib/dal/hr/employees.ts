@@ -116,25 +116,36 @@ export async function enableEmployee(
   input: EmployeeInput,
 ): Promise<{ employeeId: number }> {
   assertHrAccess(user);
-  const [row] = await db
-    .insert(employeeProfiles)
-    .values({
-      userId,
-      employeeCode: input.employeeCode.trim(),
-      altCodes: input.altCodes ?? [],
-      biometricId: input.biometricId ?? null,
-      dateOfJoining: input.dateOfJoining ?? null,
-      monthlySalary: String(input.monthlySalary ?? 0),
-      shiftId: input.shiftId ?? null,
-      weeklyOffDay: input.weeklyOffDay ?? 0,
-      wfhDay: input.wfhDay ?? 6,
-      dob: input.dob ?? null,
-      pan: input.pan ?? null,
-      aadhar: input.aadhar ?? null,
-      phone: input.phone ?? null,
-      emergencyContacts: input.emergencyContacts ?? null,
-    })
-    .returning({ employeeId: employeeProfiles.id });
+  let row: { employeeId: number };
+  try {
+    [row] = await db
+      .insert(employeeProfiles)
+      .values({
+        userId,
+        employeeCode: input.employeeCode.trim(),
+        altCodes: input.altCodes ?? [],
+        biometricId: input.biometricId ?? null,
+        dateOfJoining: input.dateOfJoining ?? null,
+        monthlySalary: String(input.monthlySalary ?? 0),
+        shiftId: input.shiftId ?? null,
+        weeklyOffDay: input.weeklyOffDay ?? 0,
+        wfhDay: input.wfhDay ?? 6,
+        dob: input.dob ?? null,
+        pan: input.pan ?? null,
+        aadhar: input.aadhar ?? null,
+        phone: input.phone ?? null,
+        emergencyContacts: input.emergencyContacts ?? null,
+      })
+      .returning({ employeeId: employeeProfiles.id });
+  } catch (e) {
+    // Surface the two UNIQUE constraints (user_id, employee_code) as a clear message.
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/unique|duplicate/i.test(msg)) {
+      if (/employee_code/.test(msg)) throw new Error(`Employee code "${input.employeeCode}" is already in use.`);
+      throw new Error("This user is already registered as an employee.");
+    }
+    throw e;
+  }
   return { employeeId: row.employeeId };
 }
 

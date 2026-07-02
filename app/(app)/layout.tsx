@@ -12,7 +12,9 @@ export default async function AppLayout({
   const session = await auth();
   if (!session?.user) redirect("/login");
   const user = session.user;
-  const employee = await isEmployee(Number(user.id));
+  // Resilient: a transient DB error (or pre-migration state) must not 500 the
+  // whole app shell — just hide the self-service "Me" nav until it recovers.
+  const employee = await isEmployee(Number(user.id)).catch(() => false);
 
   return (
     <div className="flex min-h-dvh bg-background">

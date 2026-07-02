@@ -13,14 +13,20 @@ async function actor() {
 
 export async function applyLeaveAction(input: ApplyLeaveInput) {
   const created = await applyForLeave(await actor(), input);
-  const recipients = await hrRecipientEmails();
-  await notifyLeaveRequested(recipients, {
-    employeeName: created.employeeName,
-    leaveTypeName: created.leaveTypeName,
-    startDate: created.startDate,
-    endDate: created.endDate,
-    days: created.days,
-  });
+  // Notification is best-effort: the request is already saved, so a recipient
+  // lookup or send failure must not make the user think it failed (and resubmit).
+  try {
+    const recipients = await hrRecipientEmails();
+    await notifyLeaveRequested(recipients, {
+      employeeName: created.employeeName,
+      leaveTypeName: created.leaveTypeName,
+      startDate: created.startDate,
+      endDate: created.endDate,
+      days: created.days,
+    });
+  } catch (e) {
+    console.error("[leave:notify] failed to notify HR of new request:", e instanceof Error ? e.message : e);
+  }
   revalidatePath("/me/leave");
   revalidatePath("/hr/leave");
   return { ok: true };

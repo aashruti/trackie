@@ -285,7 +285,9 @@ export async function reviewLeaveRequest(
   }
 
   // Atomically claim the request: only one caller can flip it out of 'pending',
-  // so a double-click / concurrent approval can't double-debit.
+  // so a double-click / concurrent approval can't double-process it. (neon-http
+  // has no interactive transactions, so we use per-statement atomicity + a
+  // compensating revert below instead of a wrapping tx.)
   const claimed = await db
     .update(leaveRequests)
     .set({ status: decision, reviewedByUserId: user.id, reviewedAt: new Date(), reviewNote: note })
@@ -294,46 +296,72 @@ export async function reviewLeaveRequest(
   if (!claimed.length) throw new Error("This request has already been reviewed");
 
   if (decision === "approved") {
-    // Atomic insert-or-increment — no read-modify-write race on the balance.
-    await db
-      .insert(leaveBalances)
-      .values({
-        employeeId,
-        leaveTypeId,
-        year,
-        used: isPaid ? String(days) : "0",
-        unpaidTaken: isPaid ? "0" : String(days),
-      })
-      .onConflictDoUpdate({
-        target: [leaveBalances.employeeId, leaveBalances.leaveTypeId, leaveBalances.year],
-        set: isPaid
-          ? { used: sql`${leaveBalances.used} + ${days}` }
-          : { unpaidTaken: sql`${leaveBalances.unpaidTaken} + ${days}` },
-      });
+    try {
+      if (isPaid) {
+        // Guarded atomic debit: a single UPDATE that only succeeds if enough
+        // balance remains, so two concurrent sibling approvals can't both pass a
+        // separate check and over-draw into negative.
+        const debited = await db
+          .update(leaveBalances)
+          .set({ used: sql`${leaveBalances.used} + ${days}` })
+          .where(
+            and(
+              eq(leaveBalances.employeeId, employeeId),
+              eq(leaveBalances.leaveTypeId, leaveTypeId),
+              eq(leaveBalances.year, year),
+              sql`${leaveBalances.carriedForward} + ${leaveBalances.accrued} - ${leaveBalances.used} >= ${days}`,
+            ),
+          )
+          .returning({ id: leaveBalances.id });
+        if (!debited.length) {
+          // No balance row for this year, or insufficient remaining balance.
+          throw new Error(
+            `Insufficient ${req.leaveTypeName} balance for ${days} day(s). Reduce the request or use an unpaid type.`,
+          );
+        }
+      } else {
+        // Unpaid leave has no ceiling — insert-or-increment atomically.
+        await db
+          .insert(leaveBalances)
+          .values({ employeeId, leaveTypeId, year, unpaidTaken: String(days) })
+          .onConflictDoUpdate({
+            target: [leaveBalances.employeeId, leaveBalances.leaveTypeId, leaveBalances.year],
+            set: { unpaidTaken: sql`${leaveBalances.unpaidTaken} + ${days}` },
+          });
+      }
 
-    // Write leave days into the attendance truth table — exactly the days that
-    // were counted (exclude Sundays; a half-day is a single 0.5 day). Keeps the
-    // balance debit and the attendance rows in agreement.
-    const dayType: AttendanceDayType = isPaid ? "paid-leave" : "unpaid-leave";
-    const dates = isHalf
-      ? [req.startDate as string]
-      : enumerateDates(req.startDate as string, req.endDate as string).filter(
-          (d) => new Date(d + "T00:00:00Z").getUTCDay() !== 0,
-        );
-    const perDayLop = isPaid ? "0" : isHalf ? "0.5" : "1";
-    if (dates.length) {
+      // Write leave days into the attendance truth table — exactly the days that
+      // were counted (exclude Sundays; a half-day is a single 0.5 day). Keeps the
+      // balance debit and the attendance rows in agreement.
+      const dayType: AttendanceDayType = isPaid ? "paid-leave" : "unpaid-leave";
+      const dates = isHalf
+        ? [req.startDate as string]
+        : enumerateDates(req.startDate as string, req.endDate as string).filter(
+            (d) => new Date(d + "T00:00:00Z").getUTCDay() !== 0,
+          );
+      const perDayLop = isPaid ? "0" : isHalf ? "0.5" : "1";
+      if (dates.length) {
+        await db
+          .insert(attendanceRecords)
+          .values(
+            dates.map((d) => ({
+              employeeId,
+              date: d,
+              dayType,
+              source: "leave" as const,
+              lopDays: perDayLop,
+            })),
+          )
+          .onConflictDoNothing({ target: [attendanceRecords.employeeId, attendanceRecords.date] });
+      }
+    } catch (e) {
+      // Compensate: never leave the request 'approved' with no balance/attendance
+      // effect. Revert to 'pending' so HR can retry (or see the guard message).
       await db
-        .insert(attendanceRecords)
-        .values(
-          dates.map((d) => ({
-            employeeId,
-            date: d,
-            dayType,
-            source: "leave" as const,
-            lopDays: perDayLop,
-          })),
-        )
-        .onConflictDoNothing({ target: [attendanceRecords.employeeId, attendanceRecords.date] });
+        .update(leaveRequests)
+        .set({ status: "pending", reviewedByUserId: null, reviewedAt: null, reviewNote: null })
+        .where(and(eq(leaveRequests.id, requestId), eq(leaveRequests.status, "approved")));
+      throw e;
     }
   }
 

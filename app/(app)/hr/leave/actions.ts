@@ -18,15 +18,19 @@ export async function reviewLeaveAction(
 ) {
   const info = await reviewLeaveRequest(await actor(), requestId, decision, note);
   // Fire-and-forget email; failures never block the decision.
-  await notifyLeaveDecision(info.employeeEmail, {
-    employeeName: info.employeeName,
-    leaveTypeName: info.leaveTypeName,
-    startDate: info.startDate,
-    endDate: info.endDate,
-    days: info.days,
-    decision: info.decision,
-    note,
-  });
+  try {
+    await notifyLeaveDecision(info.employeeEmail, {
+      employeeName: info.employeeName,
+      leaveTypeName: info.leaveTypeName,
+      startDate: info.startDate,
+      endDate: info.endDate,
+      days: info.days,
+      decision: info.decision,
+      note,
+    });
+  } catch (e) {
+    console.error("[leave:notify] failed to notify employee of decision:", e instanceof Error ? e.message : e);
+  }
   revalidatePath("/hr/leave");
   return { ok: true };
 }
