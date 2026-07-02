@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { AttendancePreview, MonthGridRow, MonthGridCell } from "@/lib/dal/hr/attendance";
 import type { AttendanceDayType } from "@/lib/db/enums";
+import { MonthSwitcher } from "@/components/hr/month-switcher";
 import { previewAttendanceAction, commitAttendanceAction, overrideAttendanceAction, getEmployeeCalendarAction } from "@/app/(app)/hr/attendance/actions";
 import type { MyAttendance } from "@/lib/dal/hr/attendance";
 
@@ -76,13 +77,14 @@ export function AttendanceManager({
         <h2 className="text-xl font-semibold tracking-tight text-text-primary">Attendance</h2>
         <p className="mt-0.5 text-sm text-text-secondary">Upload the fingerprint scanner file, review, then commit.</p>
       </div>
-      <div className="flex gap-1 border-b border-border">
-        {([["upload", "Upload device file"], ["grid", `Month grid · ${monthLabel}`], ["calendar", "Employee calendar"]] as [Tab, string][]).map(([k, l]) => (
+      <div className="flex items-center gap-1 border-b border-border">
+        {([["upload", "Upload device file"], ["grid", "Month grid"], ["calendar", "Employee calendar"]] as [Tab, string][]).map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)}
             className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${tab === k ? "border-[var(--primary)] text-text-primary" : "border-transparent text-text-secondary hover:text-text-primary"}`}>
             {l}
           </button>
         ))}
+        {tab !== "upload" && <div className="ml-auto pb-1.5"><MonthSwitcher year={year} month={month} /></div>}
       </div>
       {tab === "upload" && <UploadPanel />}
       {tab === "grid" && <GridPanel grid={grid} />}
@@ -300,6 +302,15 @@ function EmployeeCalendarPanel({ employees, year, month, monthLabel }: { employe
       if (res.ok) setData(res.data);
     });
   }
+
+  // When the month switches, refresh the shown employee for the new month
+  // (skip the first mount so the "click to show" prompt still applies).
+  const mounted = useRef(false);
+  useEffect(() => {
+    if (!mounted.current) { mounted.current = true; return; }
+    if (data && empId !== "") load(Number(empId));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [year, month]);
 
   return (
     <div className="space-y-4">

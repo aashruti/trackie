@@ -19,7 +19,7 @@ export default async function MyAttendancePage({
 
   const { month } = await searchParams;
   const now = new Date();
-  const [y, m] = month && /^\d{4}-\d{2}$/.test(month)
+  const [y, m] = month && /^\d{4}-(0[1-9]|1[0-2])$/.test(month)
     ? [Number(month.slice(0, 4)), Number(month.slice(5, 7))]
     : [now.getUTCFullYear(), now.getUTCMonth() + 1];
 
@@ -30,7 +30,7 @@ export default async function MyAttendancePage({
     <>
       <Topbar section="Me" title="My attendance" user={user} years={years} currentYear={YEAR} />
       <main className="mx-auto w-full max-w-[1440px] px-6 py-6">
-        <MyAttendanceView data={data} monthLabel={`${MONTHS[m - 1]} ${y}`} />
+        <MyAttendanceView data={data} monthLabel={`${MONTHS[m - 1]} ${y}`} year={y} month={m} />
       </main>
     </>
   );

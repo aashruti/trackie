@@ -1,5 +1,6 @@
 import type { MyAttendance } from "@/lib/dal/hr/attendance";
 import type { AttendanceDayType } from "@/lib/db/enums";
+import { MonthSwitcher } from "@/components/hr/month-switcher";
 
 const DAY_META: Record<AttendanceDayType, { label: string; cls: string }> = {
   office: { label: "P", cls: "bg-[var(--positive-subtle)] text-[var(--positive-text)]" },
@@ -23,14 +24,17 @@ function Stat({ label, value, tone }: { label: string; value: number | string; t
   );
 }
 
-export function MyAttendanceView({ data, monthLabel }: { data: MyAttendance; monthLabel: string }) {
+export function MyAttendanceView({ data, monthLabel, year, month }: { data: MyAttendance; monthLabel: string; year: number; month: number }) {
   const { days, cells, summary } = data;
-  const firstDow = new Date(days[0] + "T00:00:00Z").getUTCDay(); // 0=Sun
+  const firstDow = days.length ? new Date(days[0] + "T00:00:00Z").getUTCDay() : 0; // 0=Sun
   return (
     <div className="space-y-5">
-      <div>
-        <h2 className="text-xl font-semibold tracking-tight text-text-primary">My attendance</h2>
-        <p className="mt-0.5 text-sm text-text-secondary">{monthLabel}</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-semibold tracking-tight text-text-primary">My attendance</h2>
+          <p className="mt-0.5 text-sm text-text-secondary">{monthLabel}</p>
+        </div>
+        <MonthSwitcher year={year} month={month} />
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
