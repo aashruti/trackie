@@ -34,12 +34,12 @@ const SHIFTS = [
   { name: "Late", startTime: "11:00", endTime: "20:00", graceMinutes: 15, halfDayAfterMinutes: 180, earlyLeaveBeforeMinutes: 60, fullDayMinutes: 480 },
 ];
 
+// Datagami runs a single Earned-leave bucket: 18/yr, 1.5/mo accrual, carry-forward.
+// When it's exhausted the overflow becomes UNPAID leave = loss of pay (tracked as
+// unpaidTaken on the same balance row; the Unpaid type is kept inactive, not applied for).
 const LEAVE_TYPES = [
-  { name: "Casual", code: "CL", isPaid: true, accrualMode: "monthly" as const, annualEntitlement: "12", monthlyAccrual: "1" },
-  { name: "Sick", code: "SL", isPaid: true, accrualMode: "monthly" as const, annualEntitlement: "8", monthlyAccrual: "0.66" },
-  { name: "Earned", code: "EL", isPaid: true, accrualMode: "monthly" as const, annualEntitlement: "18", monthlyAccrual: "1.5" },
-  { name: "Comp-off", code: "CO", isPaid: true, accrualMode: "annual" as const, annualEntitlement: "0", monthlyAccrual: "0" },
-  { name: "Unpaid", code: "LWP", isPaid: false, accrualMode: "annual" as const, annualEntitlement: "0", monthlyAccrual: "0" },
+  { name: "Earned", code: "EL", isPaid: true, accrualMode: "monthly" as const, annualEntitlement: "18", monthlyAccrual: "1.5", active: true },
+  { name: "Unpaid", code: "LWP", isPaid: false, accrualMode: "annual" as const, annualEntitlement: "0", monthlyAccrual: "0", active: false },
 ];
 
 async function seedShifts() {
@@ -154,10 +154,10 @@ async function seedDemoLeave() {
   }
   const byCode = new Map(types.map((t) => [t.code, t.id]));
   const samples = [
-    { i: 0, code: "CL", startDate: `${year}-07-02`, endDate: `${year}-07-03`, isHalfDay: false, days: "2", reason: "Family function out of town." },
-    { i: 1, code: "SL", startDate: `${year}-07-01`, endDate: `${year}-07-01`, isHalfDay: false, days: "1", reason: "Fever, will share prescription." },
+    { i: 0, code: "EL", startDate: `${year}-07-02`, endDate: `${year}-07-03`, isHalfDay: false, days: "2", reason: "Family function out of town." },
+    { i: 1, code: "EL", startDate: `${year}-07-01`, endDate: `${year}-07-01`, isHalfDay: false, days: "1", reason: "Personal work." },
     { i: 2, code: "EL", startDate: `${year}-07-07`, endDate: `${year}-07-11`, isHalfDay: false, days: "5", reason: "Annual vacation with family." },
-    { i: 3, code: "CL", startDate: `${year}-07-04`, endDate: `${year}-07-04`, isHalfDay: true, days: "0.5", reason: "Personal errand, half day." },
+    { i: 3, code: "EL", startDate: `${year}-07-04`, endDate: `${year}-07-04`, isHalfDay: true, days: "0.5", reason: "Personal errand, half day." },
   ];
   const reqRows = samples
     .filter((s) => emps[s.i] && byCode.get(s.code))

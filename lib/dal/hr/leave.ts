@@ -64,6 +64,7 @@ export type BalanceLedgerRow = {
 function n(v: string | number | null): number {
   return v == null ? 0 : Number(v);
 }
+const round2 = (x: number) => Math.round(x * 100) / 100;
 
 export async function listLeaveTypes(user: SessionUser): Promise<LeaveTypeRow[]> {
   assertHrAccess(user);
@@ -293,22 +294,8 @@ export async function reviewLeaveRequest(
       .where(eq(leaveTypes.id, leaveTypeId))
       .limit(1);
     isPaid = type?.isPaid ?? true;
-
-    // Balance-sufficiency guard for paid types (best-effort; the real ceiling is
-    // enforced here before we claim the request).
-    if (isPaid) {
-      const [bal] = await db
-        .select()
-        .from(leaveBalances)
-        .where(and(eq(leaveBalances.employeeId, employeeId), eq(leaveBalances.leaveTypeId, leaveTypeId), eq(leaveBalances.year, year)))
-        .limit(1);
-      const available = n(bal?.carriedForward ?? "0") + n(bal?.accrued ?? "0") - n(bal?.used ?? "0");
-      if (days > available) {
-        throw new UserError(
-          `Insufficient ${req.leaveTypeName} balance: ${available} day(s) available, ${days} requested. Reduce the request or use an unpaid type.`,
-        );
-      }
-    }
+    // No reject-on-insufficient guard: paid (Earned) leave beyond the balance
+    // overflows into unpaid leave (= loss of pay) at approval, rather than blocking.
   }
 
   // Atomically claim the request: only one caller can flip it out of 'pending',
@@ -324,62 +311,62 @@ export async function reviewLeaveRequest(
 
   if (decision === "approved") {
     try {
-      if (isPaid) {
-        // Guarded atomic debit: a single UPDATE that only succeeds if enough
-        // balance remains, so two concurrent sibling approvals can't both pass a
-        // separate check and over-draw into negative.
-        const debited = await db
-          .update(leaveBalances)
-          .set({ used: sql`${leaveBalances.used} + ${days}` })
-          .where(
-            and(
-              eq(leaveBalances.employeeId, employeeId),
-              eq(leaveBalances.leaveTypeId, leaveTypeId),
-              eq(leaveBalances.year, year),
-              sql`${leaveBalances.carriedForward} + ${leaveBalances.accrued} - ${leaveBalances.used} >= ${days}`,
-            ),
-          )
-          .returning({ id: leaveBalances.id });
-        if (!debited.length) {
-          // No balance row for this year, or insufficient remaining balance.
-          throw new UserError(
-            `Insufficient ${req.leaveTypeName} balance for ${days} day(s). Reduce the request or use an unpaid type.`,
-          );
-        }
-      } else {
-        // Unpaid leave has no ceiling — insert-or-increment atomically.
-        await db
-          .insert(leaveBalances)
-          .values({ employeeId, leaveTypeId, year, unpaidTaken: String(days) })
-          .onConflictDoUpdate({
-            target: [leaveBalances.employeeId, leaveBalances.leaveTypeId, leaveBalances.year],
-            set: { unpaidTaken: sql`${leaveBalances.unpaidTaken} + ${days}` },
-          });
-      }
-
-      // Write leave days into the attendance truth table — exactly the days that
-      // were counted (exclude Sundays; a half-day is a single 0.5 day). Keeps the
-      // balance debit and the attendance rows in agreement.
-      const dayType: AttendanceDayType = isPaid ? "paid-leave" : "unpaid-leave";
+      // Split the request: paid days are covered by the Earned balance; anything
+      // beyond it overflows into UNPAID leave (= loss of pay). Whole-day requests
+      // keep whole days whole (one day is entirely paid or entirely unpaid).
       const dates = isHalf
         ? [req.startDate as string]
         : enumerateDates(req.startDate as string, req.endDate as string).filter(
             (d) => new Date(d + "T00:00:00Z").getUTCDay() !== 0,
           );
-      const perDayLop = isPaid ? "0" : isHalf ? "0.5" : "1";
+
+      let paidDays = days; // fully paid unless a paid type runs out of balance
+      if (isPaid) {
+        const [bal] = await db
+          .select()
+          .from(leaveBalances)
+          .where(and(eq(leaveBalances.employeeId, employeeId), eq(leaveBalances.leaveTypeId, leaveTypeId), eq(leaveBalances.year, year)))
+          .limit(1);
+        const available = Math.max(0, n(bal?.carriedForward ?? "0") + n(bal?.accrued ?? "0") - n(bal?.used ?? "0"));
+        paidDays = isHalf ? (available >= days ? days : 0) : Math.min(dates.length, Math.floor(available));
+      } else {
+        paidDays = 0; // an explicitly-unpaid type is fully unpaid
+      }
+      const unpaidDays = round2(days - paidDays);
+
+      // Balance: used += paidDays, unpaidTaken += unpaidDays (on this type's row).
+      if (paidDays > 0 || unpaidDays > 0) {
+        await db
+          .insert(leaveBalances)
+          .values({ employeeId, leaveTypeId, year, used: String(paidDays), unpaidTaken: String(unpaidDays) })
+          .onConflictDoUpdate({
+            target: [leaveBalances.employeeId, leaveBalances.leaveTypeId, leaveBalances.year],
+            set: { used: sql`${leaveBalances.used} + ${paidDays}`, unpaidTaken: sql`${leaveBalances.unpaidTaken} + ${unpaidDays}` },
+          });
+      }
+
+      // Attendance truth table: the first paidDays dates are paid-leave (lop 0),
+      // the rest unpaid-leave (lop = full/half day). Leave is authoritative, so it
+      // overwrites a prior scanner row — keeping payroll LOP in sync with the balance.
       if (dates.length) {
+        const paidWhole = isHalf ? (paidDays >= days ? 1 : 0) : Math.round(paidDays);
+        const rows = dates.map((d, idx) => {
+          const paidDay = idx < paidWhole;
+          return {
+            employeeId,
+            date: d,
+            dayType: (paidDay ? "paid-leave" : "unpaid-leave") as AttendanceDayType,
+            source: "leave" as const,
+            lopDays: paidDay ? "0" : isHalf ? "0.5" : "1",
+          };
+        });
         await db
           .insert(attendanceRecords)
-          .values(
-            dates.map((d) => ({
-              employeeId,
-              date: d,
-              dayType,
-              source: "leave" as const,
-              lopDays: perDayLop,
-            })),
-          )
-          .onConflictDoNothing({ target: [attendanceRecords.employeeId, attendanceRecords.date] });
+          .values(rows)
+          .onConflictDoUpdate({
+            target: [attendanceRecords.employeeId, attendanceRecords.date],
+            set: { dayType: sql`excluded.day_type`, lopDays: sql`excluded.lop_days`, source: sql`excluded.source` },
+          });
       }
     } catch (e) {
       // Compensate: never leave the request 'approved' with no balance/attendance
