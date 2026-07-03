@@ -203,6 +203,9 @@ function ProfileDrawer({
   const [altCodes, setAltCodes] = useState((row?.altCodes ?? []).join(", "));
   const [biometricId, setBiometricId] = useState(row?.biometricId ?? "");
   const [monthlySalary, setMonthlySalary] = useState(String(row?.monthlySalary ?? ""));
+  const [insuranceMonthly, setInsuranceMonthly] = useState(String(row?.insuranceMonthly ?? ""));
+  const [tdsMonthly, setTdsMonthly] = useState(String(row?.tdsMonthly ?? ""));
+  const [professionalTax, setProfessionalTax] = useState(String(row?.professionalTax ?? 200));
   const [shiftId, setShiftId] = useState<number | "">(row?.shiftId ?? "");
   const [dateOfJoining, setDateOfJoining] = useState(row?.dateOfJoining ?? "");
   const [weeklyOffDay, setWeeklyOffDay] = useState(0);
@@ -226,6 +229,9 @@ function ProfileDrawer({
       altCodes: altCodes.split(",").map((s) => s.trim()).filter(Boolean),
       biometricId: biometricId.trim() || null,
       monthlySalary: Number(monthlySalary) || 0,
+      insuranceMonthly: Number(insuranceMonthly) || 0,
+      tdsMonthly: Number(tdsMonthly) || 0,
+      professionalTax: professionalTax === "" ? 0 : Number(professionalTax) || 0,
       shiftId: shiftId === "" ? null : Number(shiftId),
       dateOfJoining: dateOfJoining || null,
       weeklyOffDay: Number(weeklyOffDay),
@@ -332,7 +338,7 @@ function ProfileDrawer({
           </Field>
 
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Monthly salary (₹)">
+            <Field label="Monthly salary — gross (₹)">
               <input value={monthlySalary} onChange={(e) => setMonthlySalary(e.target.value)} inputMode="numeric" placeholder="65000" className={`${inputCls} tabular`} />
             </Field>
             <Field label="Shift">
@@ -342,6 +348,18 @@ function ProfileDrawer({
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
               </select>
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <Field label="Insurance / mo (₹)">
+              <input value={insuranceMonthly} onChange={(e) => setInsuranceMonthly(e.target.value)} inputMode="numeric" placeholder="0" className={`${inputCls} tabular`} />
+            </Field>
+            <Field label="TDS / mo (₹)">
+              <input value={tdsMonthly} onChange={(e) => setTdsMonthly(e.target.value)} inputMode="numeric" placeholder="0" className={`${inputCls} tabular`} />
+            </Field>
+            <Field label="Professional tax (₹)">
+              <input value={professionalTax} onChange={(e) => setProfessionalTax(e.target.value)} inputMode="numeric" placeholder="200" className={`${inputCls} tabular`} />
             </Field>
           </div>
 

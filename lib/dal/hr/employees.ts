@@ -20,6 +20,9 @@ export type RosterRow = {
   shiftId: number | null;
   shiftName: string | null;
   monthlySalary: number;
+  insuranceMonthly: number;
+  tdsMonthly: number;
+  professionalTax: number;
   dateOfJoining: string | null;
   status: EmployeeStatus;
 };
@@ -49,6 +52,9 @@ export async function listEmployees(user: SessionUser): Promise<RosterRow[]> {
       shiftId: employeeProfiles.shiftId,
       shiftName: shifts.name,
       monthlySalary: employeeProfiles.monthlySalary,
+      insuranceMonthly: employeeProfiles.insuranceMonthly,
+      tdsMonthly: employeeProfiles.tdsMonthly,
+      professionalTax: employeeProfiles.professionalTax,
       dateOfJoining: employeeProfiles.dateOfJoining,
       status: employeeProfiles.status,
     })
@@ -60,6 +66,9 @@ export async function listEmployees(user: SessionUser): Promise<RosterRow[]> {
   return rows.map((r) => ({
     ...r,
     monthlySalary: Number(r.monthlySalary),
+    insuranceMonthly: Number(r.insuranceMonthly),
+    tdsMonthly: Number(r.tdsMonthly),
+    professionalTax: Number(r.professionalTax),
   }));
 }
 
@@ -100,6 +109,9 @@ export type EmployeeInput = {
   biometricId?: string | null;
   dateOfJoining?: string | null;
   monthlySalary?: number;
+  insuranceMonthly?: number;
+  tdsMonthly?: number;
+  professionalTax?: number;
   shiftId?: number | null;
   weeklyOffDay?: number | null;
   wfhDay?: number | null;
@@ -165,6 +177,9 @@ export async function updateEmployee(
       biometricId: input.biometricId ?? null,
       dateOfJoining: input.dateOfJoining ?? null,
       monthlySalary: String(input.monthlySalary ?? 0),
+      insuranceMonthly: String(input.insuranceMonthly ?? 0),
+      tdsMonthly: String(input.tdsMonthly ?? 0),
+      professionalTax: String(input.professionalTax ?? 200),
       shiftId: input.shiftId ?? null,
       weeklyOffDay: input.weeklyOffDay ?? 0,
       wfhDay: input.wfhDay ?? 6,

@@ -6,6 +6,8 @@ import {
   previewAttendance,
   commitAttendance,
   overrideAttendanceDay,
+  setAttendanceLate,
+  getDayAttendance,
   getEmployeeCalendar,
   type AttendancePreview,
 } from "@/lib/dal/hr/attendance";
@@ -85,6 +87,31 @@ export async function overrideAttendanceAction(
   } catch (e) {
     console.error("[attendance:override]", e);
     return { ok: false, error: isUserError(e) ? e.message : "Could not update that day." };
+  }
+}
+
+export async function setAttendanceLateAction(
+  employeeId: number,
+  date: string,
+  isLate: boolean,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await setAttendanceLate(await actor(), employeeId, date, isLate);
+    revalidatePath("/hr/attendance");
+    return { ok: true };
+  } catch (e) {
+    console.error("[attendance:late]", e);
+    return { ok: false, error: isUserError(e) ? e.message : "Could not update the late flag." };
+  }
+}
+
+export async function getDayAttendanceAction(date: string) {
+  try {
+    const data = await getDayAttendance(await actor(), date);
+    return { ok: true as const, data };
+  } catch (e) {
+    console.error("[attendance:day]", e);
+    return { ok: false as const, error: isUserError(e) ? e.message : "Could not load that day." };
   }
 }
 

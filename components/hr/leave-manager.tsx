@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import type { LeaveRequestRow, BalanceLedgerRow } from "@/lib/dal/hr/leave";
-import { reviewLeaveAction } from "@/app/(app)/hr/leave/actions";
+import { reviewLeaveAction, setLeaveBalanceAction } from "@/app/(app)/hr/leave/actions";
 
 function initials(name: string) {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
@@ -33,10 +33,12 @@ export function LeaveManager({
   pending,
   all,
   ledger,
+  year,
 }: {
   pending: LeaveRequestRow[];
   all: LeaveRequestRow[];
   ledger: BalanceLedgerRow[];
+  year: number;
 }) {
   const [tab, setTab] = useState<Tab>("approvals");
 
@@ -82,7 +84,7 @@ export function LeaveManager({
       </div>
 
       {tab === "approvals" && <Approvals pending={pending} />}
-      {tab === "ledger" && <Ledger ledger={ledger} />}
+      {tab === "ledger" && <Ledger ledger={ledger} year={year} />}
       {tab === "all" && <AllRequests all={all} />}
     </div>
   );
@@ -199,49 +201,104 @@ function ApprovalCard({ r }: { r: LeaveRequestRow }) {
   );
 }
 
-function Ledger({ ledger }: { ledger: BalanceLedgerRow[] }) {
+function Ledger({ ledger, year }: { ledger: BalanceLedgerRow[]; year: number }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [editKey, setEditKey] = useState<string | null>(null);
+  const [draft, setDraft] = useState({ carriedForward: "", accrued: "", used: "" });
+  const [error, setError] = useState<string | null>(null);
+
   if (!ledger.length) {
     return <div className="rounded-xl border border-border bg-surface px-4 py-12 text-center text-sm text-text-muted">No employees.</div>;
   }
+
+  function startEdit(key: string, t: BalanceLedgerRow["types"][number]) {
+    setError(null);
+    setEditKey(key);
+    setDraft({ carriedForward: String(t.carriedForward), accrued: String(t.accrued), used: String(t.used) });
+  }
+  function save(employeeId: number, leaveTypeId: number) {
+    if ([draft.carriedForward, draft.accrued, draft.used].some((s) => s.trim() === "")) { setError("Enter a value for carry-forward, accrued, and used."); return; }
+    const values = { carriedForward: Number(draft.carriedForward), accrued: Number(draft.accrued), used: Number(draft.used) };
+    if (Object.values(values).some((v) => !Number.isFinite(v) || v < 0)) { setError("Enter valid non-negative numbers."); return; }
+    setError(null);
+    startTransition(async () => {
+      const res = await setLeaveBalanceAction(employeeId, leaveTypeId, year, values);
+      if (!res.ok) { setError(res.error); return; }
+      setEditKey(null);
+      router.refresh();
+    });
+  }
+  const inputCls = "w-16 rounded border border-border-strong bg-surface px-1.5 py-1 text-right tabular text-text-primary focus:border-[var(--primary)] focus:outline-none";
+
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-surface">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border bg-surface-sunken text-left text-[11px] font-semibold uppercase tracking-wider text-text-muted">
-            <th className="px-4 py-3">Employee</th>
-            <th className="px-4 py-3">Type</th>
-            <th className="px-4 py-3 text-right">Entitlement</th>
-            <th className="px-4 py-3 text-right">Carry-fwd</th>
-            <th className="px-4 py-3 text-right">Accrued</th>
-            <th className="px-4 py-3 text-right">Used</th>
-            <th className="px-4 py-3 text-right">Unpaid</th>
-            <th className="px-4 py-3 text-right">Balance</th>
-          </tr>
-        </thead>
-        <tbody>
-          {ledger.map((emp) =>
-            emp.types.map((t, i) => (
-              <tr key={`${emp.employeeId}:${t.leaveTypeId}`} className="border-b border-border-subtle last:border-0">
-                <td className="px-4 py-2.5">
-                  {i === 0 && (
-                    <div className="leading-tight">
-                      <div className="font-medium text-text-primary">{emp.employeeName}</div>
-                      <div className="text-[11px] text-text-muted">{emp.employeeCode}</div>
-                    </div>
-                  )}
-                </td>
-                <td className="px-4 py-2.5"><Badge tone={typeTone(t.code)}>{t.name}</Badge></td>
-                <td className="px-4 py-2.5 text-right tabular text-text-secondary">{t.entitlement}</td>
-                <td className="px-4 py-2.5 text-right tabular text-text-secondary">{t.carriedForward}</td>
-                <td className="px-4 py-2.5 text-right tabular text-text-secondary">{t.accrued}</td>
-                <td className="px-4 py-2.5 text-right tabular text-text-secondary">{t.used}</td>
-                <td className="px-4 py-2.5 text-right tabular text-text-secondary">{t.unpaidTaken}</td>
-                <td className="px-4 py-2.5 text-right tabular font-semibold text-text-primary">{t.pending}</td>
-              </tr>
-            )),
-          )}
-        </tbody>
-      </table>
+    <div className="space-y-2">
+      <p className="text-[11px] text-text-muted">Balances for {year}. Click “Edit” on any row to set its carry-forward, accrued, or used.</p>
+      {error && <p className="rounded-md border border-[var(--negative-border)] bg-[var(--negative-subtle)] px-3 py-2 text-sm text-[var(--negative-text)]">{error}</p>}
+      <div className="overflow-hidden rounded-xl border border-border bg-surface">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border bg-surface-sunken text-left text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+              <th className="px-4 py-3">Employee</th>
+              <th className="px-4 py-3">Type</th>
+              <th className="px-4 py-3 text-right">Entitlement</th>
+              <th className="px-4 py-3 text-right">Carry-fwd</th>
+              <th className="px-4 py-3 text-right">Accrued</th>
+              <th className="px-4 py-3 text-right">Used</th>
+              <th className="px-4 py-3 text-right">Unpaid</th>
+              <th className="px-4 py-3 text-right">Balance</th>
+              <th className="px-4 py-3" />
+            </tr>
+          </thead>
+          <tbody>
+            {ledger.map((emp) =>
+              emp.types.map((t, i) => {
+                const key = `${emp.employeeId}:${t.leaveTypeId}`;
+                const editing = editKey === key;
+                const bal = editing ? Number(draft.carriedForward || 0) + Number(draft.accrued || 0) - Number(draft.used || 0) : t.pending;
+                return (
+                  <tr key={key} className={`border-b border-border-subtle last:border-0 ${editing ? "bg-[var(--primary-subtle)]/30" : ""}`}>
+                    <td className="px-4 py-2.5">
+                      {i === 0 && (
+                        <div className="leading-tight">
+                          <div className="font-medium text-text-primary">{emp.employeeName}</div>
+                          <div className="text-[11px] text-text-muted">{emp.employeeCode}</div>
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5"><Badge tone={typeTone(t.code)}>{t.name}</Badge></td>
+                    <td className="px-4 py-2.5 text-right tabular text-text-secondary">{t.entitlement}</td>
+                    <td className="px-4 py-2.5 text-right tabular text-text-secondary">
+                      {editing ? <input value={draft.carriedForward} onChange={(e) => setDraft((d) => ({ ...d, carriedForward: e.target.value }))} inputMode="decimal" className={inputCls} /> : t.carriedForward}
+                    </td>
+                    <td className="px-4 py-2.5 text-right tabular text-text-secondary">
+                      {editing ? <input value={draft.accrued} onChange={(e) => setDraft((d) => ({ ...d, accrued: e.target.value }))} inputMode="decimal" className={inputCls} /> : t.accrued}
+                    </td>
+                    <td className="px-4 py-2.5 text-right tabular text-text-secondary">
+                      {editing ? <input value={draft.used} onChange={(e) => setDraft((d) => ({ ...d, used: e.target.value }))} inputMode="decimal" className={inputCls} /> : t.used}
+                    </td>
+                    <td className="px-4 py-2.5 text-right tabular text-text-secondary">{t.unpaidTaken}</td>
+                    <td className="px-4 py-2.5 text-right tabular font-semibold text-text-primary">{bal}</td>
+                    <td className="px-4 py-2.5 text-right">
+                      {editing ? (
+                        <span className="inline-flex gap-1">
+                          <button onClick={() => save(emp.employeeId, t.leaveTypeId)} disabled={pending}
+                            className="rounded-md bg-[var(--primary)] px-2.5 py-1 text-xs font-semibold text-[var(--primary-fg)] transition-colors hover:bg-[var(--primary-hover)] disabled:opacity-50">
+                            {pending ? "Saving…" : "Save"}
+                          </button>
+                          <button onClick={() => setEditKey(null)} disabled={pending} className="rounded-md px-2 py-1 text-xs text-text-secondary hover:bg-surface-hover">Cancel</button>
+                        </span>
+                      ) : (
+                        <button onClick={() => startEdit(key, t)} className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover">Edit</button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              }),
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

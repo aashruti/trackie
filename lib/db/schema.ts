@@ -286,7 +286,11 @@ export const employeeProfiles = pgTable("employee_profiles", {
   // this person; distinct from DG/TH codes.
   biometricId: text("biometric_id"),
   dateOfJoining: date("date_of_joining"),
-  monthlySalary: numeric("monthly_salary").notNull().default("0"),
+  monthlySalary: numeric("monthly_salary").notNull().default("0"), // gross
+  // Monthly deductions applied on payslips (₹200 PT default = Maharashtra rate).
+  insuranceMonthly: numeric("insurance_monthly").notNull().default("0"),
+  tdsMonthly: numeric("tds_monthly").notNull().default("0"),
+  professionalTax: numeric("professional_tax").notNull().default("200"),
   shiftId: integer("shift_id").references(() => shifts.id, { onDelete: "set null" }),
   weeklyOffDay: integer("weekly_off_day").default(0), // 0=Sun … 6=Sat
   wfhDay: integer("wfh_day").default(6), // company default: Saturday
@@ -470,12 +474,24 @@ export const payslips = pgTable(
     employeeId: integer("employee_id")
       .notNull()
       .references(() => employeeProfiles.id, { onDelete: "cascade" }),
-    baseSalary: numeric("base_salary").notNull(),
+    baseSalary: numeric("base_salary").notNull(), // gross
     workingDays: numeric("working_days").notNull(),
     presentDays: numeric("present_days").notNull(),
     paidLeaveDays: numeric("paid_leave_days").notNull().default("0"),
     lopDays: numeric("lop_days").notNull().default("0"),
     lopAmount: numeric("lop_amount").notNull().default("0"),
+    // Salary-sheet model: perDay = gross/30, earned = perDay × daysWorked,
+    // components are % of gross, deductions applied to reach net.
+    perDay: numeric("per_day").notNull().default("0"),
+    daysWorked: numeric("days_worked").notNull().default("0"),
+    earnedGross: numeric("earned_gross").notNull().default("0"),
+    basic: numeric("basic").notNull().default("0"),
+    hra: numeric("hra").notNull().default("0"),
+    otherAllowance: numeric("other_allowance").notNull().default("0"),
+    insurance: numeric("insurance").notNull().default("0"),
+    professionalTax: numeric("professional_tax").notNull().default("0"),
+    tds: numeric("tds").notNull().default("0"),
+    additions: numeric("additions").notNull().default("0"),
     netPay: numeric("net_pay").notNull(),
     breakdown: jsonb("breakdown"), // itemized lines for transparency
     createdAt: timestamp("created_at").notNull().defaultNow(),

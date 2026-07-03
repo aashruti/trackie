@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import type { AttendancePreview, MonthGridRow, MonthGridCell } from "@/lib/dal/hr/attendance";
 import type { AttendanceDayType } from "@/lib/db/enums";
 import { MonthSwitcher } from "@/components/hr/month-switcher";
-import { previewAttendanceAction, commitAttendanceAction, overrideAttendanceAction, getEmployeeCalendarAction } from "@/app/(app)/hr/attendance/actions";
-import type { MyAttendance } from "@/lib/dal/hr/attendance";
+import { previewAttendanceAction, commitAttendanceAction, overrideAttendanceAction, setAttendanceLateAction, getDayAttendanceAction, getEmployeeCalendarAction } from "@/app/(app)/hr/attendance/actions";
+import type { MyAttendance, DayMark } from "@/lib/dal/hr/attendance";
 
 const OVERRIDE_OPTIONS: AttendanceDayType[] = ["office", "half-day", "wfh", "official-visit", "comp-off", "paid-leave", "unpaid-leave", "weekly-off", "holiday", "absent"];
 
@@ -35,6 +35,10 @@ function Cell({ dayType, isLate, isEarlyLeave }: { dayType: AttendanceDayType; i
   );
 }
 
+function fmtDate(iso: string) {
+  return new Date(iso + "T00:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
+}
+
 function dayNum(iso: string) {
   return Number(iso.slice(8, 10));
 }
@@ -55,7 +59,18 @@ function Legend() {
   );
 }
 
-type Tab = "upload" | "grid" | "calendar";
+type Tab = "day" | "upload" | "grid" | "calendar";
+
+function localToday() {
+  const t = new Date();
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+}
+
+function addDays(iso: string, delta: number) {
+  const t = Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10))) + delta * 86_400_000;
+  const d = new Date(t);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+}
 
 export function AttendanceManager({
   grid,
@@ -70,26 +85,153 @@ export function AttendanceManager({
   year: number;
   month: number;
 }) {
-  const [tab, setTab] = useState<Tab>("upload");
+  const [tab, setTab] = useState<Tab>("day");
   return (
     <div className="space-y-5">
       <div>
         <h2 className="text-xl font-semibold tracking-tight text-text-primary">Attendance</h2>
-        <p className="mt-0.5 text-sm text-text-secondary">Upload the fingerprint scanner file, review, then commit.</p>
+        <p className="mt-0.5 text-sm text-text-secondary">Mark attendance day by day, upload the scanner file, or review the month.</p>
       </div>
       <div className="flex items-center gap-1 border-b border-border">
-        {([["upload", "Upload device file"], ["grid", "Month grid"], ["calendar", "Employee calendar"]] as [Tab, string][]).map(([k, l]) => (
+        {([["day", "Mark day wise"], ["upload", "Upload device file"], ["grid", "Month grid"], ["calendar", "Employee calendar"]] as [Tab, string][]).map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)}
             className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${tab === k ? "border-[var(--primary)] text-text-primary" : "border-transparent text-text-secondary hover:text-text-primary"}`}>
             {l}
           </button>
         ))}
-        {tab !== "upload" && <div className="ml-auto pb-1.5"><MonthSwitcher year={year} month={month} /></div>}
+        {(tab === "grid" || tab === "calendar") && <div className="ml-auto pb-1.5"><MonthSwitcher year={year} month={month} /></div>}
       </div>
+      {tab === "day" && <MarkDayPanel employees={employees} grid={grid} />}
       {tab === "upload" && <UploadPanel />}
       {tab === "grid" && <GridPanel grid={grid} />}
       {tab === "calendar" && <EmployeeCalendarPanel employees={employees} year={year} month={month} monthLabel={monthLabel} />}
     </div>
+  );
+}
+
+// Finer day-types revealed after a Present/Absent pick.
+const REFINE_MARKS: [AttendanceDayType, string][] = [
+  ["wfh", "WFH"], ["official-visit", "Official visit"], ["comp-off", "Comp-off"],
+  ["paid-leave", "Leave"], ["half-day", "Half day"], ["weekly-off", "Off"],
+];
+// Day-types that read as "present" for the Present/Absent toggle.
+const PRESENT_TYPE_SET: AttendanceDayType[] = ["office", "wfh", "official-visit", "comp-off", "half-day"];
+
+function MarkDayPanel({ employees, grid }: { employees: { id: number; code: string; name: string }[]; grid: { days: string[]; rows: MonthGridRow[] } }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [savingId, setSavingId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const today = localToday();
+  const [date, setDate] = useState(today);
+  // Seed today's marks from the already-loaded grid to avoid an initial flash.
+  const [marks, setMarks] = useState<Record<number, DayMark>>(() => {
+    const seed: Record<number, DayMark> = {};
+    for (const r of grid.rows) { const c = r.cells[today]; if (c) seed[r.employeeId] = { dayType: c.dayType, isLate: c.isLate, isEarlyLeave: c.isEarlyLeave }; }
+    return seed;
+  });
+
+  // Load the selected date's marks. A request token guards against out-of-order
+  // responses when the user clicks through dates faster than requests resolve.
+  const reqSeq = useRef(0);
+  function load(d: string) {
+    const seq = ++reqSeq.current;
+    startTransition(async () => {
+      const res = await getDayAttendanceAction(d);
+      if (res.ok && seq === reqSeq.current) setMarks(res.data);
+    });
+  }
+  // Always (re)load the authoritative marks when the date changes — the grid seed
+  // only avoids the initial flash and can be month-scoped/stale.
+  useEffect(() => {
+    load(date);
+  }, [date]);
+
+  function run(employeeId: number, fn: () => Promise<{ ok: boolean; error?: string }>) {
+    setError(null);
+    setSavingId(employeeId);
+    startTransition(async () => {
+      const res = await fn();
+      setSavingId(null);
+      if (!res.ok) { setError(res.error ?? "Something went wrong."); return; }
+      load(date);
+      router.refresh();
+    });
+  }
+  const mark = (id: number, dt: AttendanceDayType) => run(id, () => overrideAttendanceAction(id, date, dt));
+  const toggleLate = (id: number, next: boolean) => run(id, () => setAttendanceLateAction(id, date, next));
+
+  if (!employees.length) return <div className="rounded-xl border border-border bg-surface px-4 py-12 text-center text-sm text-text-muted">No active employees.</div>;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm text-text-secondary">Marking attendance for</span>
+        <div className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-surface p-0.5">
+          <DayNav label="Previous day" onClick={() => setDate(addDays(date, -1))} d="M15 6l-6 6 6 6" />
+          <span className="min-w-[150px] px-1 text-center text-sm font-semibold text-text-primary">{fmtDate(date)}</span>
+          <DayNav label="Next day" onClick={() => setDate(addDays(date, 1))} d="M9 6l6 6-6 6" disabled={date >= today} />
+        </div>
+        <input type="date" value={date} max={today} onChange={(e) => e.target.value && setDate(e.target.value)}
+          className="rounded-md border border-border-strong bg-surface px-2 py-1 text-sm text-text-primary focus:border-[var(--primary)] focus:outline-none" />
+        {date !== today && <button onClick={() => setDate(today)} className="text-xs font-medium text-[var(--primary-text)] hover:underline">Today</button>}
+      </div>
+      {error && <p className="rounded-md border border-[var(--negative-border)] bg-[var(--negative-subtle)] px-3 py-2 text-sm text-[var(--negative-text)]">{error}</p>}
+      <div className="overflow-hidden rounded-xl border border-border bg-surface">
+        {employees.map((e) => {
+          const cur = marks[e.id];
+          const busy = pending && savingId === e.id;
+          return (
+            <div key={e.id} className="flex flex-wrap items-center gap-2 border-b border-border-subtle px-3 py-2 last:border-0">
+              <div className="min-w-[150px] leading-tight">
+                <div className="text-sm font-medium text-text-primary">{e.name}</div>
+                <div className="text-[11px] text-text-muted">{e.code}</div>
+              </div>
+              {cur ? <Cell dayType={cur.dayType} isLate={cur.isLate} isEarlyLeave={cur.isEarlyLeave} /> : <span className="text-[11px] text-text-muted">— not marked</span>}
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                {/* Primary Present / Absent toggle */}
+                <div className="inline-flex overflow-hidden rounded-md border border-border-strong text-xs font-semibold">
+                  <button disabled={busy} onClick={() => mark(e.id, "office")}
+                    className={`px-3 py-1 transition-colors disabled:opacity-40 ${cur && PRESENT_TYPE_SET.includes(cur.dayType) ? "bg-[var(--positive-subtle)] text-[var(--positive-text)]" : "text-text-secondary hover:bg-surface-hover"}`}>
+                    Present
+                  </button>
+                  <button disabled={busy} onClick={() => mark(e.id, "absent")}
+                    className={`border-l border-border-strong px-3 py-1 transition-colors disabled:opacity-40 ${cur?.dayType === "absent" ? "bg-[var(--negative-subtle)] text-[var(--negative-text)]" : "text-text-secondary hover:bg-surface-hover"}`}>
+                    Absent
+                  </button>
+                </div>
+                {/* Finer options — appear once a day is marked */}
+                {cur && (
+                  <div className="flex flex-wrap items-center gap-1">
+                    {REFINE_MARKS.map(([dt, label]) => (
+                      <button key={dt} disabled={busy} onClick={() => mark(e.id, dt)}
+                        className={`rounded-md border px-2 py-1 text-xs font-medium transition-colors disabled:opacity-40 ${cur.dayType === dt ? "border-[var(--primary)] bg-[var(--primary-subtle)] text-[var(--primary-text)]" : "border-border text-text-secondary hover:bg-surface-hover"}`}>
+                        {label}
+                      </button>
+                    ))}
+                    <span className="mx-0.5 h-4 w-px bg-border" />
+                    <button disabled={busy} onClick={() => toggleLate(e.id, !cur.isLate)} title="Flag a late arrival"
+                      className={`rounded-md border px-2 py-1 text-xs font-semibold transition-colors disabled:opacity-40 ${cur.isLate ? "border-[var(--pending-border)] bg-[var(--pending-subtle)] text-[var(--pending-text)]" : "border-border text-text-secondary hover:bg-surface-hover"}`}>
+                      Late
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-[11px] text-text-muted">“Late” flags a present day as a late arrival (feeds the late→LOP policy). Use the arrows or the picker to mark any past date.</p>
+    </div>
+  );
+}
+
+function DayNav({ label, onClick, d, disabled }: { label: string; onClick: () => void; d: string; disabled?: boolean }) {
+  return (
+    <button type="button" aria-label={label} onClick={onClick} disabled={disabled}
+      className="grid h-7 w-7 place-items-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:pointer-events-none disabled:opacity-30">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>
+    </button>
   );
 }
 
@@ -188,7 +330,7 @@ function PreviewGrid({ dates, matched }: { dates: string[]; matched: AttendanceP
           <tr className="border-b border-border bg-surface-sunken">
             <th className="sticky left-0 z-10 bg-surface-sunken px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-text-muted">Employee</th>
             {dates.map((d) => (
-              <th key={d} className="px-1 py-2 text-center text-[10px] font-semibold text-text-muted">{dayNum(d)}</th>
+              <th key={d} title={fmtDate(d)} className="cursor-default px-1 py-2 text-center text-[10px] font-semibold text-text-muted">{dayNum(d)}</th>
             ))}
           </tr>
         </thead>
@@ -203,7 +345,7 @@ function PreviewGrid({ dates, matched }: { dates: string[]; matched: AttendanceP
                 </td>
                 {dates.map((d) => {
                   const r = byDate.get(d);
-                  return <td key={d} className="px-0.5 py-1">{r ? <Cell dayType={r.dayType} isLate={r.isLate} isEarlyLeave={r.isEarlyLeave} /> : <div className="h-7 w-10" />}</td>;
+                  return <td key={d} title={`${e.name} · ${fmtDate(d)}`} className="px-0.5 py-1">{r ? <Cell dayType={r.dayType} isLate={r.isLate} isEarlyLeave={r.isEarlyLeave} /> : <div className="h-7 w-10" />}</td>;
                 })}
               </tr>
             );
@@ -240,7 +382,7 @@ function GridPanel({ grid }: { grid: { days: string[]; rows: MonthGridRow[] } })
           <thead>
             <tr className="border-b border-border bg-surface-sunken">
               <th className="sticky left-0 z-10 bg-surface-sunken px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-text-muted">Employee</th>
-              {grid.days.map((d) => <th key={d} className="px-1 py-2 text-center text-[10px] font-semibold text-text-muted">{dayNum(d)}</th>)}
+              {grid.days.map((d) => <th key={d} title={fmtDate(d)} className="cursor-default px-1 py-2 text-center text-[10px] font-semibold text-text-muted">{dayNum(d)}</th>)}
             </tr>
           </thead>
           <tbody>
@@ -254,7 +396,7 @@ function GridPanel({ grid }: { grid: { days: string[]; rows: MonthGridRow[] } })
                   const c: MonthGridCell | undefined = e.cells[d];
                   return (
                     <td key={d} className="px-0.5 py-1">
-                      <button onClick={() => setEdit({ employeeId: e.employeeId, name: e.name, date: d })} className="att-cell rounded transition-shadow hover:shadow-[inset_0_0_0_2px_var(--primary)]">
+                      <button title={`${e.name} · ${fmtDate(d)}`} onClick={() => setEdit({ employeeId: e.employeeId, name: e.name, date: d })} className="att-cell rounded transition-shadow hover:shadow-[inset_0_0_0_2px_var(--primary)]">
                         {c ? <Cell dayType={c.dayType} isLate={c.isLate} isEarlyLeave={c.isEarlyLeave} /> : <div className="grid h-7 w-10 place-items-center text-text-muted">·</div>}
                       </button>
                     </td>
@@ -358,7 +500,7 @@ function CalendarView({ data }: { data: MyAttendance & { name: string; code: str
             const c = data.cells[d];
             const m = c ? DAY_META[c.dayType] : null;
             return (
-              <div key={d} className={`relative grid aspect-square place-items-center rounded-md border border-border-subtle ${m ? m.cls : "bg-surface-sunken/40"}`}>
+              <div key={d} title={`${fmtDate(d)}${m ? " · " + m.label : ""}`} className={`relative grid aspect-square place-items-center rounded-md border border-border-subtle ${m ? m.cls : "bg-surface-sunken/40"}`}>
                 <span className="absolute left-1 top-0.5 text-[9px] text-text-muted">{dayNum(d)}</span>
                 {m && <span className="text-[11px] font-semibold">{m.label}</span>}
                 {c?.isLate && <span className="absolute right-0.5 top-0.5 rounded-sm bg-[var(--pending)] px-0.5 text-[7px] font-bold text-[var(--primary-fg)]">LC</span>}

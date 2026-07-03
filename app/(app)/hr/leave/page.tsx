@@ -39,7 +39,7 @@ export default async function HrLeavePage() {
     <>
       <Topbar section="HR" title="Leave" user={user} years={years} currentYear={YEAR} />
       <main className="mx-auto w-full max-w-[1440px] px-6 py-6">
-        <LeaveManager pending={pending} all={all} ledger={ledger} />
+        <LeaveManager pending={pending} all={all} ledger={ledger} year={calYear} />
       </main>
     </>
   );
