@@ -109,10 +109,13 @@ export function AttendanceManager({
   );
 }
 
-const QUICK_MARKS: [AttendanceDayType, string][] = [
-  ["office", "Present"], ["wfh", "WFH"], ["official-visit", "Official visit"],
-  ["paid-leave", "Leave"], ["half-day", "Half day"], ["absent", "Absent"], ["weekly-off", "Off"],
+// Finer day-types revealed after a Present/Absent pick.
+const REFINE_MARKS: [AttendanceDayType, string][] = [
+  ["wfh", "WFH"], ["official-visit", "Official visit"], ["comp-off", "Comp-off"],
+  ["paid-leave", "Leave"], ["half-day", "Half day"], ["weekly-off", "Off"],
 ];
+// Day-types that read as "present" for the Present/Absent toggle.
+const PRESENT_TYPE_SET: AttendanceDayType[] = ["office", "wfh", "official-visit", "comp-off", "half-day"];
 
 function MarkDayPanel({ employees, grid }: { employees: { id: number; code: string; name: string }[]; grid: { days: string[]; rows: MonthGridRow[] } }) {
   const router = useRouter();
@@ -184,18 +187,34 @@ function MarkDayPanel({ employees, grid }: { employees: { id: number; code: stri
                 <div className="text-[11px] text-text-muted">{e.code}</div>
               </div>
               {cur ? <Cell dayType={cur.dayType} isLate={cur.isLate} isEarlyLeave={cur.isEarlyLeave} /> : <span className="text-[11px] text-text-muted">— not marked</span>}
-              <div className="ml-auto flex flex-wrap items-center gap-1">
-                {QUICK_MARKS.map(([dt, label]) => (
-                  <button key={dt} disabled={busy} onClick={() => mark(e.id, dt)}
-                    className={`rounded-md border px-2 py-1 text-xs font-medium transition-colors disabled:opacity-40 ${cur?.dayType === dt ? "border-[var(--primary)] bg-[var(--primary-subtle)] text-[var(--primary-text)]" : "border-border text-text-secondary hover:bg-surface-hover"}`}>
-                    {label}
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                {/* Primary Present / Absent toggle */}
+                <div className="inline-flex overflow-hidden rounded-md border border-border-strong text-xs font-semibold">
+                  <button disabled={busy} onClick={() => mark(e.id, "office")}
+                    className={`px-3 py-1 transition-colors disabled:opacity-40 ${cur && PRESENT_TYPE_SET.includes(cur.dayType) ? "bg-[var(--positive-subtle)] text-[var(--positive-text)]" : "text-text-secondary hover:bg-surface-hover"}`}>
+                    Present
                   </button>
-                ))}
-                <span className="mx-0.5 h-4 w-px bg-border" />
-                <button disabled={busy} onClick={() => toggleLate(e.id, !cur?.isLate)} title="Flag a late arrival"
-                  className={`rounded-md border px-2 py-1 text-xs font-semibold transition-colors disabled:opacity-40 ${cur?.isLate ? "border-[var(--pending-border)] bg-[var(--pending-subtle)] text-[var(--pending-text)]" : "border-border text-text-secondary hover:bg-surface-hover"}`}>
-                  Late
-                </button>
+                  <button disabled={busy} onClick={() => mark(e.id, "absent")}
+                    className={`border-l border-border-strong px-3 py-1 transition-colors disabled:opacity-40 ${cur?.dayType === "absent" ? "bg-[var(--negative-subtle)] text-[var(--negative-text)]" : "text-text-secondary hover:bg-surface-hover"}`}>
+                    Absent
+                  </button>
+                </div>
+                {/* Finer options — appear once a day is marked */}
+                {cur && (
+                  <div className="flex flex-wrap items-center gap-1">
+                    {REFINE_MARKS.map(([dt, label]) => (
+                      <button key={dt} disabled={busy} onClick={() => mark(e.id, dt)}
+                        className={`rounded-md border px-2 py-1 text-xs font-medium transition-colors disabled:opacity-40 ${cur.dayType === dt ? "border-[var(--primary)] bg-[var(--primary-subtle)] text-[var(--primary-text)]" : "border-border text-text-secondary hover:bg-surface-hover"}`}>
+                        {label}
+                      </button>
+                    ))}
+                    <span className="mx-0.5 h-4 w-px bg-border" />
+                    <button disabled={busy} onClick={() => toggleLate(e.id, !cur.isLate)} title="Flag a late arrival"
+                      className={`rounded-md border px-2 py-1 text-xs font-semibold transition-colors disabled:opacity-40 ${cur.isLate ? "border-[var(--pending-border)] bg-[var(--pending-subtle)] text-[var(--pending-text)]" : "border-border text-text-secondary hover:bg-surface-hover"}`}>
+                      Late
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           );
