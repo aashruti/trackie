@@ -2,7 +2,7 @@ import "server-only";
 
 import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { attendanceRecords, employeeProfiles, hrSettings, leaveBalances, leaveTypes, payrollRuns, payslips, users } from "@/lib/db/schema";
+import { attendanceRecords, employeeProfiles, leaveBalances, leaveTypes, payrollRuns, payslips, users } from "@/lib/db/schema";
 import { assertHrAccess, type SessionUser } from "@/lib/dal/authz";
 import { UserError } from "@/lib/dal/errors";
 import { getEmployeeForUser } from "./leave";
@@ -143,20 +143,9 @@ export type PayrollPreview = {
   totals: { base: number; lop: number; net: number };
 };
 
-type Settings = { cycleStartDay: number; lateLopMode: string; latesPerLopDay: number; absentIsLop: boolean };
-
-async function loadSettings(): Promise<Settings> {
-  const [s] = await db
-    .select({
-      cycleStartDay: hrSettings.cycleStartDay,
-      lateLopMode: hrSettings.lateLopMode,
-      latesPerLopDay: hrSettings.latesPerLopDay,
-      absentIsLop: hrSettings.absentIsLop,
-    })
-    .from(hrSettings)
-    .limit(1);
-  return s ?? { cycleStartDay: 26, lateLopMode: "late-count", latesPerLopDay: 3, absentIsLop: true };
-}
+// Payroll v3 runs on the CALENDAR month — the leave-balance simulation is
+// month-based, so the pay window must be too (the 26→25 cycle is retired here).
+const CALENDAR_CYCLE = 1;
 
 // Absence days that draw from the leave balance (leave taken). WFH / official
 // visit / comp-off / holiday / weekly-off are worked-or-paid and don't. ½ = 0.5.
@@ -180,10 +169,11 @@ export function runningMonthLop(
   if (targetMonth < startMonth) return 0; // not yet employed
   let balance = carryForward;
   for (let m = startMonth; m <= targetMonth; m++) {
-    balance = round2(balance + monthlyAccrual);
+    // Accrue unrounded so odd entitlements (e.g. 20/yr → 1.666…/mo) don't drift.
+    balance += monthlyAccrual;
     const abs = absencesByMonth.get(m) ?? 0;
     const over = abs > balance ? round2(abs - balance) : 0;
-    balance = over > 0 ? 0 : round2(balance - abs);
+    balance = over > 0 ? 0 : balance - abs;
     if (m === targetMonth) return over;
   }
   return 0;
@@ -255,8 +245,7 @@ export function computeLines(emps: EmpInput[]): PayslipLine[] {
 }
 
 async function buildPreview(year: number, month: number): Promise<PayrollPreview> {
-  const settings = await loadSettings();
-  const cycle = cycleRange(year, month, settings.cycleStartDay);
+  const cycle = cycleRange(year, month, CALENDAR_CYCLE);
   const yearStart = `${year}-01-01`;
   const monthOf = (iso: string) => Number(iso.slice(5, 7));
 
@@ -411,8 +400,7 @@ export async function getPayrollRun(user: SessionUser, runId: number): Promise<P
     .where(eq(payslips.runId, runId))
     .orderBy(employeeProfiles.employeeCode);
 
-  const cycleStartDay = (await loadSettings()).cycleStartDay;
-  const cycle = cycleRange(run.year, run.month, cycleStartDay);
+  const cycle = cycleRange(run.year, run.month, CALENDAR_CYCLE);
   const lines: PayslipLine[] = rows.map((r) => ({
     employeeId: r.employeeId,
     employeeCode: r.code,
@@ -573,9 +561,8 @@ export async function getMyPayslips(user: SessionUser): Promise<{ isEmployee: bo
     .where(and(eq(payslips.employeeId, emp.employeeId), eq(payrollRuns.status, "finalized")))
     .orderBy(desc(payrollRuns.year), desc(payrollRuns.month));
 
-  const cycleStartDay = rows.length ? (await loadSettings()).cycleStartDay : 26;
   const slips: MyPayslip[] = rows.map((r) => {
-    const cycle = cycleRange(r.year, r.month, cycleStartDay);
+    const cycle = cycleRange(r.year, r.month, CALENDAR_CYCLE);
     return {
       runId: r.runId,
       month: r.month,

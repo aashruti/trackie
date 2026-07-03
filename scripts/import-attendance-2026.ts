@@ -42,7 +42,7 @@ function mapCode(raw: string, dow: number): Rec | null {
     case "WO": return base("weekly-off", "0");
     case "LC": return base("office", "0", true, false); // late coming — present but late
     case "LE": return base("office", "0", false, true); // leaving early — present
-    default: return base("office", "0"); // unknown → treat as present, don't invent LOP
+    default: return null; // unknown code — skip + report (never silently mark present)
   }
 }
 
@@ -66,6 +66,7 @@ async function main() {
   type Row = { employeeId: number; date: string; dayType: AttendanceDayType; source: "import"; lopDays: string; isLate: boolean; isEarlyLeave: boolean };
   const rows: Row[] = [];
   const unmatched = new Set<string>();
+  const unknownCells = new Set<string>();
   const perMonth: Record<string, number> = {};
 
   for (const sheet of monthSheets) {
@@ -87,8 +88,14 @@ async function main() {
       for (const { col, day } of dayCols) {
         const date = `2026-${pad(mon)}-${pad(day)}`;
         const dow = new Date(date + "T00:00:00Z").getUTCDay();
-        const rec = mapCode(String(row[col] ?? ""), dow);
-        if (!rec) continue;
+        const cell = String(row[col] ?? "").trim();
+        const rec = mapCode(cell, dow);
+        if (!rec) {
+          // A non-blank cell that mapped to nothing is an unrecognized code — flag it
+          // (blanks / "-" are expected skips; a weekly-off Sunday blank maps to a rec).
+          if (cell && cell !== "-") unknownCells.add(`${cell} (${sheet} ${rawCode})`);
+          continue;
+        }
         rows.push({ employeeId: empId, date, source: "import", ...rec });
         count++;
       }
@@ -98,7 +105,8 @@ async function main() {
 
   console.log("records per month:", JSON.stringify(perMonth));
   console.log(`total: ${rows.length} records for ${new Set(rows.map((r) => r.employeeId)).size} employees`);
-  if (unmatched.size) console.log("UNMATCHED codes (skipped):", [...unmatched].join(", "));
+  if (unmatched.size) console.log("UNMATCHED employee codes (skipped):", [...unmatched].join(", "));
+  if (unknownCells.size) console.log("UNKNOWN cell codes (skipped, NOT counted):", [...unknownCells].join(" | "));
 
   if (!COMMIT) { console.log("\nDRY RUN — nothing written. Re-run with --commit."); process.exit(0); }
 
