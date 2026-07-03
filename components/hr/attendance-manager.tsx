@@ -109,10 +109,16 @@ export function AttendanceManager({
   );
 }
 
-// Finer day-types revealed after a Present/Absent pick.
-const REFINE_MARKS: [AttendanceDayType, string][] = [
-  ["wfh", "WFH"], ["official-visit", "Official visit"], ["comp-off", "Comp-off"],
-  ["paid-leave", "Leave"], ["half-day", "Half day"], ["weekly-off", "Off"],
+// Finer day-types revealed after a Present pick (worked variants). Late is shown
+// after a divider (only meaningful for a present day).
+const PRESENT_REFINE: [AttendanceDayType, string][] = [
+  ["wfh", "WFH"], ["official-visit", "Official visit"], ["comp-off", "Comp-off"], ["half-day", "Half day"],
+];
+// Finer day-types revealed after an Absent pick (not-worked variants). Comp-off
+// also lives here per HR's request; Holiday covers flexible/floating holidays
+// marked per employee.
+const ABSENT_REFINE: [AttendanceDayType, string][] = [
+  ["paid-leave", "Leave"], ["weekly-off", "Off"], ["comp-off", "Comp-off"], ["holiday", "Holiday"],
 ];
 // Day-types that read as "present" for the Present/Absent toggle.
 const PRESENT_TYPE_SET: AttendanceDayType[] = ["office", "wfh", "official-visit", "comp-off", "half-day"];
@@ -181,6 +187,12 @@ function MarkDayPanel({ employees, grid }: { employees: { id: number; code: stri
         {employees.map((e) => {
           const cur = marks[e.id];
           const busy = pending && savingId === e.id;
+          const isPresent = cur ? PRESENT_TYPE_SET.includes(cur.dayType) : false;
+          const refine = isPresent ? PRESENT_REFINE : ABSENT_REFINE;
+          // Only a genuine unpaid absence is styled red. Holiday / Off / Comp-off
+          // / Leave are grouped under "Absent" but are paid (no loss-of-pay), so
+          // they show a neutral "marked" state instead of an alarming red.
+          const isUnpaidAbsence = cur ? (cur.dayType === "absent" || cur.dayType === "unpaid-leave") : false;
           return (
             <div key={e.id} className="flex flex-wrap items-center gap-2 border-b border-border-subtle px-3 py-2 last:border-0">
               <div className="min-w-[150px] leading-tight">
@@ -196,24 +208,35 @@ function MarkDayPanel({ employees, grid }: { employees: { id: number; code: stri
                     Present
                   </button>
                   <button disabled={busy} onClick={() => mark(e.id, "absent")}
-                    className={`border-l border-border-strong px-3 py-1 transition-colors disabled:opacity-40 ${cur?.dayType === "absent" ? "bg-[var(--negative-subtle)] text-[var(--negative-text)]" : "text-text-secondary hover:bg-surface-hover"}`}>
+                    className={`border-l border-border-strong px-3 py-1 transition-colors disabled:opacity-40 ${
+                      cur && !isPresent
+                        ? isUnpaidAbsence
+                          ? "bg-[var(--negative-subtle)] text-[var(--negative-text)]"
+                          : "bg-surface-sunken text-text-secondary"
+                        : "text-text-secondary hover:bg-surface-hover"
+                    }`}>
                     Absent
                   </button>
                 </div>
-                {/* Finer options — appear once a day is marked */}
+                {/* Finer options — contextual to the Present/Absent pick */}
                 {cur && (
                   <div className="flex flex-wrap items-center gap-1">
-                    {REFINE_MARKS.map(([dt, label]) => (
+                    {refine.map(([dt, label]) => (
                       <button key={dt} disabled={busy} onClick={() => mark(e.id, dt)}
                         className={`rounded-md border px-2 py-1 text-xs font-medium transition-colors disabled:opacity-40 ${cur.dayType === dt ? "border-[var(--primary)] bg-[var(--primary-subtle)] text-[var(--primary-text)]" : "border-border text-text-secondary hover:bg-surface-hover"}`}>
                         {label}
                       </button>
                     ))}
-                    <span className="mx-0.5 h-4 w-px bg-border" />
-                    <button disabled={busy} onClick={() => toggleLate(e.id, !cur.isLate)} title="Flag a late arrival"
-                      className={`rounded-md border px-2 py-1 text-xs font-semibold transition-colors disabled:opacity-40 ${cur.isLate ? "border-[var(--pending-border)] bg-[var(--pending-subtle)] text-[var(--pending-text)]" : "border-border text-text-secondary hover:bg-surface-hover"}`}>
-                      Late
-                    </button>
+                    {/* Late only applies to a present day — shown after a divider */}
+                    {isPresent && (
+                      <>
+                        <span className="mx-0.5 h-4 w-px bg-border" />
+                        <button disabled={busy} onClick={() => toggleLate(e.id, !cur.isLate)} title="Flag a late arrival"
+                          className={`rounded-md border px-2 py-1 text-xs font-semibold transition-colors disabled:opacity-40 ${cur.isLate ? "border-[var(--pending-border)] bg-[var(--pending-subtle)] text-[var(--pending-text)]" : "border-border text-text-secondary hover:bg-surface-hover"}`}>
+                          Late
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
               </div>

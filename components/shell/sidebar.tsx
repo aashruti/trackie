@@ -159,7 +159,13 @@ export function Sidebar({
       <nav className="flex-1 overflow-y-auto px-3">
         {showFinance && <Group title="Finance" items={finance} pathname={pathname} />}
         {role === "super-admin" && <Group title="Admin" items={ADMIN} pathname={pathname} />}
-        {showHr && <Group title="HR" items={HR} pathname={pathname} />}
+        {showHr && (
+          <Group
+            title="HR"
+            items={showFinance ? HR : [{ label: "Dashboard", href: "/dashboard", icon: "M3 12l9-9 9 9M5 10v10h14V10" }, ...HR]}
+            pathname={pathname}
+          />
+        )}
         {isEmployee && <Group title="Me" items={ME} pathname={pathname} />}
         <Group title="Workspace" items={WORKSPACE} pathname={pathname} />
       </nav>

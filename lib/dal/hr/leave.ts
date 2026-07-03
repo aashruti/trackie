@@ -636,11 +636,16 @@ export async function listMyBalances(
   });
 }
 
+// Controlled addresses always kept in the loop on HR notifications — no email
+// verification needed (like the shared HR inbox). The CEO wants visibility on
+// every leave request.
+const ALWAYS_CC = ["dhaval@datagami.in"];
+
 /**
  * Recipients for leave-application notifications:
  *  - individual HR / super-admin users who have VERIFIED their email, plus
- *  - the shared HR inbox from hr_settings.notification_email (a controlled
- *    address, so no verification is required for it).
+ *  - the shared HR inbox from hr_settings.notification_email, plus
+ *  - the CEO (ALWAYS_CC) — controlled addresses need no verification.
  * Deduplicated, lowercased.
  */
 export async function hrRecipientEmails(): Promise<string[]> {
@@ -652,7 +657,8 @@ export async function hrRecipientEmails(): Promise<string[]> {
     .filter((r) => canManageHr({ id: 0, role: r.role }) && r.verified != null)
     .map((r) => r.email);
   const shared = settings[0]?.email?.trim();
-  const all = shared ? [...verified, shared] : verified;
+  const all = [...verified, ...ALWAYS_CC];
+  if (shared) all.push(shared);
   return [...new Set(all.map((e) => e.toLowerCase()))];
 }
 
