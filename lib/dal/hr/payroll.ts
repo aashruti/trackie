@@ -156,6 +156,11 @@ export function absenceUnits(dayType: AttendanceDayType): number {
   return 0;
 }
 
+// Late-coming penalty: the first FREE_LATES_PER_MONTH late arrivals in a month are
+// free; each one beyond that is paid as a half-day (0.5 loss-of-pay for that day).
+export const FREE_LATES_PER_MONTH = 3;
+export const lateLopDays = (lateCount: number) => Math.max(0, lateCount - FREE_LATES_PER_MONTH) * 0.5;
+
 /** Running-balance loss-of-pay for `targetMonth`: leave accrues `monthlyAccrual`
  *  each month and accumulates; that month's absences draw it down; any overdraw is
  *  the month's LOP and floors the balance at 0 (no negative carry to next month). */
@@ -187,7 +192,9 @@ type EmpInput = {
   insurance: number;
   professionalTax: number;
   tds: number;
-  lopDays: number; // loss-of-pay days for the payroll month (running-balance result)
+  lopDays: number; // total LOP days for the month = lopFromDays + lopFromLate
+  lopFromDays: number; // leave-overdraw LOP (running balance)
+  lopFromLate: number; // late-coming penalty (0.5/day beyond the free allowance)
   presentDays: number;
   paidLeaveDays: number;
   lateCount: number;
@@ -205,7 +212,7 @@ export function computeLines(emps: EmpInput[]): PayslipLine[] {
         daysInMonth: DAYS_IN_MONTH,
         presentDays: e.presentDays,
         paidLeaveDays: e.paidLeaveDays,
-        lop: { fromDays: e.lopDays, fromLate: 0, total: e.lopDays },
+        lop: { fromDays: e.lopFromDays, fromLate: e.lopFromLate, total: e.lopDays },
         lateCount: e.lateCount,
         daysWorked: pay.daysWorked,
         earnedGross: pay.earnedGross,
@@ -294,7 +301,8 @@ async function buildPreview(year: number, month: number): Promise<PayrollPreview
       if (PRESENT_TYPES.includes(r.dayType)) st.present += 1;
       else if (r.dayType === "half-day") st.present += 0.5;
       else if (r.dayType === "paid-leave") st.paidLeave += 1;
-      if (r.isLate) st.late += 1;
+      // Count late-comings from the authoritative sources (grid import / HR), not raw scanner punches.
+      if (r.isLate && r.source !== "scanner") st.late += 1;
       monthStats.set(r.employeeId, st);
     }
   }
@@ -306,8 +314,9 @@ async function buildPreview(year: number, month: number): Promise<PayrollPreview
     const carryForward = bal ? Number(bal.carriedForward) : 0;
     const doj = e.doj ?? null;
     const startMonth = doj && /^\d{4}-\d{2}/.test(doj) && Number(doj.slice(0, 4)) === year ? Number(doj.slice(5, 7)) : 1;
-    const lopDays = runningMonthLop(absByEmpMonth.get(e.id) ?? new Map(), startMonth, month, monthlyAccrual, carryForward);
     const st = monthStats.get(e.id) ?? { present: 0, paidLeave: 0, late: 0 };
+    const lopFromDays = runningMonthLop(absByEmpMonth.get(e.id) ?? new Map(), startMonth, month, monthlyAccrual, carryForward);
+    const lopFromLate = lateLopDays(st.late);
     return {
       id: e.id,
       code: e.code,
@@ -316,7 +325,9 @@ async function buildPreview(year: number, month: number): Promise<PayrollPreview
       insurance: Number(e.insurance),
       professionalTax: Number(e.professionalTax),
       tds: Number(e.tds),
-      lopDays,
+      lopDays: round2(lopFromDays + lopFromLate),
+      lopFromDays,
+      lopFromLate,
       presentDays: st.present,
       paidLeaveDays: st.paidLeave,
       lateCount: st.late,

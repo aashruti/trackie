@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computePay, runningMonthLop, absenceUnits, cycleRange, SALARY_SPLIT, DAYS_IN_MONTH } from "./payroll";
+import { computePay, runningMonthLop, absenceUnits, lateLopDays, cycleRange, SALARY_SPLIT, DAYS_IN_MONTH } from "./payroll";
 
 const M = (o: Record<number, number>) => new Map(Object.entries(o).map(([k, v]) => [Number(k), v]));
 
@@ -78,6 +78,18 @@ describe("computePay — invariants", () => {
   it("additions are added; insurance/PT/TDS are deducted", () => {
     const p = computePay({ gross: 30000, lopDays: 0, additions: 1000, insurance: 500, professionalTax: 200, tds: 300 });
     expect(p.netPay).toBe(30000 + 1000 - 500 - 200 - 300);
+  });
+});
+
+describe("lateLopDays — 3 free lates/month, then half-day each", () => {
+  it("0–3 lates are free", () => {
+    expect(lateLopDays(0)).toBe(0);
+    expect(lateLopDays(3)).toBe(0);
+  });
+  it("each late beyond 3 docks half a day", () => {
+    expect(lateLopDays(4)).toBe(0.5); // 1 over → 0.5
+    expect(lateLopDays(5)).toBe(1); // 2 over → 1.0
+    expect(lateLopDays(7)).toBe(2); // 4 over → 2.0
   });
 });
 

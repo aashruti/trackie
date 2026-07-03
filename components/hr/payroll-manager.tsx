@@ -211,7 +211,7 @@ function BreakdownModal({ line, onClose }: { line: PayslipLine; onClose: () => v
             <Row k="Present days" v={String(b.presentDays)} />
             <Row k="Paid leave days" v={String(b.paidLeaveDays)} />
             <Row k="LOP from unpaid days (unpaid/½/HR-marked)" v={String(b.lop.fromDays)} />
-            <Row k={`LOP from lates (${b.lateCount} late ÷ policy)`} v={String(b.lop.fromLate)} />
+            <Row k={`Late penalty (${b.lateCount} late${b.lateCount === 1 ? "" : "s"}; >3 → ½ day each)`} v={String(b.lop.fromLate)} />
             <Row k="Total LOP days" v={String(b.lop.total)} strong />
             <Row k={`Days worked (${b.daysInMonth} − LOP)`} v={String(b.daysWorked)} strong />
             <div className="my-2 border-t border-border-subtle" />
