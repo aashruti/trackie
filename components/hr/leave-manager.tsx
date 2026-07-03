@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import type { LeaveRequestRow, BalanceLedgerRow } from "@/lib/dal/hr/leave";
-import { reviewLeaveAction, setLeaveBalanceAction } from "@/app/(app)/hr/leave/actions";
+import { reviewLeaveAction, setLeaveBalanceAction, accrueAllToDateAction } from "@/app/(app)/hr/leave/actions";
 
 function initials(name: string) {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
@@ -205,7 +205,7 @@ function Ledger({ ledger, year }: { ledger: BalanceLedgerRow[]; year: number }) 
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [editKey, setEditKey] = useState<string | null>(null);
-  const [draft, setDraft] = useState({ carriedForward: "", accrued: "", used: "" });
+  const [draft, setDraft] = useState({ entitlement: "", carriedForward: "", accrued: "", used: "" });
   const [error, setError] = useState<string | null>(null);
 
   if (!ledger.length) {
@@ -215,11 +215,11 @@ function Ledger({ ledger, year }: { ledger: BalanceLedgerRow[]; year: number }) 
   function startEdit(key: string, t: BalanceLedgerRow["types"][number]) {
     setError(null);
     setEditKey(key);
-    setDraft({ carriedForward: String(t.carriedForward), accrued: String(t.accrued), used: String(t.used) });
+    setDraft({ entitlement: String(t.entitlement), carriedForward: String(t.carriedForward), accrued: String(t.accrued), used: String(t.used) });
   }
   function save(employeeId: number, leaveTypeId: number) {
-    if ([draft.carriedForward, draft.accrued, draft.used].some((s) => s.trim() === "")) { setError("Enter a value for carry-forward, accrued, and used."); return; }
-    const values = { carriedForward: Number(draft.carriedForward), accrued: Number(draft.accrued), used: Number(draft.used) };
+    if ([draft.entitlement, draft.carriedForward, draft.accrued, draft.used].some((s) => s.trim() === "")) { setError("Enter a value for entitlement, carry-forward, accrued, and used."); return; }
+    const values = { entitlement: Number(draft.entitlement), carriedForward: Number(draft.carriedForward), accrued: Number(draft.accrued), used: Number(draft.used) };
     if (Object.values(values).some((v) => !Number.isFinite(v) || v < 0)) { setError("Enter valid non-negative numbers."); return; }
     setError(null);
     startTransition(async () => {
@@ -229,11 +229,27 @@ function Ledger({ ledger, year }: { ledger: BalanceLedgerRow[]; year: number }) 
       router.refresh();
     });
   }
+  function accrueAll() {
+    if (!confirm(`Set accrued to the pro-rata to-date value for every active employee (based on their date of joining)? This overwrites the Accrued column for ${year}.`)) return;
+    setError(null);
+    startTransition(async () => {
+      const res = await accrueAllToDateAction(year);
+      if (!res.ok) { setError(res.error); return; }
+      router.refresh();
+    });
+  }
+  const doj = (iso: string | null) => (iso ? new Date(iso + "T00:00:00Z").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }) : null);
   const inputCls = "w-16 rounded border border-border-strong bg-surface px-1.5 py-1 text-right tabular text-text-primary focus:border-[var(--primary)] focus:outline-none";
 
   return (
     <div className="space-y-2">
-      <p className="text-[11px] text-text-muted">Balances for {year}. Click “Edit” on any row to set its carry-forward, accrued, or used.</p>
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="text-[11px] text-text-muted">Balances for {year}. Edit a row, or “Accrue to date” to set accrued pro-rata from date-of-joining.</p>
+        <button onClick={accrueAll} disabled={pending}
+          className="ml-auto rounded-md border border-border-strong px-3 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover disabled:opacity-50">
+          Accrue all to date
+        </button>
+      </div>
       {error && <p className="rounded-md border border-[var(--negative-border)] bg-[var(--negative-subtle)] px-3 py-2 text-sm text-[var(--negative-text)]">{error}</p>}
       <div className="overflow-hidden rounded-xl border border-border bg-surface">
         <table className="w-full text-sm">
@@ -262,12 +278,14 @@ function Ledger({ ledger, year }: { ledger: BalanceLedgerRow[]; year: number }) 
                       {i === 0 && (
                         <div className="leading-tight">
                           <div className="font-medium text-text-primary">{emp.employeeName}</div>
-                          <div className="text-[11px] text-text-muted">{emp.employeeCode}</div>
+                          <div className="text-[11px] text-text-muted">{emp.employeeCode}{doj(emp.dateOfJoining) ? ` · joined ${doj(emp.dateOfJoining)}` : ""}</div>
                         </div>
                       )}
                     </td>
                     <td className="px-4 py-2.5"><Badge tone={typeTone(t.code)}>{t.name}</Badge></td>
-                    <td className="px-4 py-2.5 text-right tabular text-text-secondary">{t.entitlement}</td>
+                    <td className="px-4 py-2.5 text-right tabular text-text-secondary">
+                      {editing ? <input value={draft.entitlement} onChange={(e) => setDraft((d) => ({ ...d, entitlement: e.target.value }))} inputMode="decimal" className={inputCls} /> : t.entitlement}
+                    </td>
                     <td className="px-4 py-2.5 text-right tabular text-text-secondary">
                       {editing ? <input value={draft.carriedForward} onChange={(e) => setDraft((d) => ({ ...d, carriedForward: e.target.value }))} inputMode="decimal" className={inputCls} /> : t.carriedForward}
                     </td>

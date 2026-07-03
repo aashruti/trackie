@@ -48,6 +48,7 @@ export type BalanceLedgerRow = {
   employeeId: number;
   employeeName: string;
   employeeCode: string;
+  dateOfJoining: string | null;
   types: {
     leaveTypeId: number;
     code: string;
@@ -184,6 +185,7 @@ export async function listBalanceLedger(
       employeeId: employeeProfiles.id,
       employeeName: users.name,
       employeeCode: employeeProfiles.employeeCode,
+      dateOfJoining: employeeProfiles.dateOfJoining,
     })
     .from(employeeProfiles)
     .innerJoin(users, eq(employeeProfiles.userId, users.id))
@@ -207,6 +209,7 @@ export async function listBalanceLedger(
     employeeId: e.employeeId,
     employeeName: e.employeeName,
     employeeCode: e.employeeCode,
+    dateOfJoining: e.dateOfJoining ?? null,
     types: types.map((t) => {
       const b = byEmpType.get(`${e.employeeId}:${t.id}`);
       const carriedForward = n(b?.carriedForward ?? "0");
@@ -216,7 +219,7 @@ export async function listBalanceLedger(
         leaveTypeId: t.id,
         code: t.code,
         name: t.name,
-        entitlement: n(t.annualEntitlement),
+        entitlement: b?.entitlement != null ? n(b.entitlement) : n(t.annualEntitlement),
         carriedForward,
         accrued,
         used,
@@ -233,14 +236,19 @@ export async function setLeaveBalance(
   employeeId: number,
   leaveTypeId: number,
   year: number,
-  values: { carriedForward: number; accrued: number; used: number },
+  values: { entitlement: number; carriedForward: number; accrued: number; used: number },
 ): Promise<void> {
   assertHrAccess(user);
   if (!Number.isInteger(year) || year < 2000 || year > 2100) throw new UserError("Invalid year.");
   for (const [k, v] of Object.entries(values)) {
     if (typeof v !== "number" || !Number.isFinite(v) || v < 0) throw new UserError(`Invalid ${k} value.`);
   }
-  const set = { carriedForward: String(values.carriedForward), accrued: String(values.accrued), used: String(values.used) };
+  const set = {
+    entitlement: String(values.entitlement),
+    carriedForward: String(values.carriedForward),
+    accrued: String(values.accrued),
+    used: String(values.used),
+  };
   await db
     .insert(leaveBalances)
     .values({ employeeId, leaveTypeId, year, ...set })
@@ -248,6 +256,70 @@ export async function setLeaveBalance(
       target: [leaveBalances.employeeId, leaveBalances.leaveTypeId, leaveBalances.year],
       set,
     });
+}
+
+/** Months of accrual an employee has earned in `year` as of the reference month —
+ *  pro-rated from date-of-joining (join in-year → accrue from the join month). */
+export function monthsAccruedToDate(doj: string | null, year: number, asOfMonth: number): number {
+  let startMonth = 1;
+  if (doj && /^\d{4}-\d{2}/.test(doj)) {
+    const dy = Number(doj.slice(0, 4));
+    const dm = Number(doj.slice(5, 7));
+    if (dy > year) return 0; // joined after this leave year
+    if (dy === year) startMonth = dm; // joined mid-year → accrue from join month
+    // joined before this year → full year (startMonth stays 1)
+  }
+  return Math.max(0, Math.min(12, asOfMonth - startMonth + 1));
+}
+
+/** The reference month for "accrue to date": the current month for the ongoing
+ *  year, the full 12 for a past year, 0 for a future year. */
+function asOfMonthFor(year: number): number {
+  const now = new Date();
+  const cy = now.getUTCFullYear();
+  if (year < cy) return 12;
+  if (year > cy) return 0;
+  return now.getUTCMonth() + 1;
+}
+
+// Accrued-to-date = months elapsed × the monthly rate (entitlement / 12), so a
+// per-employee entitlement override scales the accrual (higher/lower leave count).
+const proRataAccrued = (doj: string | null, year: number, entitlement: number) =>
+  round2(monthsAccruedToDate(doj, year, asOfMonthFor(year)) * (entitlement / 12));
+
+/** Bulk: set every active employee's accrued (for each monthly-accruing type) to
+ *  its pro-rata to-date value, honouring each row's entitlement override. */
+export async function accrueAllToDate(user: SessionUser, year: number): Promise<{ employees: number }> {
+  assertHrAccess(user);
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) throw new UserError("Invalid year.");
+  const [emps, types] = await Promise.all([
+    db.select({ id: employeeProfiles.id, doj: employeeProfiles.dateOfJoining }).from(employeeProfiles).where(eq(employeeProfiles.status, "active")),
+    db.select().from(leaveTypes).where(and(eq(leaveTypes.active, true), eq(leaveTypes.accrualMode, "monthly"))),
+  ]);
+  const empIds = emps.map((e) => e.id);
+  const balances = empIds.length
+    ? await db
+        .select({ employeeId: leaveBalances.employeeId, leaveTypeId: leaveBalances.leaveTypeId, entitlement: leaveBalances.entitlement })
+        .from(leaveBalances)
+        .where(and(inArray(leaveBalances.employeeId, empIds), eq(leaveBalances.year, year)))
+    : [];
+  const override = new Map<string, number>();
+  for (const b of balances) if (b.entitlement != null) override.set(`${b.employeeId}:${b.leaveTypeId}`, n(b.entitlement));
+
+  const rows = types.flatMap((t) =>
+    emps.map((e) => {
+      const ent = override.get(`${e.id}:${t.id}`) ?? n(t.annualEntitlement);
+      return { employeeId: e.id, leaveTypeId: t.id, year, accrued: String(proRataAccrued(e.doj ?? null, year, ent)) };
+    }),
+  );
+  if (rows.length) {
+    // Update only `accrued` — the entitlement override and other columns are preserved.
+    await db
+      .insert(leaveBalances)
+      .values(rows)
+      .onConflictDoUpdate({ target: [leaveBalances.employeeId, leaveBalances.leaveTypeId, leaveBalances.year], set: { accrued: sql`excluded.accrued` } });
+  }
+  return { employees: emps.length };
 }
 
 /** Approve or reject a pending request. Debits balance + writes leave days on approve. */
