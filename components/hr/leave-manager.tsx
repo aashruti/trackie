@@ -218,6 +218,7 @@ function Ledger({ ledger, year }: { ledger: BalanceLedgerRow[]; year: number }) 
     setDraft({ carriedForward: String(t.carriedForward), accrued: String(t.accrued), used: String(t.used) });
   }
   function save(employeeId: number, leaveTypeId: number) {
+    if ([draft.carriedForward, draft.accrued, draft.used].some((s) => s.trim() === "")) { setError("Enter a value for carry-forward, accrued, and used."); return; }
     const values = { carriedForward: Number(draft.carriedForward), accrued: Number(draft.accrued), used: Number(draft.used) };
     if (Object.values(values).some((v) => !Number.isFinite(v) || v < 0)) { setError("Enter valid non-negative numbers."); return; }
     setError(null);

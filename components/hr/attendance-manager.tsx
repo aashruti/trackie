@@ -131,19 +131,20 @@ function MarkDayPanel({ employees, grid }: { employees: { id: number; code: stri
     return seed;
   });
 
+  // Load the selected date's marks. A request token guards against out-of-order
+  // responses when the user clicks through dates faster than requests resolve.
+  const reqSeq = useRef(0);
   function load(d: string) {
+    const seq = ++reqSeq.current;
     startTransition(async () => {
       const res = await getDayAttendanceAction(d);
-      if (res.ok) setMarks(res.data);
+      if (res.ok && seq === reqSeq.current) setMarks(res.data);
     });
   }
-  // Reload whenever the date changes (skip the seeded first render for today).
-  const firstDate = useRef(true);
+  // Always (re)load the authoritative marks when the date changes — the grid seed
+  // only avoids the initial flash and can be month-scoped/stale.
   useEffect(() => {
-    if (firstDate.current && date === today) { firstDate.current = false; return; }
-    firstDate.current = false;
     load(date);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date]);
 
   function run(employeeId: number, fn: () => Promise<{ ok: boolean; error?: string }>) {
