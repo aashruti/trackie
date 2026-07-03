@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import type { LeaveRequestRow, BalanceLedgerRow } from "@/lib/dal/hr/leave";
-import { reviewLeaveAction, setLeaveBalanceAction } from "@/app/(app)/hr/leave/actions";
+import { reviewLeaveAction, setLeaveBalanceAction, accrueToDateAction, accrueAllToDateAction } from "@/app/(app)/hr/leave/actions";
 
 function initials(name: string) {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
@@ -229,11 +229,35 @@ function Ledger({ ledger, year }: { ledger: BalanceLedgerRow[]; year: number }) 
       router.refresh();
     });
   }
+  function accrue(employeeId: number, leaveTypeId: number) {
+    setError(null);
+    startTransition(async () => {
+      const res = await accrueToDateAction(employeeId, leaveTypeId, year);
+      if (!res.ok) { setError(res.error); return; }
+      router.refresh();
+    });
+  }
+  function accrueAll() {
+    if (!confirm(`Set accrued to the pro-rata to-date value for every active employee (based on their date of joining)? This overwrites the Accrued column for ${year}.`)) return;
+    setError(null);
+    startTransition(async () => {
+      const res = await accrueAllToDateAction(year);
+      if (!res.ok) { setError(res.error); return; }
+      router.refresh();
+    });
+  }
+  const doj = (iso: string | null) => (iso ? new Date(iso + "T00:00:00Z").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }) : null);
   const inputCls = "w-16 rounded border border-border-strong bg-surface px-1.5 py-1 text-right tabular text-text-primary focus:border-[var(--primary)] focus:outline-none";
 
   return (
     <div className="space-y-2">
-      <p className="text-[11px] text-text-muted">Balances for {year}. Click “Edit” on any row to set its carry-forward, accrued, or used.</p>
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="text-[11px] text-text-muted">Balances for {year}. Edit a row, or “Accrue to date” to set accrued pro-rata from date-of-joining.</p>
+        <button onClick={accrueAll} disabled={pending}
+          className="ml-auto rounded-md border border-border-strong px-3 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover disabled:opacity-50">
+          Accrue all to date
+        </button>
+      </div>
       {error && <p className="rounded-md border border-[var(--negative-border)] bg-[var(--negative-subtle)] px-3 py-2 text-sm text-[var(--negative-text)]">{error}</p>}
       <div className="overflow-hidden rounded-xl border border-border bg-surface">
         <table className="w-full text-sm">
@@ -262,7 +286,7 @@ function Ledger({ ledger, year }: { ledger: BalanceLedgerRow[]; year: number }) 
                       {i === 0 && (
                         <div className="leading-tight">
                           <div className="font-medium text-text-primary">{emp.employeeName}</div>
-                          <div className="text-[11px] text-text-muted">{emp.employeeCode}</div>
+                          <div className="text-[11px] text-text-muted">{emp.employeeCode}{doj(emp.dateOfJoining) ? ` · joined ${doj(emp.dateOfJoining)}` : ""}</div>
                         </div>
                       )}
                     </td>
@@ -289,7 +313,11 @@ function Ledger({ ledger, year }: { ledger: BalanceLedgerRow[]; year: number }) 
                           <button onClick={() => setEditKey(null)} disabled={pending} className="rounded-md px-2 py-1 text-xs text-text-secondary hover:bg-surface-hover">Cancel</button>
                         </span>
                       ) : (
-                        <button onClick={() => startEdit(key, t)} className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover">Edit</button>
+                        <span className="inline-flex gap-1">
+                          <button onClick={() => accrue(emp.employeeId, t.leaveTypeId)} disabled={pending} title="Set accrued pro-rata from date-of-joining"
+                            className="rounded-md border border-border px-2 py-1 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover disabled:opacity-50">Accrue</button>
+                          <button onClick={() => startEdit(key, t)} className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover">Edit</button>
+                        </span>
                       )}
                     </td>
                   </tr>

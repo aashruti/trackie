@@ -30,7 +30,7 @@ type RosterEmp = {
   aadhar: string | null;
   phone: string | null;
 };
-type LeaveRow = { lastYear: number; accrued: number; used: number; unpaid: number };
+type LeaveRow = { lastYear: number; accrued: number; used: number; unpaid: number; doj: string | null };
 
 const args = process.argv.slice(2);
 const COMMIT = args.includes("--commit");
@@ -94,7 +94,7 @@ function parseLeave(path: string): Map<string, LeaveRow> {
   const wb = XLSX.readFile(path, { cellDates: true });
   const ws = wb.Sheets["Leave-26"];
   const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, raw: true }) as unknown[][];
-  // Columns (0-based): 0 Emp Id, 1 Name, 3 Total, 4 Last Year's, 5 Accrued, 6 Unpaid TO, 7 Used
+  // Columns (0-based): 0 Emp Id, 1 Name, 2 DOJ, 3 Total, 4 Last Year's, 5 Accrued, 6 Unpaid TO, 7 Used
   const byName = new Map<string, LeaveRow>();
   for (let r = 2; r < rows.length; r++) {
     const row = rows[r] || [];
@@ -105,6 +105,7 @@ function parseLeave(path: string): Map<string, LeaveRow> {
       accrued: toNum(row[5]),
       unpaid: toNum(row[6]),
       used: toNum(row[7]),
+      doj: excelDate(row[2]),
     });
   }
   return byName;
@@ -228,6 +229,7 @@ async function main() {
         employeeCode: p.emp.code,
         altCodes: p.emp.altCodes,
         biometricId: p.bio,
+        dateOfJoining: p.lv?.doj ?? null,
         dob: p.emp.dob,
         pan: p.emp.pan,
         aadhar: p.emp.aadhar,

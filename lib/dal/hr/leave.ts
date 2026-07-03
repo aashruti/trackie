@@ -48,6 +48,7 @@ export type BalanceLedgerRow = {
   employeeId: number;
   employeeName: string;
   employeeCode: string;
+  dateOfJoining: string | null;
   types: {
     leaveTypeId: number;
     code: string;
@@ -184,6 +185,7 @@ export async function listBalanceLedger(
       employeeId: employeeProfiles.id,
       employeeName: users.name,
       employeeCode: employeeProfiles.employeeCode,
+      dateOfJoining: employeeProfiles.dateOfJoining,
     })
     .from(employeeProfiles)
     .innerJoin(users, eq(employeeProfiles.userId, users.id))
@@ -207,6 +209,7 @@ export async function listBalanceLedger(
     employeeId: e.employeeId,
     employeeName: e.employeeName,
     employeeCode: e.employeeCode,
+    dateOfJoining: e.dateOfJoining ?? null,
     types: types.map((t) => {
       const b = byEmpType.get(`${e.employeeId}:${t.id}`);
       const carriedForward = n(b?.carriedForward ?? "0");
@@ -248,6 +251,71 @@ export async function setLeaveBalance(
       target: [leaveBalances.employeeId, leaveBalances.leaveTypeId, leaveBalances.year],
       set,
     });
+}
+
+/** Months of accrual an employee has earned in `year` as of the reference month —
+ *  pro-rated from date-of-joining (join in-year → accrue from the join month). */
+export function monthsAccruedToDate(doj: string | null, year: number, asOfMonth: number): number {
+  let startMonth = 1;
+  if (doj && /^\d{4}-\d{2}/.test(doj)) {
+    const dy = Number(doj.slice(0, 4));
+    const dm = Number(doj.slice(5, 7));
+    if (dy > year) return 0; // joined after this leave year
+    if (dy === year) startMonth = dm; // joined mid-year → accrue from join month
+    // joined before this year → full year (startMonth stays 1)
+  }
+  return Math.max(0, Math.min(12, asOfMonth - startMonth + 1));
+}
+
+/** The reference month for "accrue to date": the current month for the ongoing
+ *  year, the full 12 for a past year, 0 for a future year. */
+function asOfMonthFor(year: number): number {
+  const now = new Date();
+  const cy = now.getUTCFullYear();
+  if (year < cy) return 12;
+  if (year > cy) return 0;
+  return now.getUTCMonth() + 1;
+}
+
+const proRataAccrued = (doj: string | null, year: number, entitlement: number, monthlyAccrual: number) =>
+  round2(Math.min(entitlement, monthsAccruedToDate(doj, year, asOfMonthFor(year)) * monthlyAccrual));
+
+/** Set one employee's accrued for a leave type to its pro-rata to-date value. */
+export async function accrueToDate(user: SessionUser, employeeId: number, leaveTypeId: number, year: number): Promise<{ accrued: number }> {
+  assertHrAccess(user);
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) throw new UserError("Invalid year.");
+  const [[emp], [lt]] = await Promise.all([
+    db.select({ doj: employeeProfiles.dateOfJoining }).from(employeeProfiles).where(eq(employeeProfiles.id, employeeId)).limit(1),
+    db.select({ entitlement: leaveTypes.annualEntitlement, monthly: leaveTypes.monthlyAccrual }).from(leaveTypes).where(eq(leaveTypes.id, leaveTypeId)).limit(1),
+  ]);
+  if (!lt) throw new UserError("Leave type not found.");
+  const accrued = proRataAccrued(emp?.doj ?? null, year, n(lt.entitlement), n(lt.monthly));
+  await db
+    .insert(leaveBalances)
+    .values({ employeeId, leaveTypeId, year, accrued: String(accrued) })
+    .onConflictDoUpdate({ target: [leaveBalances.employeeId, leaveBalances.leaveTypeId, leaveBalances.year], set: { accrued: String(accrued) } });
+  return { accrued };
+}
+
+/** Bulk: set every active employee's accrued (for each monthly-accruing type) to
+ *  its pro-rata to-date value in one statement. */
+export async function accrueAllToDate(user: SessionUser, year: number): Promise<{ employees: number }> {
+  assertHrAccess(user);
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) throw new UserError("Invalid year.");
+  const [emps, types] = await Promise.all([
+    db.select({ id: employeeProfiles.id, doj: employeeProfiles.dateOfJoining }).from(employeeProfiles).where(eq(employeeProfiles.status, "active")),
+    db.select().from(leaveTypes).where(and(eq(leaveTypes.active, true), eq(leaveTypes.accrualMode, "monthly"))),
+  ]);
+  const rows = types.flatMap((t) =>
+    emps.map((e) => ({ employeeId: e.id, leaveTypeId: t.id, year, accrued: String(proRataAccrued(e.doj ?? null, year, n(t.annualEntitlement), n(t.monthlyAccrual))) })),
+  );
+  if (rows.length) {
+    await db
+      .insert(leaveBalances)
+      .values(rows)
+      .onConflictDoUpdate({ target: [leaveBalances.employeeId, leaveBalances.leaveTypeId, leaveBalances.year], set: { accrued: sql`excluded.accrued` } });
+  }
+  return { employees: emps.length };
 }
 
 /** Approve or reject a pending request. Debits balance + writes leave days on approve. */
