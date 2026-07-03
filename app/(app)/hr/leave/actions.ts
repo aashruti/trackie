@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth/config";
-import { reviewLeaveRequest } from "@/lib/dal/hr/leave";
+import { reviewLeaveRequest, setLeaveBalance } from "@/lib/dal/hr/leave";
 import { notifyLeaveDecision } from "@/lib/email/hr-leave";
 import { isUserError } from "@/lib/dal/errors";
 
@@ -13,6 +13,22 @@ async function actor() {
 }
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
+
+export async function setLeaveBalanceAction(
+  employeeId: number,
+  leaveTypeId: number,
+  year: number,
+  values: { carriedForward: number; accrued: number; used: number },
+): Promise<ActionResult> {
+  try {
+    await setLeaveBalance(await actor(), employeeId, leaveTypeId, year, values);
+    revalidatePath("/hr/leave");
+    return { ok: true };
+  } catch (e) {
+    console.error("[leave:setBalance]", e);
+    return { ok: false, error: isUserError(e) ? e.message : "Could not save the balance." };
+  }
+}
 
 export async function reviewLeaveAction(
   requestId: number,

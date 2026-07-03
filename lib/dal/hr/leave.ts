@@ -226,6 +226,29 @@ export async function listBalanceLedger(
   }));
 }
 
+/** HR sets an employee's balance for a leave type + year (upsert; preserves unpaidTaken). */
+export async function setLeaveBalance(
+  user: SessionUser,
+  employeeId: number,
+  leaveTypeId: number,
+  year: number,
+  values: { carriedForward: number; accrued: number; used: number },
+): Promise<void> {
+  assertHrAccess(user);
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) throw new UserError("Invalid year.");
+  for (const [k, v] of Object.entries(values)) {
+    if (typeof v !== "number" || !Number.isFinite(v) || v < 0) throw new UserError(`Invalid ${k} value.`);
+  }
+  const set = { carriedForward: String(values.carriedForward), accrued: String(values.accrued), used: String(values.used) };
+  await db
+    .insert(leaveBalances)
+    .values({ employeeId, leaveTypeId, year, ...set })
+    .onConflictDoUpdate({
+      target: [leaveBalances.employeeId, leaveBalances.leaveTypeId, leaveBalances.year],
+      set,
+    });
+}
+
 /** Approve or reject a pending request. Debits balance + writes leave days on approve. */
 export async function reviewLeaveRequest(
   user: SessionUser,
