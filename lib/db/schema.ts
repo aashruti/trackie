@@ -353,6 +353,8 @@ export const leaveBalances = pgTable(
       .notNull()
       .references(() => leaveTypes.id, { onDelete: "cascade" }),
     year: integer("year").notNull(), // calendar year
+    // Per-employee annual entitlement override; null → inherit the leave type's default.
+    entitlement: numeric("entitlement"),
     carriedForward: numeric("carried_forward").notNull().default("0"), // "Last Year's"
     accrued: numeric("accrued").notNull().default("0"), // accrual-to-date
     used: numeric("used").notNull().default("0"),

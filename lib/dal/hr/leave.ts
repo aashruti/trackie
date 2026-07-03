@@ -219,7 +219,7 @@ export async function listBalanceLedger(
         leaveTypeId: t.id,
         code: t.code,
         name: t.name,
-        entitlement: n(t.annualEntitlement),
+        entitlement: b?.entitlement != null ? n(b.entitlement) : n(t.annualEntitlement),
         carriedForward,
         accrued,
         used,
@@ -236,14 +236,19 @@ export async function setLeaveBalance(
   employeeId: number,
   leaveTypeId: number,
   year: number,
-  values: { carriedForward: number; accrued: number; used: number },
+  values: { entitlement: number; carriedForward: number; accrued: number; used: number },
 ): Promise<void> {
   assertHrAccess(user);
   if (!Number.isInteger(year) || year < 2000 || year > 2100) throw new UserError("Invalid year.");
   for (const [k, v] of Object.entries(values)) {
     if (typeof v !== "number" || !Number.isFinite(v) || v < 0) throw new UserError(`Invalid ${k} value.`);
   }
-  const set = { carriedForward: String(values.carriedForward), accrued: String(values.accrued), used: String(values.used) };
+  const set = {
+    entitlement: String(values.entitlement),
+    carriedForward: String(values.carriedForward),
+    accrued: String(values.accrued),
+    used: String(values.used),
+  };
   await db
     .insert(leaveBalances)
     .values({ employeeId, leaveTypeId, year, ...set })
@@ -277,28 +282,13 @@ function asOfMonthFor(year: number): number {
   return now.getUTCMonth() + 1;
 }
 
-const proRataAccrued = (doj: string | null, year: number, entitlement: number, monthlyAccrual: number) =>
-  round2(Math.min(entitlement, monthsAccruedToDate(doj, year, asOfMonthFor(year)) * monthlyAccrual));
-
-/** Set one employee's accrued for a leave type to its pro-rata to-date value. */
-export async function accrueToDate(user: SessionUser, employeeId: number, leaveTypeId: number, year: number): Promise<{ accrued: number }> {
-  assertHrAccess(user);
-  if (!Number.isInteger(year) || year < 2000 || year > 2100) throw new UserError("Invalid year.");
-  const [[emp], [lt]] = await Promise.all([
-    db.select({ doj: employeeProfiles.dateOfJoining }).from(employeeProfiles).where(eq(employeeProfiles.id, employeeId)).limit(1),
-    db.select({ entitlement: leaveTypes.annualEntitlement, monthly: leaveTypes.monthlyAccrual }).from(leaveTypes).where(eq(leaveTypes.id, leaveTypeId)).limit(1),
-  ]);
-  if (!lt) throw new UserError("Leave type not found.");
-  const accrued = proRataAccrued(emp?.doj ?? null, year, n(lt.entitlement), n(lt.monthly));
-  await db
-    .insert(leaveBalances)
-    .values({ employeeId, leaveTypeId, year, accrued: String(accrued) })
-    .onConflictDoUpdate({ target: [leaveBalances.employeeId, leaveBalances.leaveTypeId, leaveBalances.year], set: { accrued: String(accrued) } });
-  return { accrued };
-}
+// Accrued-to-date = months elapsed × the monthly rate (entitlement / 12), so a
+// per-employee entitlement override scales the accrual (higher/lower leave count).
+const proRataAccrued = (doj: string | null, year: number, entitlement: number) =>
+  round2(monthsAccruedToDate(doj, year, asOfMonthFor(year)) * (entitlement / 12));
 
 /** Bulk: set every active employee's accrued (for each monthly-accruing type) to
- *  its pro-rata to-date value in one statement. */
+ *  its pro-rata to-date value, honouring each row's entitlement override. */
 export async function accrueAllToDate(user: SessionUser, year: number): Promise<{ employees: number }> {
   assertHrAccess(user);
   if (!Number.isInteger(year) || year < 2000 || year > 2100) throw new UserError("Invalid year.");
@@ -306,10 +296,24 @@ export async function accrueAllToDate(user: SessionUser, year: number): Promise<
     db.select({ id: employeeProfiles.id, doj: employeeProfiles.dateOfJoining }).from(employeeProfiles).where(eq(employeeProfiles.status, "active")),
     db.select().from(leaveTypes).where(and(eq(leaveTypes.active, true), eq(leaveTypes.accrualMode, "monthly"))),
   ]);
+  const empIds = emps.map((e) => e.id);
+  const balances = empIds.length
+    ? await db
+        .select({ employeeId: leaveBalances.employeeId, leaveTypeId: leaveBalances.leaveTypeId, entitlement: leaveBalances.entitlement })
+        .from(leaveBalances)
+        .where(and(inArray(leaveBalances.employeeId, empIds), eq(leaveBalances.year, year)))
+    : [];
+  const override = new Map<string, number>();
+  for (const b of balances) if (b.entitlement != null) override.set(`${b.employeeId}:${b.leaveTypeId}`, n(b.entitlement));
+
   const rows = types.flatMap((t) =>
-    emps.map((e) => ({ employeeId: e.id, leaveTypeId: t.id, year, accrued: String(proRataAccrued(e.doj ?? null, year, n(t.annualEntitlement), n(t.monthlyAccrual))) })),
+    emps.map((e) => {
+      const ent = override.get(`${e.id}:${t.id}`) ?? n(t.annualEntitlement);
+      return { employeeId: e.id, leaveTypeId: t.id, year, accrued: String(proRataAccrued(e.doj ?? null, year, ent)) };
+    }),
   );
   if (rows.length) {
+    // Update only `accrued` — the entitlement override and other columns are preserved.
     await db
       .insert(leaveBalances)
       .values(rows)

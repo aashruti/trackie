@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import type { LeaveRequestRow, BalanceLedgerRow } from "@/lib/dal/hr/leave";
-import { reviewLeaveAction, setLeaveBalanceAction, accrueToDateAction, accrueAllToDateAction } from "@/app/(app)/hr/leave/actions";
+import { reviewLeaveAction, setLeaveBalanceAction, accrueAllToDateAction } from "@/app/(app)/hr/leave/actions";
 
 function initials(name: string) {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
@@ -205,7 +205,7 @@ function Ledger({ ledger, year }: { ledger: BalanceLedgerRow[]; year: number }) 
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [editKey, setEditKey] = useState<string | null>(null);
-  const [draft, setDraft] = useState({ carriedForward: "", accrued: "", used: "" });
+  const [draft, setDraft] = useState({ entitlement: "", carriedForward: "", accrued: "", used: "" });
   const [error, setError] = useState<string | null>(null);
 
   if (!ledger.length) {
@@ -215,25 +215,17 @@ function Ledger({ ledger, year }: { ledger: BalanceLedgerRow[]; year: number }) 
   function startEdit(key: string, t: BalanceLedgerRow["types"][number]) {
     setError(null);
     setEditKey(key);
-    setDraft({ carriedForward: String(t.carriedForward), accrued: String(t.accrued), used: String(t.used) });
+    setDraft({ entitlement: String(t.entitlement), carriedForward: String(t.carriedForward), accrued: String(t.accrued), used: String(t.used) });
   }
   function save(employeeId: number, leaveTypeId: number) {
-    if ([draft.carriedForward, draft.accrued, draft.used].some((s) => s.trim() === "")) { setError("Enter a value for carry-forward, accrued, and used."); return; }
-    const values = { carriedForward: Number(draft.carriedForward), accrued: Number(draft.accrued), used: Number(draft.used) };
+    if ([draft.entitlement, draft.carriedForward, draft.accrued, draft.used].some((s) => s.trim() === "")) { setError("Enter a value for entitlement, carry-forward, accrued, and used."); return; }
+    const values = { entitlement: Number(draft.entitlement), carriedForward: Number(draft.carriedForward), accrued: Number(draft.accrued), used: Number(draft.used) };
     if (Object.values(values).some((v) => !Number.isFinite(v) || v < 0)) { setError("Enter valid non-negative numbers."); return; }
     setError(null);
     startTransition(async () => {
       const res = await setLeaveBalanceAction(employeeId, leaveTypeId, year, values);
       if (!res.ok) { setError(res.error); return; }
       setEditKey(null);
-      router.refresh();
-    });
-  }
-  function accrue(employeeId: number, leaveTypeId: number) {
-    setError(null);
-    startTransition(async () => {
-      const res = await accrueToDateAction(employeeId, leaveTypeId, year);
-      if (!res.ok) { setError(res.error); return; }
       router.refresh();
     });
   }
@@ -291,7 +283,9 @@ function Ledger({ ledger, year }: { ledger: BalanceLedgerRow[]; year: number }) 
                       )}
                     </td>
                     <td className="px-4 py-2.5"><Badge tone={typeTone(t.code)}>{t.name}</Badge></td>
-                    <td className="px-4 py-2.5 text-right tabular text-text-secondary">{t.entitlement}</td>
+                    <td className="px-4 py-2.5 text-right tabular text-text-secondary">
+                      {editing ? <input value={draft.entitlement} onChange={(e) => setDraft((d) => ({ ...d, entitlement: e.target.value }))} inputMode="decimal" className={inputCls} /> : t.entitlement}
+                    </td>
                     <td className="px-4 py-2.5 text-right tabular text-text-secondary">
                       {editing ? <input value={draft.carriedForward} onChange={(e) => setDraft((d) => ({ ...d, carriedForward: e.target.value }))} inputMode="decimal" className={inputCls} /> : t.carriedForward}
                     </td>
@@ -313,11 +307,7 @@ function Ledger({ ledger, year }: { ledger: BalanceLedgerRow[]; year: number }) 
                           <button onClick={() => setEditKey(null)} disabled={pending} className="rounded-md px-2 py-1 text-xs text-text-secondary hover:bg-surface-hover">Cancel</button>
                         </span>
                       ) : (
-                        <span className="inline-flex gap-1">
-                          <button onClick={() => accrue(emp.employeeId, t.leaveTypeId)} disabled={pending} title="Set accrued pro-rata from date-of-joining"
-                            className="rounded-md border border-border px-2 py-1 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover disabled:opacity-50">Accrue</button>
-                          <button onClick={() => startEdit(key, t)} className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover">Edit</button>
-                        </span>
+                        <button onClick={() => startEdit(key, t)} className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover">Edit</button>
                       )}
                     </td>
                   </tr>
