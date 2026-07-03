@@ -1,15 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { computePay, computeLines, cycleRange, SALARY_SPLIT, DAYS_IN_MONTH } from "./payroll";
+import { computePay, runningMonthLop, absenceUnits, cycleRange, SALARY_SPLIT, DAYS_IN_MONTH } from "./payroll";
 
-type Rec = { dayType: string; isLate: boolean; lopDays: string; source: string };
-const SETTINGS = { cycleStartDay: 26, lateLopMode: "late-count", latesPerLopDay: 3, absentIsLop: true };
-const rec = (dayType: string, source = "scanner", lopDays = "0", isLate = false): Rec => ({ dayType, source, lopDays, isLate });
-// Run one employee (gross 30000, no fixed deductions) through the engine.
-function line(recs: Rec[], settings = SETTINGS) {
-  const emp = { id: 1, code: "E1", name: "Emp", base: 30000, insurance: 0, professionalTax: 0, tds: 0 };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return computeLines([emp] as any, new Map([[1, recs as any]]), settings as any)[0];
-}
+const M = (o: Record<number, number>) => new Map(Object.entries(o).map(([k, v]) => [Number(k), v]));
 
 /**
  * Ground truth: "Copy of Datagami - Salary June 2026.xlsx" → sheet "June 2026".
@@ -89,67 +81,58 @@ describe("computePay — invariants", () => {
   });
 });
 
-describe("computeLines — LOP is real unpaid time, not scanner noise", () => {
-  it("scanner 'absent' (no punch) does NOT dock pay", () => {
-    const l = line(Array.from({ length: 10 }, () => rec("absent", "scanner", "1")));
-    expect(l.lopDays).toBe(0);
-    expect(l.netPay).toBe(30000);
-  });
-
-  it("scanner 'half-day' does NOT dock pay (the Kunal case)", () => {
-    const l = line([rec("half-day", "scanner", "0.5", true), rec("half-day", "scanner", "0.5", true)]);
-    expect(l.lopDays).toBe(0);
-    expect(l.netPay).toBe(30000);
-  });
-
-  it("imported manual-grid 'absent' DOES dock pay", () => {
-    const l = line(Array.from({ length: 5 }, () => rec("absent", "import", "1")));
-    expect(l.lopDays).toBe(5);
-    expect(l.daysWorked).toBe(25);
-    expect(l.earnedGross).toBe(25000); // 30000/30 × 25
-  });
-
-  it("HR-overridden (manual) unpaid day and approved unpaid leave dock pay", () => {
-    expect(line([rec("absent", "manual", "1")]).lopDays).toBe(1);
-    expect(line([rec("unpaid-leave", "leave", "1")]).lopDays).toBe(1);
-    expect(line([rec("half-day", "import", "0.5")]).lopDays).toBe(0.5);
-  });
-
-  it("present-ish codes (office/WFH/OV/comp-off) never dock; paid leave is tracked separately", () => {
-    const l = line([rec("office", "import"), rec("wfh", "import"), rec("official-visit", "import"), rec("comp-off", "import"), rec("paid-leave", "leave"), rec("weekly-off", "import")]);
-    expect(l.lopDays).toBe(0);
-    expect(l.presentDays).toBe(4); // office+wfh+OV+comp
-    expect(l.paidLeaveDays).toBe(1);
-    expect(l.netPay).toBe(30000);
-  });
-
-  it("late-count policy: floor(lates / latesPerLopDay) LOP days", () => {
-    const sixLates = Array.from({ length: 6 }, () => rec("office", "scanner", "0", true));
-    expect(line(sixLates).lopDays).toBe(2); // 6 / 3
-    expect(line(Array.from({ length: 2 }, () => rec("office", "scanner", "0", true))).lopDays).toBe(0); // 2 / 3
-  });
-
-  it("late-count can be turned off by policy", () => {
-    const sixLates = Array.from({ length: 6 }, () => rec("office", "scanner", "0", true));
-    expect(line(sixLates, { ...SETTINGS, lateLopMode: "half-day-threshold" }).lopDays).toBe(0);
-  });
-
-  it("combined month: imported absences + lates, net reflects only real LOP", () => {
-    const recs = [
-      ...Array.from({ length: 20 }, () => rec("office", "scanner")), // present, some scanner noise
-      ...Array.from({ length: 3 }, () => rec("absent", "import", "1")), // 3 real unpaid days
-      ...Array.from({ length: 3 }, () => rec("office", "scanner", "0", true)), // 3 lates → 1 LOP
-    ];
-    const l = line(recs);
-    expect(l.lopDays).toBe(4); // 3 imported + 1 from lates
-    expect(l.daysWorked).toBe(26);
-    expect(l.earnedGross).toBe(26000);
-    expect(l.netPay).toBe(26000);
+describe("absenceUnits — which days draw the leave balance", () => {
+  it("leave/absent draw; worked & paid days don't", () => {
+    expect(absenceUnits("absent")).toBe(1);
+    expect(absenceUnits("paid-leave")).toBe(1);
+    expect(absenceUnits("unpaid-leave")).toBe(1);
+    expect(absenceUnits("half-day")).toBe(0.5);
+    for (const dt of ["office", "wfh", "official-visit", "comp-off", "holiday", "weekly-off"] as const) expect(absenceUnits(dt)).toBe(0);
   });
 });
 
-describe("cycleRange — 26→25 cycle boundaries", () => {
-  it("June 2026 runs 26 May → 25 Jun (31 days)", () => {
+describe("runningMonthLop — overdraw beyond accumulated leave = LOP", () => {
+  const AC = 1.5; // 18/yr
+
+  it("absences within the accumulated balance → 0 LOP", () => {
+    // by June: 6×1.5 = 9 accrued; 3 absences fit → paid
+    expect(runningMonthLop(M({ 6: 3 }), 1, 6, AC, 0)).toBe(0);
+  });
+
+  it("the user's example: 4.5 accumulated, take 6 → 1.5 LOP, balance resets", () => {
+    // 3 clean months build 4.5, then month 4 takes 6 (its own 1.5 makes 4.5 available)... use carry to reach 4.5 at the target
+    // Month 3: balance after accrual = 4.5 (3×1.5), take 6 → over 1.5.
+    expect(runningMonthLop(M({ 3: 6 }), 1, 3, AC, 0)).toBe(1.5);
+    // Next month starts fresh at 1.5: an absence of 2 → over 0.5.
+    expect(runningMonthLop(M({ 3: 6, 4: 2 }), 1, 4, AC, 0)).toBe(0.5);
+  });
+
+  it("no negative carry — a prior overdraw doesn't dock a clean later month", () => {
+    // Month 3 overdrew; month 4 has 1 absence but balance reset to 0 then +1.5 → fits
+    expect(runningMonthLop(M({ 3: 6, 4: 1 }), 1, 4, AC, 0)).toBe(0);
+  });
+
+  it("carry-forward from last year is available", () => {
+    // 5 carried + 1.5 (month 1) = 6.5; take 6 in month 1 → 0 LOP
+    expect(runningMonthLop(M({ 1: 6 }), 1, 1, AC, 5)).toBe(0);
+  });
+
+  it("mid-year joiner accrues only from the join month", () => {
+    // joined May (start 5); by June 2×1.5 = 3 accrued; 4 absences → 1 LOP
+    expect(runningMonthLop(M({ 6: 4 }), 5, 6, AC, 0)).toBe(1);
+    // target before start → not employed → 0
+    expect(runningMonthLop(M({ 4: 5 }), 5, 4, AC, 0)).toBe(0);
+  });
+});
+
+describe("cycleRange — calendar month vs 26→25 cycle", () => {
+  it("cycleStartDay<=1 → the calendar month", () => {
+    const c = cycleRange(2026, 6, 1);
+    expect(c.start).toBe("2026-06-01");
+    expect(c.end).toBe("2026-06-30");
+    expect(c.dates.length).toBe(30);
+  });
+  it("cycleStartDay=26 → the 26→25 cycle (26 May → 25 Jun)", () => {
     const c = cycleRange(2026, 6, 26);
     expect(c.start).toBe("2026-05-26");
     expect(c.end).toBe("2026-06-25");
@@ -158,15 +141,9 @@ describe("cycleRange — 26→25 cycle boundaries", () => {
     expect(c.dates.includes("2026-06-01")).toBe(true);
   });
 
-  it("January wraps to the previous December", () => {
+  it("January (26→25) wraps to the previous December", () => {
     const c = cycleRange(2026, 1, 26);
     expect(c.start).toBe("2025-12-26");
     expect(c.end).toBe("2026-01-25");
-  });
-
-  it("honours a different cycle start day", () => {
-    const c = cycleRange(2026, 6, 1); // 1st→last-of-prev
-    expect(c.start).toBe("2026-05-01");
-    expect(c.end).toBe("2026-05-31");
   });
 });

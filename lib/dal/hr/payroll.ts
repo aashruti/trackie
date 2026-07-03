@@ -2,7 +2,7 @@ import "server-only";
 
 import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { attendanceRecords, employeeProfiles, hrSettings, payrollRuns, payslips, users } from "@/lib/db/schema";
+import { attendanceRecords, employeeProfiles, hrSettings, leaveBalances, leaveTypes, payrollRuns, payslips, users } from "@/lib/db/schema";
 import { assertHrAccess, type SessionUser } from "@/lib/dal/authz";
 import { UserError } from "@/lib/dal/errors";
 import { getEmployeeForUser } from "./leave";
@@ -76,11 +76,13 @@ export function computePay(i: PayInput): PayComputed {
   };
 }
 
-/** Cycle [start, end] (inclusive, ISO) for a run labelled by its END month.
- *  cycleStartDay=26 → run (2026, 6) = 2026-05-26 … 2026-06-25. */
+/** Payroll period [start, end] (inclusive, ISO) for a run labelled by `month`.
+ *  cycleStartDay<=1 → the calendar month (2026,6 → 2026-06-01…2026-06-30).
+ *  cycleStartDay=26 → the 26→25 cycle (2026,6 → 2026-05-26…2026-06-25). */
 export function cycleRange(year: number, month: number, cycleStartDay: number): { start: string; end: string; dates: string[] } {
-  const startMs = Date.UTC(year, month - 2, cycleStartDay); // day cycleStartDay of the previous month
-  const endMs = Date.UTC(year, month - 1, cycleStartDay - 1); // day (cycleStartDay-1) of the label month
+  const calendar = cycleStartDay <= 1;
+  const startMs = calendar ? Date.UTC(year, month - 1, 1) : Date.UTC(year, month - 2, cycleStartDay);
+  const endMs = calendar ? Date.UTC(year, month, 0) : Date.UTC(year, month - 1, cycleStartDay - 1);
   const dates: string[] = [];
   for (let t = startMs; t <= endMs; t += 86_400_000) {
     const d = new Date(t);
@@ -156,6 +158,37 @@ async function loadSettings(): Promise<Settings> {
   return s ?? { cycleStartDay: 26, lateLopMode: "late-count", latesPerLopDay: 3, absentIsLop: true };
 }
 
+// Absence days that draw from the leave balance (leave taken). WFH / official
+// visit / comp-off / holiday / weekly-off are worked-or-paid and don't. ½ = 0.5.
+const ABSENCE_TYPES: AttendanceDayType[] = ["absent", "paid-leave", "unpaid-leave"];
+export function absenceUnits(dayType: AttendanceDayType): number {
+  if (ABSENCE_TYPES.includes(dayType)) return 1;
+  if (dayType === "half-day") return 0.5;
+  return 0;
+}
+
+/** Running-balance loss-of-pay for `targetMonth`: leave accrues `monthlyAccrual`
+ *  each month and accumulates; that month's absences draw it down; any overdraw is
+ *  the month's LOP and floors the balance at 0 (no negative carry to next month). */
+export function runningMonthLop(
+  absencesByMonth: Map<number, number>,
+  startMonth: number,
+  targetMonth: number,
+  monthlyAccrual: number,
+  carryForward: number,
+): number {
+  if (targetMonth < startMonth) return 0; // not yet employed
+  let balance = carryForward;
+  for (let m = startMonth; m <= targetMonth; m++) {
+    balance = round2(balance + monthlyAccrual);
+    const abs = absencesByMonth.get(m) ?? 0;
+    const over = abs > balance ? round2(abs - balance) : 0;
+    balance = over > 0 ? 0 : round2(balance - abs);
+    if (m === targetMonth) return over;
+  }
+  return 0;
+}
+
 type EmpInput = {
   id: number;
   code: string;
@@ -164,42 +197,26 @@ type EmpInput = {
   insurance: number;
   professionalTax: number;
   tds: number;
+  lopDays: number; // loss-of-pay days for the payroll month (running-balance result)
+  presentDays: number;
+  paidLeaveDays: number;
+  lateCount: number;
 };
-type RecInput = { dayType: AttendanceDayType; isLate: boolean; lopDays: string; source: string };
 
-/** Pure engine: build one payslip line per active employee. No DB access.
- *  LOP is real unpaid time — raw scanner "absent" (no punch) is NOT auto-docked;
- *  only unpaid leave, HR-marked days, and the late-count policy reduce pay. */
-export function computeLines(emps: EmpInput[], recsByEmp: Map<number, RecInput[]>, settings: Settings): PayslipLine[] {
+/** Build one payslip line per employee from precomputed month figures. No DB access. */
+export function computeLines(emps: EmpInput[]): PayslipLine[] {
   return emps
     .map((e) => {
-      let presentDays = 0;
-      let paidLeaveDays = 0;
-      let lopFromDays = 0;
-      let lateCount = 0;
-      for (const r of recsByEmp.get(e.id) ?? []) {
-        if (PRESENT_TYPES.includes(r.dayType)) presentDays += 1;
-        else if (r.dayType === "half-day") presentDays += 0.5;
-        else if (r.dayType === "paid-leave") paidLeaveDays += 1;
-        // Scanner punches establish presence/times but are NOT authoritative for
-        // loss-of-pay — unpaid time is an HR/leave decision (the manual grid import,
-        // HR cell-overrides, or approved unpaid leave). So scanner-sourced days never
-        // auto-dock pay; only import/manual/leave rows contribute LOP.
-        if (r.source !== "scanner") lopFromDays += Number(r.lopDays);
-        if (r.isLate) lateCount += 1;
-      }
-      const lopFromLate = settings.lateLopMode === "late-count" ? Math.floor(lateCount / Math.max(1, settings.latesPerLopDay)) : 0;
-      const lopDays = round2(lopFromDays + lopFromLate);
-      const pay = computePay({ gross: e.base, lopDays, insurance: e.insurance, professionalTax: e.professionalTax, tds: e.tds });
+      const pay = computePay({ gross: e.base, lopDays: e.lopDays, insurance: e.insurance, professionalTax: e.professionalTax, tds: e.tds });
       const lopAmount = round2(pay.gross - pay.earnedGross);
       const breakdown: PayslipBreakdown = {
         gross: pay.gross,
         perDay: pay.perDay,
         daysInMonth: DAYS_IN_MONTH,
-        presentDays,
-        paidLeaveDays,
-        lop: { fromDays: round2(lopFromDays), fromLate: lopFromLate, total: lopDays },
-        lateCount,
+        presentDays: e.presentDays,
+        paidLeaveDays: e.paidLeaveDays,
+        lop: { fromDays: e.lopDays, fromLate: 0, total: e.lopDays },
+        lateCount: e.lateCount,
         daysWorked: pay.daysWorked,
         earnedGross: pay.earnedGross,
         basic: pay.basic,
@@ -217,9 +234,9 @@ export function computeLines(emps: EmpInput[], recsByEmp: Map<number, RecInput[]
         name: e.name,
         baseSalary: pay.gross,
         perDay: pay.perDay,
-        presentDays,
-        paidLeaveDays,
-        lopDays,
+        presentDays: e.presentDays,
+        paidLeaveDays: e.paidLeaveDays,
+        lopDays: e.lopDays,
         daysWorked: pay.daysWorked,
         earnedGross: pay.earnedGross,
         basic: pay.basic,
@@ -240,8 +257,10 @@ export function computeLines(emps: EmpInput[], recsByEmp: Map<number, RecInput[]
 async function buildPreview(year: number, month: number): Promise<PayrollPreview> {
   const settings = await loadSettings();
   const cycle = cycleRange(year, month, settings.cycleStartDay);
+  const yearStart = `${year}-01-01`;
+  const monthOf = (iso: string) => Number(iso.slice(5, 7));
 
-  const [empRows, recRows] = await Promise.all([
+  const [empRows, recRows, [elType], balRows] = await Promise.all([
     db
       .select({
         id: employeeProfiles.id,
@@ -251,39 +270,71 @@ async function buildPreview(year: number, month: number): Promise<PayrollPreview
         insurance: employeeProfiles.insuranceMonthly,
         professionalTax: employeeProfiles.professionalTax,
         tds: employeeProfiles.tdsMonthly,
+        doj: employeeProfiles.dateOfJoining,
       })
       .from(employeeProfiles)
       .innerJoin(users, eq(employeeProfiles.userId, users.id))
       .where(eq(employeeProfiles.status, "active")),
+    // All attendance from the year start through the payroll month — needed for the
+    // running leave-balance simulation, not just this month.
     db
-      .select({
-        employeeId: attendanceRecords.employeeId,
-        dayType: attendanceRecords.dayType,
-        isLate: attendanceRecords.isLate,
-        lopDays: attendanceRecords.lopDays,
-        source: attendanceRecords.source,
-      })
+      .select({ employeeId: attendanceRecords.employeeId, date: attendanceRecords.date, dayType: attendanceRecords.dayType, isLate: attendanceRecords.isLate, source: attendanceRecords.source })
       .from(attendanceRecords)
-      .where(and(gte(attendanceRecords.date, cycle.start), lte(attendanceRecords.date, cycle.end))),
+      .where(and(gte(attendanceRecords.date, yearStart), lte(attendanceRecords.date, cycle.end))),
+    db.select().from(leaveTypes).where(and(eq(leaveTypes.active, true), eq(leaveTypes.accrualMode, "monthly"))).limit(1),
+    db.select({ employeeId: leaveBalances.employeeId, entitlement: leaveBalances.entitlement, carriedForward: leaveBalances.carriedForward }).from(leaveBalances).where(eq(leaveBalances.year, year)),
   ]);
 
-  const recsByEmp = new Map<number, RecInput[]>();
-  for (const r of recRows) {
-    const arr = recsByEmp.get(r.employeeId) ?? [];
-    arr.push({ dayType: r.dayType, isLate: r.isLate, lopDays: r.lopDays, source: r.source });
-    recsByEmp.set(r.employeeId, arr);
-  }
-  const emps: EmpInput[] = empRows.map((e) => ({
-    id: e.id,
-    code: e.code,
-    name: e.name,
-    base: Number(e.base),
-    insurance: Number(e.insurance),
-    professionalTax: Number(e.professionalTax),
-    tds: Number(e.tds),
-  }));
+  const defaultEntitlement = elType ? Number(elType.annualEntitlement) : 18;
+  const balByEmp = new Map(balRows.map((b) => [b.employeeId, b]));
 
-  const lines = computeLines(emps, recsByEmp, settings);
+  // Per employee: absence units by month (scanner excluded), plus this month's
+  // present / paid-leave / late tallies for the payslip breakdown.
+  const absByEmpMonth = new Map<number, Map<number, number>>();
+  const monthStats = new Map<number, { present: number; paidLeave: number; late: number }>();
+  for (const r of recRows) {
+    const m = monthOf(r.date);
+    if (r.source !== "scanner") {
+      const mm = absByEmpMonth.get(r.employeeId) ?? new Map<number, number>();
+      const u = absenceUnits(r.dayType);
+      if (u > 0) mm.set(m, round2((mm.get(m) ?? 0) + u));
+      absByEmpMonth.set(r.employeeId, mm);
+    }
+    if (m === month) {
+      const st = monthStats.get(r.employeeId) ?? { present: 0, paidLeave: 0, late: 0 };
+      if (PRESENT_TYPES.includes(r.dayType)) st.present += 1;
+      else if (r.dayType === "half-day") st.present += 0.5;
+      else if (r.dayType === "paid-leave") st.paidLeave += 1;
+      if (r.isLate) st.late += 1;
+      monthStats.set(r.employeeId, st);
+    }
+  }
+
+  const emps: EmpInput[] = empRows.map((e) => {
+    const bal = balByEmp.get(e.id);
+    const entitlement = bal?.entitlement != null ? Number(bal.entitlement) : defaultEntitlement;
+    const monthlyAccrual = entitlement / 12;
+    const carryForward = bal ? Number(bal.carriedForward) : 0;
+    const doj = e.doj ?? null;
+    const startMonth = doj && /^\d{4}-\d{2}/.test(doj) && Number(doj.slice(0, 4)) === year ? Number(doj.slice(5, 7)) : 1;
+    const lopDays = runningMonthLop(absByEmpMonth.get(e.id) ?? new Map(), startMonth, month, monthlyAccrual, carryForward);
+    const st = monthStats.get(e.id) ?? { present: 0, paidLeave: 0, late: 0 };
+    return {
+      id: e.id,
+      code: e.code,
+      name: e.name,
+      base: Number(e.base),
+      insurance: Number(e.insurance),
+      professionalTax: Number(e.professionalTax),
+      tds: Number(e.tds),
+      lopDays,
+      presentDays: st.present,
+      paidLeaveDays: st.paidLeave,
+      lateCount: st.late,
+    };
+  });
+
+  const lines = computeLines(emps);
   const totals = lines.reduce(
     (t, l) => ({ base: t.base + l.baseSalary, lop: t.lop + l.lopAmount, net: t.net + l.netPay }),
     { base: 0, lop: 0, net: 0 },
