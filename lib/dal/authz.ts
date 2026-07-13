@@ -56,3 +56,35 @@ export function assertHrAccess(user: SessionUser): void {
     throw new UserError("HR administration is available to HR / Super Admin only");
   }
 }
+
+/**
+ * Can this user SEE the delivery module (programs, events, activities, the
+ * account delivery report)?
+ *  - super-admin & delivery → full access
+ *  - admin (sales/finance) → read access — they take the delivery report to
+ *    renewals, so they must be able to open it
+ *  - viewer / hr → no
+ */
+export function canAccessDelivery(user: SessionUser): boolean {
+  return user.role === "super-admin" || user.role === "delivery" || user.role === "admin";
+}
+
+export function assertDeliveryAccess(user: SessionUser): void {
+  if (!canAccessDelivery(user)) {
+    throw new UserError("Delivery is available to Delivery team / Admin / Super Admin only");
+  }
+}
+
+/**
+ * Can this user MODIFY delivery data (methods, programs, events, activities)?
+ * Writes are delivery-team-only; admin keeps read-only report access.
+ */
+export function canManageDelivery(user: SessionUser): boolean {
+  return user.role === "super-admin" || user.role === "delivery";
+}
+
+export function assertDeliveryManage(user: SessionUser): void {
+  if (!canManageDelivery(user)) {
+    throw new UserError("Only the Delivery team / Super Admin can modify delivery data");
+  }
+}
