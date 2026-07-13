@@ -1,4 +1,4 @@
-export const ROLES = ["super-admin", "admin", "viewer", "hr"] as const;
+export const ROLES = ["super-admin", "admin", "viewer", "hr", "delivery"] as const;
 export const CATEGORIES = ["advance", "old", "new"] as const;
 export const SEMESTERS = ["none", "1", "2"] as const;
 export const STATUSES = ["draft", "raised", "partially-paid", "paid", "overdue"] as const;
@@ -15,6 +15,25 @@ export const TASK_COMMENT_KINDS = ["worklog", "comment"] as const;
 // ---- Workspace: Leads CRM (fixed pipeline stages + discussion types) --------
 export const LEAD_STAGES = ["new", "contacted", "qualified", "proposal", "negotiation", "won", "lost"] as const;
 export const ACTIVITY_TYPES = ["call", "email", "meeting", "note"] as const;
+
+// ---- Delivery module: programs / events / activities ------------------------
+// Program delivery lifecycle (a program = a sold offering being delivered).
+export const PROGRAM_STATUSES = ["planned", "active", "completed", "on-hold"] as const;
+// Event lifecycle — "in progress" is implied by dates, not a status.
+export const DELIVERY_EVENT_STATUSES = ["planned", "completed", "cancelled"] as const;
+// What kind of work an activity logs; `expense` rows usually carry a cost, but
+// ANY activity may carry one — event spend = Σ activity costs.
+export const DELIVERY_ACTIVITY_TYPES = [
+  "session",
+  "meeting",
+  "logistics",
+  "procurement",
+  "milestone",
+  "expense",
+  "note",
+] as const;
+// Which kanban a task lives on (team = the original internal board).
+export const TASK_BOARDS = ["team", "delivery"] as const;
 
 // ---- HR module: leave / attendance / payroll --------------------------------
 // Employee lifecycle on the roster.
@@ -60,3 +79,7 @@ export type AttendanceSource = (typeof ATTENDANCE_SOURCES)[number];
 export type UploadStatus = (typeof UPLOAD_STATUSES)[number];
 export type PayrollRunStatus = (typeof PAYROLL_RUN_STATUSES)[number];
 export type LateLopMode = (typeof LATE_LOP_MODES)[number];
+export type ProgramStatus = (typeof PROGRAM_STATUSES)[number];
+export type DeliveryEventStatus = (typeof DELIVERY_EVENT_STATUSES)[number];
+export type DeliveryActivityType = (typeof DELIVERY_ACTIVITY_TYPES)[number];
+export type TaskBoard = (typeof TASK_BOARDS)[number];
