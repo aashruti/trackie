@@ -17,6 +17,7 @@
     "db:seed": "tsx scripts/seed.ts",
     "db:seed-workspace": "tsx scripts/seed-workspace.ts",
     "db:seed-hr": "tsx scripts/seed-hr.ts",
+    "db:seed-delivery": "tsx scripts/seed-delivery.ts",
     "create-admin": "tsx scripts/create-admin.ts",
     "reconcile": "tsx scripts/reconcile.ts",
     "create-prod-users": "tsx scripts/create-prod-users.ts",
