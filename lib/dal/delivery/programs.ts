@@ -291,6 +291,14 @@ export async function updateProgram(user: SessionUser, id: number, input: NewPro
   if (!updated.length) throw new UserError("Program not found.");
 }
 
+/** Status-only change (the detail header's status pill picker). */
+export async function setProgramStatus(user: SessionUser, id: number, status: ProgramStatus): Promise<void> {
+  assertDeliveryManage(user);
+  if (!PROGRAM_STATUSES.includes(status)) throw new UserError("Unknown program status.");
+  const updated = await db.update(programs).set({ status }).where(eq(programs.id, id)).returning({ id: programs.id });
+  if (!updated.length) throw new UserError("Program not found.");
+}
+
 /** Hard delete — events/activities cascade; board tasks keep the account but lose the program link. */
 export async function deleteProgram(user: SessionUser, id: number): Promise<void> {
   assertDeliveryManage(user);
