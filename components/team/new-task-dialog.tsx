@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { addTaskAction } from "@/app/(app)/team/actions";
-import { TASK_PRIORITIES, type TaskPriority, type TaskStatus } from "@/lib/db/enums";
-import { TASK_COLUMNS, type Option } from "@/lib/board/constants";
+import { TASK_PRIORITIES, type TaskBoard, type TaskPriority, type TaskStatus } from "@/lib/db/enums";
+import { TASK_COLUMNS, type Option, type ProgramOption } from "@/lib/board/constants";
 import { Combobox } from "@/components/ui/combobox";
 
 const fieldCls =
@@ -12,16 +12,21 @@ const fieldCls =
 export function NewTaskDialog({
   accounts,
   users,
+  programs = [],
+  board = "team",
   defaultStatus = "backlog",
   onClose,
 }: {
   accounts: Option[];
   users: Option[];
+  programs?: ProgramOption[];
+  board?: TaskBoard;
   defaultStatus?: TaskStatus;
   onClose: () => void;
 }) {
   const [title, setTitle] = useState("");
   const [accountId, setAccountId] = useState<string>(""); // "" → Internal
+  const [programId, setProgramId] = useState<string>(""); // "" → no program (delivery board)
   const [assigneeId, setAssigneeId] = useState<string>(""); // "" → Unassigned
   const [status, setStatus] = useState<TaskStatus>(defaultStatus);
   const [priority, setPriority] = useState<TaskPriority>("medium");
@@ -58,12 +63,23 @@ export function NewTaskDialog({
           startDate: startDate || null,
           dueDate: dueDate || null,
           tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
+          board,
+          programId: programId ? Number(programId) : null,
         });
         onClose();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to create task");
       }
     });
+  }
+
+  // Picking a program pins the account to the program's account.
+  function pickProgram(value: string) {
+    setProgramId(value);
+    if (value) {
+      const program = programs.find((p) => String(p.id) === value);
+      if (program) setAccountId(String(program.accountId));
+    }
   }
 
   return (
@@ -108,13 +124,32 @@ export function NewTaskDialog({
             />
           </label>
 
+          {board === "delivery" && (
+            <div>
+              <span className="text-[11px] font-medium text-text-muted">Program</span>
+              <Combobox
+                options={programs.map((p) => ({ id: p.id, name: p.name }))}
+                value={programId}
+                onChange={pickProgram}
+                emptyLabel="No program"
+              />
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <span className="text-[11px] font-medium text-text-muted">Account</span>
               <Combobox
                 options={accounts.map((a) => ({ id: a.id, name: a.name }))}
                 value={accountId}
-                onChange={setAccountId}
+                onChange={(v) => {
+                  setAccountId(v);
+                  // Changing the account manually detaches a mismatched program.
+                  if (programId) {
+                    const program = programs.find((p) => String(p.id) === programId);
+                    if (program && String(program.accountId) !== v) setProgramId("");
+                  }
+                }}
                 emptyLabel="Internal"
               />
             </div>

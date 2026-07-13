@@ -6,16 +6,18 @@ import { addTaskComment, createTask, moveTask, updateTaskPriority, type NewTaskI
 import type { TaskStatus, TaskPriority, TaskCommentKind } from "@/lib/db/enums";
 import { initials } from "@/lib/board/constants";
 
-/** Team board is open to all authenticated roles — just require a session. */
+/** Boards are open to all authenticated roles — just require a session. */
 async function requireUserCode() {
   const session = await auth();
   if (!session?.user) throw new Error("Not authenticated");
   return initials(session.user.name ?? "U");
 }
 
+// Both kanbans (team + delivery) share these actions — refresh every board view.
 function revalidateBoard() {
   revalidatePath("/team");
   revalidatePath("/team/backlog");
+  revalidatePath("/delivery/board");
 }
 
 export async function moveTaskAction(id: number, status: TaskStatus) {
@@ -37,6 +39,8 @@ export async function addTaskAction(input: NewTaskInput) {
     startDate: input.startDate ?? null,
     dueDate: input.dueDate ?? null,
     status: input.status ?? "backlog",
+    board: input.board ?? "team",
+    programId: input.programId ?? null,
   });
   revalidateBoard();
   return { ok: true };

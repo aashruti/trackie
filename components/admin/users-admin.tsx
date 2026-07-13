@@ -12,11 +12,12 @@ import {
 import type { Role } from "@/lib/db/enums";
 import type { UserRow } from "@/lib/dal/user-admin";
 
-const ROLES: Role[] = ["super-admin", "admin", "hr", "viewer"];
+const ROLES: Role[] = ["super-admin", "admin", "hr", "delivery", "viewer"];
 const ROLE_TONE: Record<Role, string> = {
   "super-admin": "info",
   admin: "pending",
   hr: "positive",
+  delivery: "info",
   viewer: "neutral",
 };
 
