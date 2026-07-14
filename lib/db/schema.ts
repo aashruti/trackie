@@ -73,6 +73,16 @@ export const oems = pgTable("oems", {
   isSelf: boolean("is_self").notNull().default(false),
 });
 
+// Manual grouping of accounts that belong to ONE university, for the grouped
+// profitability view (cumulative sales + delivery numbers). An account belongs
+// to at most one group; deleting a group merely ungroups its members.
+// Spec: docs/superpowers/specs/2026-07-14-account-groups-design.md
+export const accountGroups = pgTable("account_groups", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const accounts = pgTable("accounts", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
@@ -81,6 +91,8 @@ export const accounts = pgTable("accounts", {
   oemId: integer("oem_id")
     .notNull()
     .references(() => oems.id),
+  // Null → ungrouped. set null so deleting a group never touches accounts.
+  groupId: integer("group_id").references(() => accountGroups.id, { onDelete: "set null" }),
 });
 
 export const academicYears = pgTable("academic_years", {
