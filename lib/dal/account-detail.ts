@@ -2,10 +2,10 @@ import "server-only";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { inArray } from "drizzle-orm";
-import { accounts, invoices, academicYears, oems, cohorts } from "@/lib/db/schema";
+import { accounts, accountGroups, invoices, academicYears, oems, cohorts } from "@/lib/db/schema";
 import { computeAccount } from "@/lib/money/compute";
 import type { InvoiceInputWithStatus, Status } from "@/lib/money/types";
-import { type SessionUser } from "./authz";
+import { canManageGroups, type SessionUser } from "./authz";
 import { assignedIds } from "./accounts";
 import { loadPaymentLites, loadPaymentLedger, type PaymentEntry } from "./payments";
 import { todayISO } from "@/lib/dates";
@@ -38,6 +38,9 @@ export interface AccountDetail {
   type: string;
   oem: string;
   selfSupplied: boolean;
+  /** Set when the account is part of an account group (grouped view). */
+  groupId: number | null;
+  groupName: string | null;
   status: Status;
   totalStudents: number;
   totals: {
@@ -73,9 +76,18 @@ export async function getAccountDetail(
   if (!year) return null;
 
   const [acc] = await db
-    .select({ id: accounts.id, name: accounts.name, type: accounts.type, oem: oems.name, isSelf: oems.isSelf })
+    .select({
+      id: accounts.id,
+      name: accounts.name,
+      type: accounts.type,
+      oem: oems.name,
+      isSelf: oems.isSelf,
+      groupId: accounts.groupId,
+      groupName: accountGroups.name,
+    })
     .from(accounts)
     .innerJoin(oems, eq(accounts.oemId, oems.id))
+    .leftJoin(accountGroups, eq(accounts.groupId, accountGroups.id))
     .where(eq(accounts.id, accountId))
     .limit(1);
   if (!acc) return null;
@@ -153,6 +165,10 @@ export async function getAccountDetail(
     type: acc.type,
     oem: acc.oem,
     selfSupplied: acc.isSelf,
+    // Group metadata is Finance-only (grouped view) — don't serialize it to
+    // roles that can't see groups, even when they're assigned to the account.
+    groupId: canManageGroups(user) ? acc.groupId : null,
+    groupName: canManageGroups(user) ? acc.groupName : null,
     status: c.status,
     totalStudents,
     totals: {

@@ -13,7 +13,7 @@ import { PrintButton } from "@/components/reports/print-button";
 import { DeleteAccountButton } from "@/components/accounts/delete-account-button";
 import { getAccountDetail } from "@/lib/dal/account-detail";
 import { getYearContext } from "@/lib/dal/years";
-import { canAccessDelivery } from "@/lib/dal/authz";
+import { canAccessDelivery, canManageGroups } from "@/lib/dal/authz";
 
 function Kpi({ label, value, tone }: { label: string; value: number; tone?: "default" | "positive" | "negative" | "pending" | "info" }) {
   return (
@@ -42,6 +42,7 @@ export default async function AccountDetailPage({
     YEAR,
   );
   if (!detail) notFound();
+  const canAccessGroups = canManageGroups({ id: Number(user.id), role: user.role });
 
   return (
     <>
@@ -79,6 +80,14 @@ export default async function AccountDetailPage({
               <span className="ml-2 rounded-full bg-[var(--positive-subtle)] px-2 py-0.5 text-[11px] font-medium text-[var(--positive-text)]">
                 no OEM transfer
               </span>
+            )}
+            {detail.groupId && canAccessGroups && (
+              <Link
+                href={`/accounts/groups/${detail.groupId}`}
+                className="no-print ml-2 rounded-full border border-[var(--info-border)] bg-[var(--info-subtle)] px-2 py-0.5 text-[11px] font-medium text-[var(--info-text)] hover:opacity-80"
+              >
+                Part of {detail.groupName} →
+              </Link>
             )}
           </p>
         </div>
