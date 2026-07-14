@@ -79,7 +79,9 @@ export function Combobox({
   }, [open]);
 
   function onKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Escape") { e.preventDefault(); close(); return; }
+    // stopPropagation: Escape must only close the dropdown, not bubble up to a
+    // host dialog's document-level Escape listener (which would discard the form).
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); return; }
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setActiveIdx((i) => Math.min(i + 1, allItems.length - 1));

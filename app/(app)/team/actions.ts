@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth/config";
 import { addTaskComment, createTask, moveTask, updateTaskPriority, type NewTaskInput } from "@/lib/dal/tasks";
+import { canAccessDelivery } from "@/lib/dal/authz";
 import type { TaskStatus, TaskPriority, TaskCommentKind } from "@/lib/db/enums";
 import { initials } from "@/lib/board/constants";
 
@@ -11,6 +12,16 @@ async function requireUserCode() {
   const session = await auth();
   if (!session?.user) throw new Error("Not authenticated");
   return initials(session.user.name ?? "U");
+}
+
+/** Creating on the delivery board (or with program context) needs delivery access. */
+async function assertDeliveryBoardWrite() {
+  const session = await auth();
+  if (!session?.user) throw new Error("Not authenticated");
+  const actor = { id: Number(session.user.id), role: session.user.role };
+  if (!canAccessDelivery(actor)) {
+    throw new Error("The delivery board is available to the Delivery team / Admin / Super Admin only");
+  }
 }
 
 // Both kanbans (team + delivery) share these actions — refresh every board view.
@@ -29,6 +40,7 @@ export async function moveTaskAction(id: number, status: TaskStatus) {
 
 export async function addTaskAction(input: NewTaskInput) {
   await requireUserCode();
+  if (input.board === "delivery" || input.programId != null) await assertDeliveryBoardWrite();
   // createTask enforces the account/assignee rule and throws on a bad pairing.
   await createTask({
     title: input.title,

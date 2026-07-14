@@ -89,6 +89,11 @@ describe("board-aware tasks", () => {
     await expect(createTask({ title: "Ghost", board: "delivery", programId: 99999999 })).rejects.toThrow(/not found/i);
   });
 
+  it("program linkage is rejected on the team board (keeps delivery data off it)", async () => {
+    await expect(createTask({ title: "Sneaky", programId: fx.programId })).rejects.toThrow(/delivery-board/);
+    await expect(createTask({ title: "Sneaky", board: "team", programId: fx.programId })).rejects.toThrow(/delivery-board/);
+  });
+
   it("the user_accounts assignment rule applies on team but NOT on delivery", async () => {
     // fx.userId has no user_accounts row for fx.accountId.
     await expect(

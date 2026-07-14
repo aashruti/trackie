@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth/config";
-import { setProgramStatus } from "@/lib/dal/delivery/programs";
+import { setProgramStatus, updateProgram, type NewProgram } from "@/lib/dal/delivery/programs";
 import {
   addActivity,
   createEvent,
@@ -41,6 +41,18 @@ export async function setProgramStatusAction(programId: number, status: ProgramS
   } catch (e) {
     console.error("[programs:set-status]", e);
     return { ok: false, error: isUserError(e) ? e.message : "Could not change the program status." };
+  }
+}
+
+export async function updateProgramAction(programId: number, input: NewProgram): Promise<ActionResult> {
+  try {
+    const { actor } = await session();
+    await updateProgram(actor, programId, input);
+    revalidateProgram(programId);
+    return { ok: true };
+  } catch (e) {
+    console.error("[programs:update]", e);
+    return { ok: false, error: isUserError(e) ? e.message : "Could not update the program." };
   }
 }
 

@@ -137,6 +137,11 @@ export async function myTasksToday(userId: number): Promise<TaskRow[]> {
     .orderBy(asc(tasks.dueDate), desc(tasks.priority));
 }
 
+/** Lean user picker options (e.g. the event-owner select) — one query, no extras. */
+export async function listUserOptions(): Promise<Option[]> {
+  return db.select({ id: users.id, name: users.name }).from(users).orderBy(asc(users.name));
+}
+
 /** Accounts + users + programs for the New-task pickers and board filters. */
 export async function listTaskOptions(): Promise<{
   accounts: Option[];
@@ -226,6 +231,12 @@ export async function createTask(input: NewTaskInput): Promise<{ id: number }> {
   let accountId = input.accountId ?? null;
   const assigneeId = input.assigneeId ?? null;
   const programId = input.programId ?? null;
+
+  // Program context is a delivery-board concept. Rejecting it elsewhere also
+  // keeps program names (delivery-gated data) off the all-roles team board.
+  if (programId != null && board !== "delivery") {
+    throw new Error("Programs can only be linked to delivery-board tasks");
+  }
 
   if (programId != null) {
     const [program] = await db

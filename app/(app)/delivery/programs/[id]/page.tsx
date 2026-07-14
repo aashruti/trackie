@@ -4,9 +4,11 @@ import { auth } from "@/lib/auth/config";
 import { Topbar } from "@/components/shell/topbar";
 import { getYearContext } from "@/lib/dal/years";
 import { canAccessDelivery, canManageDelivery } from "@/lib/dal/authz";
-import { getProgramCalendar, getProgramDetail } from "@/lib/dal/delivery/programs";
-import { listTaskOptions } from "@/lib/dal/tasks";
+import { getProgramCalendar, getProgramDetail, listOemOptions } from "@/lib/dal/delivery/programs";
+import { listMethods } from "@/lib/dal/delivery/methods";
+import { listUserOptions } from "@/lib/dal/tasks";
 import { ProgramDetailView } from "@/components/delivery/program-detail";
+import { ProgramControls } from "@/components/delivery/program-controls";
 import { Money } from "@/components/ui/money";
 import { PROGRAM_STATUS_META } from "@/components/delivery/meta";
 
@@ -45,16 +47,23 @@ export default async function ProgramDetailPage({
   const [calYear, calMonth] = monthParam.split("-").map(Number);
   const tab = sp.tab === "calendar" ? "calendar" : "events";
 
-  const [detail, calendar, options] = await Promise.all([
+  const canManage = canManageDelivery(actor);
+  const [detail, calendar, users, methods, oems] = await Promise.all([
     getProgramDetail(actor, id),
     getProgramCalendar(actor, id, calYear, calMonth),
-    listTaskOptions(),
+    listUserOptions(),
+    canManage ? listMethods(actor) : Promise.resolve([]),
+    canManage ? listOemOptions(actor) : Promise.resolve([]),
   ]);
   if (!detail || !calendar) notFound();
 
-  const canManage = canManageDelivery(actor);
   const statusMeta = PROGRAM_STATUS_META[detail.status];
   const remaining = detail.allocated - detail.spent;
+  // Edit dialog offers active styles, plus the program's current one even if
+  // it has since been deactivated (history may keep it).
+  const editMethods = methods
+    .filter((m) => m.active || m.id === detail.deliveryMethodId)
+    .map((m) => ({ id: m.id, name: m.name, code: m.code }));
 
   return (
     <>
@@ -71,12 +80,16 @@ export default async function ProgramDetailPage({
           <div>
             <div className="flex flex-wrap items-center gap-2.5">
               <h1 className="text-xl font-semibold tracking-tight text-text-primary">{detail.name}</h1>
-              <span
-                className="rounded-full border px-2 py-0.5 text-[11px] font-semibold"
-                style={{ background: statusMeta.bg, color: statusMeta.text, borderColor: statusMeta.border }}
-              >
-                {statusMeta.label}
-              </span>
+              {canManage ? (
+                <ProgramControls program={detail} methods={editMethods} oems={oems} />
+              ) : (
+                <span
+                  className="rounded-full border px-2 py-0.5 text-[11px] font-semibold"
+                  style={{ background: statusMeta.bg, color: statusMeta.text, borderColor: statusMeta.border }}
+                >
+                  {statusMeta.label}
+                </span>
+              )}
             </div>
             <p className="mt-1 text-sm text-text-secondary">
               {detail.accountName} · <span className="font-semibold">{detail.methodCode}</span> {detail.methodName} ·{" "}
@@ -112,7 +125,7 @@ export default async function ProgramDetailPage({
           calYear={calYear}
           calMonth={calMonth}
           tab={tab}
-          users={options.users}
+          users={users}
           canManage={canManage}
         />
       </main>

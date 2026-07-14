@@ -16,8 +16,8 @@ export function DeliveryDashboardPanel({ data }: { data: DeliveryDashboard }) {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Programs" value={String(data.programs.total)} href="/delivery/programs" />
         <StatCard label="Active programs" value={String(data.programs.active)} href="/delivery/programs" tone="positive" />
-        <StatCard label="Events next 14 days" value={String(data.upcoming.length)} href="/delivery/programs" tone="info" />
-        <StatCard label="Over budget" value={String(data.overBudget.length)} href="/delivery/programs" tone={data.overBudget.length > 0 ? "negative" : "default"} />
+        <StatCard label="Events next 14 days" value={String(data.upcomingCount)} href="/delivery/programs" tone="info" />
+        <StatCard label="Over budget" value={String(data.overBudgetCount)} href="/delivery/programs" tone={data.overBudgetCount > 0 ? "negative" : "default"} />
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

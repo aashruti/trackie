@@ -308,7 +308,9 @@ function EventCard({
             {canManage && (
               <ActivityComposer
                 pending={pending}
-                onSubmit={(values) => run(() => addActivityAction(programId, { ...values, eventId: event.id }))}
+                onSubmit={(values, reset) =>
+                  run(() => addActivityAction(programId, { ...values, eventId: event.id }), reset)
+                }
               />
             )}
             {event.activities.length === 0 ? (
@@ -467,7 +469,10 @@ function ActivityComposer({
   onSubmit,
 }: {
   pending: boolean;
-  onSubmit: (values: { type: DeliveryActivityType; title: string; body?: string; activityDate: string; cost?: number }) => void;
+  onSubmit: (
+    values: { type: DeliveryActivityType; title: string; body?: string; activityDate: string; cost?: number },
+    reset: () => void,
+  ) => void;
 }) {
   const [type, setType] = useState<DeliveryActivityType>("session");
   const [title, setTitle] = useState("");
@@ -481,16 +486,22 @@ function ActivityComposer({
     setLocalError(null);
     if (!title.trim()) { setLocalError("Describe the activity in a short title."); return; }
     if (!activityDate) { setLocalError("Pick the activity date."); return; }
-    onSubmit({
-      type,
-      title: title.trim(),
-      body: body.trim() || undefined,
-      activityDate,
-      cost: cost === "" ? 0 : Number(cost),
-    });
-    setTitle("");
-    setBody("");
-    setCost("");
+    // The reset runs only when the action SUCCEEDS — a failure keeps the
+    // typed input in place next to the error banner.
+    onSubmit(
+      {
+        type,
+        title: title.trim(),
+        body: body.trim() || undefined,
+        activityDate,
+        cost: cost === "" ? 0 : Number(cost),
+      },
+      () => {
+        setTitle("");
+        setBody("");
+        setCost("");
+      },
+    );
   }
 
   return (

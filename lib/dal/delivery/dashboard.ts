@@ -10,6 +10,9 @@ import type { DeliveryActivityType, DeliveryEventStatus } from "@/lib/db/enums";
 
 export type DeliveryDashboard = {
   programs: { total: number; active: number };
+  /** TRUE totals for the KPI tiles (the lists below are capped for display). */
+  upcomingCount: number;
+  overBudgetCount: number;
   /** Planned events starting (or running) in the next 14 days. */
   upcoming: Array<{
     eventId: number;
@@ -80,8 +83,7 @@ export async function getDeliveryDashboard(user: SessionUser): Promise<DeliveryD
           gte(sql`coalesce(${deliveryEvents.endDate}, ${deliveryEvents.startDate})`, today),
         ),
       )
-      .orderBy(asc(deliveryEvents.startDate))
-      .limit(8),
+      .orderBy(asc(deliveryEvents.startDate)),
     // Per-event spend vs budget — grouped once, filtered in JS (small set).
     db
       .select({
@@ -114,13 +116,17 @@ export async function getDeliveryDashboard(user: SessionUser): Promise<DeliveryD
       .limit(10),
   ]);
 
+  const overBudget = spendRows
+    .map((r) => ({ ...r, budget: Number(r.budget), spent: Number(r.spent) }))
+    .sort((a, b) => b.spent - b.budget - (a.spent - a.budget));
+
   return {
     programs: counts[0] ?? { total: 0, active: 0 },
-    upcoming,
-    overBudget: spendRows
-      .map((r) => ({ ...r, budget: Number(r.budget), spent: Number(r.spent) }))
-      .sort((a, b) => b.spent - b.budget - (a.spent - a.budget))
-      .slice(0, 5),
+    // KPI tiles show the true totals; the lists are capped for display only.
+    upcomingCount: upcoming.length,
+    overBudgetCount: overBudget.length,
+    upcoming: upcoming.slice(0, 8),
+    overBudget: overBudget.slice(0, 5),
     recent,
   };
 }

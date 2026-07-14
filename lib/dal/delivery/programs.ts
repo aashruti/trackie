@@ -35,8 +35,10 @@ export type ProgramListRow = {
   status: ProgramStatus;
   accountId: number;
   accountName: string;
+  oemId: number;
   oemName: string;
   selfSupplied: boolean;
+  deliveryMethodId: number;
   methodName: string;
   methodCode: string;
   startDate: string | null;
@@ -96,8 +98,10 @@ const PROGRAM_SELECT = {
   status: programs.status,
   accountId: programs.accountId,
   accountName: accounts.name,
+  oemId: programs.oemId,
   oemName: oems.name,
   selfSupplied: oems.isSelf,
+  deliveryMethodId: programs.deliveryMethodId,
   methodName: deliveryMethods.name,
   methodCode: deliveryMethods.code,
   startDate: programs.startDate,
@@ -170,33 +174,35 @@ export async function listPrograms(
 /** One program with its events and per-event activity logs (newest activity first). */
 export async function getProgramDetail(user: SessionUser, id: number): Promise<ProgramDetail | null> {
   assertDeliveryAccess(user);
-  const [row] = await db
-    .select({ ...PROGRAM_SELECT, description: programs.description })
-    .from(programs)
-    .innerJoin(accounts, eq(programs.accountId, accounts.id))
-    .innerJoin(oems, eq(programs.oemId, oems.id))
-    .innerJoin(deliveryMethods, eq(programs.deliveryMethodId, deliveryMethods.id))
-    .where(eq(programs.id, id))
-    .limit(1);
+  // Header + events both key on `id` alone — fetch them together (house rule).
+  const [[row], eventRows] = await Promise.all([
+    db
+      .select({ ...PROGRAM_SELECT, description: programs.description })
+      .from(programs)
+      .innerJoin(accounts, eq(programs.accountId, accounts.id))
+      .innerJoin(oems, eq(programs.oemId, oems.id))
+      .innerJoin(deliveryMethods, eq(programs.deliveryMethodId, deliveryMethods.id))
+      .where(eq(programs.id, id))
+      .limit(1),
+    db
+      .select({
+        id: deliveryEvents.id,
+        title: deliveryEvents.title,
+        description: deliveryEvents.description,
+        venue: deliveryEvents.venue,
+        startDate: deliveryEvents.startDate,
+        endDate: deliveryEvents.endDate,
+        budget: deliveryEvents.budget,
+        status: deliveryEvents.status,
+        ownerUserId: deliveryEvents.ownerUserId,
+        ownerName: users.name,
+      })
+      .from(deliveryEvents)
+      .leftJoin(users, eq(deliveryEvents.ownerUserId, users.id))
+      .where(eq(deliveryEvents.programId, id))
+      .orderBy(asc(deliveryEvents.startDate), asc(deliveryEvents.id)),
+  ]);
   if (!row) return null;
-
-  const eventRows = await db
-    .select({
-      id: deliveryEvents.id,
-      title: deliveryEvents.title,
-      description: deliveryEvents.description,
-      venue: deliveryEvents.venue,
-      startDate: deliveryEvents.startDate,
-      endDate: deliveryEvents.endDate,
-      budget: deliveryEvents.budget,
-      status: deliveryEvents.status,
-      ownerUserId: deliveryEvents.ownerUserId,
-      ownerName: users.name,
-    })
-    .from(deliveryEvents)
-    .leftJoin(users, eq(deliveryEvents.ownerUserId, users.id))
-    .where(eq(deliveryEvents.programId, id))
-    .orderBy(asc(deliveryEvents.startDate), asc(deliveryEvents.id));
 
   const eventIds = eventRows.map((e) => e.id);
   const activityRows = eventIds.length
@@ -264,7 +270,12 @@ function cleanProgramInput(input: NewProgram) {
 }
 
 /** Friendly existence checks so FK failures never leak raw driver errors. */
-async function assertRefsExist(accountId: number, oemId: number, methodId: number): Promise<void> {
+async function assertRefsExist(
+  accountId: number,
+  oemId: number,
+  methodId: number,
+  opts: { allowInactiveMethodId?: number | null } = {},
+): Promise<void> {
   const [acc, oem, method] = await Promise.all([
     db.select({ id: accounts.id }).from(accounts).where(eq(accounts.id, accountId)).limit(1),
     db.select({ id: oems.id }).from(oems).where(eq(oems.id, oemId)).limit(1),
@@ -273,6 +284,11 @@ async function assertRefsExist(accountId: number, oemId: number, methodId: numbe
   if (!acc.length) throw new UserError("Pick a valid account.");
   if (!oem.length) throw new UserError("Pick a valid provider.");
   if (!method.length) throw new UserError("Pick a valid teaching style.");
+  // Deactivated styles are for history only — enforce server-side, not just in
+  // the picker. A program that ALREADY uses the style may keep it on update.
+  if (!method[0].active && methodId !== opts.allowInactiveMethodId) {
+    throw new UserError("That teaching style is deactivated — pick an active one.");
+  }
 }
 
 export async function createProgram(user: SessionUser, input: NewProgram): Promise<{ id: number }> {
@@ -286,9 +302,16 @@ export async function createProgram(user: SessionUser, input: NewProgram): Promi
 export async function updateProgram(user: SessionUser, id: number, input: NewProgram): Promise<void> {
   assertDeliveryManage(user);
   const values = cleanProgramInput(input);
-  await assertRefsExist(values.accountId, values.oemId, values.deliveryMethodId);
-  const updated = await db.update(programs).set(values).where(eq(programs.id, id)).returning({ id: programs.id });
-  if (!updated.length) throw new UserError("Program not found.");
+  const [current] = await db
+    .select({ deliveryMethodId: programs.deliveryMethodId })
+    .from(programs)
+    .where(eq(programs.id, id))
+    .limit(1);
+  if (!current) throw new UserError("Program not found.");
+  await assertRefsExist(values.accountId, values.oemId, values.deliveryMethodId, {
+    allowInactiveMethodId: current.deliveryMethodId,
+  });
+  await db.update(programs).set(values).where(eq(programs.id, id));
 }
 
 /** Status-only change (the detail header's status pill picker). */
@@ -334,19 +357,18 @@ export async function getProgramCalendar(
   month: number,
 ): Promise<ProgramCalendar | null> {
   assertDeliveryAccess(user);
-  const [row] = await db
-    .select({ id: programs.id, name: programs.name, accountName: accounts.name })
-    .from(programs)
-    .innerJoin(accounts, eq(programs.accountId, accounts.id))
-    .where(eq(programs.id, programId))
-    .limit(1);
-  if (!row) return null;
-
   const days = monthDays(year, month);
   const first = days[0];
   const last = days[days.length - 1];
 
-  const [eventRows, activityRows] = await Promise.all([
+  // All three queries key on the function arguments alone — one round-trip batch.
+  const [[row], eventRows, activityRows] = await Promise.all([
+    db
+      .select({ id: programs.id, name: programs.name, accountName: accounts.name })
+      .from(programs)
+      .innerJoin(accounts, eq(programs.accountId, accounts.id))
+      .where(eq(programs.id, programId))
+      .limit(1),
     // Events overlapping the month (may bleed in from either side).
     db
       .select({
@@ -382,6 +404,7 @@ export async function getProgramCalendar(
         ),
       ),
   ]);
+  if (!row) return null;
 
   const activities = activityRows.map((a) => ({ ...a, cost: Number(a.cost) }));
   return {

@@ -30,6 +30,7 @@ export async function deleteProgramAction(id: number): Promise<ActionResult> {
     await deleteProgram(await actor(), id);
     revalidatePath("/delivery/programs");
     revalidatePath("/delivery/board");
+    revalidatePath("/dashboard");
     return { ok: true };
   } catch (e) {
     console.error("[programs:delete]", e);

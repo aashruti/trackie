@@ -66,9 +66,12 @@ async function assertEventRefs(ownerUserId: number | null): Promise<void> {
 export async function createEvent(user: SessionUser, input: NewEvent): Promise<{ id: number }> {
   assertDeliveryManage(user);
   const values = cleanEventInput(input);
-  const [program] = await db.select({ id: programs.id }).from(programs).where(eq(programs.id, input.programId)).limit(1);
-  if (!program) throw new UserError("Program not found.");
-  await assertEventRefs(values.ownerUserId);
+  // Program and owner checks are independent — run them together (house rule).
+  const [programRows] = await Promise.all([
+    db.select({ id: programs.id }).from(programs).where(eq(programs.id, input.programId)).limit(1),
+    assertEventRefs(values.ownerUserId),
+  ]);
+  if (!programRows.length) throw new UserError("Program not found.");
   const [row] = await db
     .insert(deliveryEvents)
     .values({ ...values, programId: input.programId })

@@ -10,13 +10,13 @@ export default async function NewYearPage() {
   const YEAR = await getCurrentYear();
   const years = (await listYears()).map((y) => y.label);
 
-  if (user.role === "viewer") {
+  if (user.role !== "super-admin" && user.role !== "admin") {
     return (
       <>
         <Topbar section="Setup" title="New year setup" user={user} years={years} currentYear={YEAR} />
         <main className="mx-auto w-full max-w-[1440px] px-6 py-6">
           <p className="text-sm text-text-secondary">
-            Viewers can&apos;t roll over years. Ask an Admin or Super Admin.
+            Year rollover is available to Admin / Super Admin only.
           </p>
         </main>
       </>

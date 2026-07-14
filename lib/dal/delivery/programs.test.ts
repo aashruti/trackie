@@ -203,6 +203,31 @@ describe("programs — CRUD, rollups, budget math", () => {
     await expect(getProgramDetail(VIEWER, programId)).rejects.toThrow();
   });
 
+  it("deactivated teaching styles are rejected for new programs but kept on update", async () => {
+    const { setMethodActive } = await import("./methods");
+    await setMethodActive(SUPER, fixtures.methodId, false);
+    try {
+      await expect(
+        createProgram(SUPER, {
+          accountId: fixtures.accountId,
+          oemId: fixtures.oemId,
+          deliveryMethodId: fixtures.methodId,
+          name: `Retired style ${RUN}`,
+        }),
+      ).rejects.toThrow(/deactivated/);
+      // A program already on the style may keep it when edited.
+      await updateProgram(SUPER, programId, {
+        accountId: fixtures.accountId,
+        oemId: fixtures.oemId,
+        deliveryMethodId: fixtures.methodId,
+        name: `IBM D2S ${RUN} v2`,
+        status: "on-hold",
+      });
+    } finally {
+      await setMethodActive(SUPER, fixtures.methodId, true);
+    }
+  });
+
   it("deleteProgram cascades its events and activities", async () => {
     const { id } = await createProgram(SUPER, {
       accountId: fixtures.accountId,
