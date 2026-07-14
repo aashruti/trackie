@@ -70,10 +70,14 @@ export type GroupDetail = GroupRow & { members: GroupMember[] };
 const EMPTY_SALES: GroupSales = { billing: 0, received: 0, outstanding: 0, payable: 0, netMargin: 0 };
 const EMPTY_DELIVERY: GroupDelivery = { programs: 0, allocated: 0, spent: 0, result: 0 };
 
-/** null = unrestricted (super-admin); otherwise the caller's assigned account ids. */
-async function scopeFor(user: SessionUser): Promise<number[] | null> {
+/**
+ * One assignedIds round-trip per DAL call: `assigned` feeds listAccountsForUser
+ * as its override (so it doesn't re-fetch), `scope` (null = unrestricted) feeds
+ * the delivery queries and membership checks.
+ */
+async function scopeFor(user: SessionUser): Promise<{ assigned: number[]; scope: number[] | null }> {
   const assigned = user.role === "super-admin" ? [] : await assignedIds(user.id);
-  return scopeAccountIds(user, assigned);
+  return { assigned, scope: scopeAccountIds(user, assigned) };
 }
 
 function scopeCondition(scope: number[] | null) {
@@ -159,14 +163,30 @@ function sumSales(rows: AccountRowWithGroup[]): GroupSales {
   );
 }
 
-/** All groups visible to the caller (≥1 in-scope member), with cumulative rollups. */
+/** Total member counts per group (unscoped — distinguishes EMPTY from hidden). */
+async function loadTotalMemberCounts(): Promise<Map<number, number>> {
+  const rows = await db
+    .select({ groupId: accounts.groupId, n: sql<number>`count(*)::int` })
+    .from(accounts)
+    .where(sql`${accounts.groupId} is not null`)
+    .groupBy(accounts.groupId);
+  return new Map(rows.filter((r) => r.groupId !== null).map((r) => [r.groupId!, r.n]));
+}
+
+/**
+ * Groups visible to the caller, with cumulative rollups. A group is visible
+ * when it has an in-scope member OR no members at all (empty groups must stay
+ * reachable so they can be refilled or deleted — never orphaned). Groups whose
+ * members are ALL out of the caller's scope stay hidden.
+ */
 export async function listGroups(user: SessionUser, yearLabel: string): Promise<GroupRow[]> {
   assertGroupsManage(user);
-  const scope = await scopeFor(user);
-  const [groups, accountRows, deliveryByGroup] = await Promise.all([
+  const { assigned, scope } = await scopeFor(user);
+  const [groups, accountRows, deliveryByGroup, totalCounts] = await Promise.all([
     db.select().from(accountGroups).orderBy(asc(accountGroups.name)),
-    listAccountsForUser(user, yearLabel),
+    listAccountsForUser(user, yearLabel, assigned),
     loadDeliveryByGroup(scope),
+    loadTotalMemberCounts(),
   ]);
 
   const membersByGroup = new Map<number, AccountRowWithGroup[]>();
@@ -178,9 +198,9 @@ export async function listGroups(user: SessionUser, yearLabel: string): Promise<
   }
 
   return groups
-    .filter((g) => (membersByGroup.get(g.id)?.length ?? 0) > 0)
+    .filter((g) => (membersByGroup.get(g.id)?.length ?? 0) > 0 || (totalCounts.get(g.id) ?? 0) === 0)
     .map((g) => {
-      const members = membersByGroup.get(g.id)!;
+      const members = membersByGroup.get(g.id) ?? [];
       const sales = sumSales(members);
       const delivery = deliveryByGroup.get(g.id) ?? { ...EMPTY_DELIVERY };
       return {
@@ -194,23 +214,29 @@ export async function listGroups(user: SessionUser, yearLabel: string): Promise<
     });
 }
 
-/** One group with member rows. Null when missing or no member is in the caller's scope. */
+/**
+ * One group with member rows. Null when missing, or when the group HAS members
+ * but none are in the caller's scope (hidden). An empty group (zero members)
+ * is returned with members: [] so it stays manageable — refill or delete.
+ */
 export async function getGroupDetail(
   user: SessionUser,
   id: number,
   yearLabel: string,
 ): Promise<GroupDetail | null> {
   assertGroupsManage(user);
-  const scope = await scopeFor(user);
-  const [[group], accountRows, deliveryByGroup] = await Promise.all([
+  const { assigned, scope } = await scopeFor(user);
+  const [[group], accountRows, deliveryByGroup, [totalRow]] = await Promise.all([
     db.select().from(accountGroups).where(eq(accountGroups.id, id)).limit(1),
-    listAccountsForUser(user, yearLabel),
+    listAccountsForUser(user, yearLabel, assigned),
     loadDeliveryByGroup(scope),
+    db.select({ n: sql<number>`count(*)::int` }).from(accounts).where(eq(accounts.groupId, id)),
   ]);
   if (!group) return null;
 
   const memberRows = accountRows.filter((r) => r.groupId === id);
-  if (!memberRows.length) return null; // nothing visible → hidden for this caller
+  const totalMembers = totalRow?.n ?? 0;
+  if (!memberRows.length && totalMembers > 0) return null; // members exist, none visible → hidden
 
   const spentByAccount = await loadSpentByAccount(memberRows.map((r) => r.id));
   const sales = sumSales(memberRows);
@@ -239,7 +265,7 @@ export async function getGroupDetail(
 /** In-scope accounts not yet in any group (for the create/add pickers). */
 export async function listUngroupedAccounts(user: SessionUser): Promise<{ id: number; name: string }[]> {
   assertGroupsManage(user);
-  const scope = await scopeFor(user);
+  const { scope } = await scopeFor(user);
   return db
     .select({ id: accounts.id, name: accounts.name })
     .from(accounts)
@@ -263,10 +289,12 @@ function isUniqueViolation(e: unknown): boolean {
   return false;
 }
 
-/** Every id must exist, be in the caller's scope, and (for grouping) be ungrouped. */
-async function assertGroupableAccounts(user: SessionUser, accountIds: number[]): Promise<void> {
+/** Every id must exist, be in the caller's scope, and be ungrouped. */
+async function assertGroupableAccounts(
+  scope: number[] | null,
+  accountIds: number[],
+): Promise<void> {
   if (!accountIds.length) throw new UserError("Pick at least one account.");
-  const scope = await scopeFor(user);
   const rows = await db
     .select({ id: accounts.id, groupId: accounts.groupId })
     .from(accounts)
@@ -282,6 +310,51 @@ async function assertGroupableAccounts(user: SessionUser, accountIds: number[]):
   if (grouped) throw new UserError("One of those accounts is already in a group — remove it there first.");
 }
 
+/**
+ * Guarded membership write: only rows that are STILL ungrouped are claimed
+ * (concurrent grouping loses the race loudly instead of silently stealing
+ * members). Returns the claimed ids; rolls itself back on a partial claim.
+ */
+async function claimAccounts(groupId: number, accountIds: number[]): Promise<void> {
+  const claimed = await db
+    .update(accounts)
+    .set({ groupId })
+    .where(and(inArray(accounts.id, accountIds), isNull(accounts.groupId)))
+    .returning({ id: accounts.id });
+  if (claimed.length !== accountIds.length) {
+    // Someone grouped one of these concurrently — undo our partial claim.
+    if (claimed.length) {
+      await db
+        .update(accounts)
+        .set({ groupId: null })
+        .where(and(inArray(accounts.id, claimed.map((c) => c.id)), eq(accounts.groupId, groupId)));
+    }
+    throw new UserError("One of those accounts was just added to another group — refresh and try again.");
+  }
+}
+
+/**
+ * A group is MANAGEABLE by the caller when it is visible to them: it has an
+ * in-scope member, or no members at all. Rename/delete act on the group as a
+ * whole — an admin who can see a group may rename or delete it even when some
+ * members sit outside their scope, because deletion only clears grouping
+ * metadata (FK SET NULL); accounts themselves are never touched. Groups whose
+ * members are ALL out of scope behave as if they don't exist.
+ */
+async function assertGroupManageable(user: SessionUser, groupId: number): Promise<number[] | null> {
+  const [{ scope }, [group], memberRows] = await Promise.all([
+    scopeFor(user),
+    db.select({ id: accountGroups.id }).from(accountGroups).where(eq(accountGroups.id, groupId)).limit(1),
+    db.select({ id: accounts.id }).from(accounts).where(eq(accounts.groupId, groupId)),
+  ]);
+  if (!group) throw new UserError("Group not found.");
+  if (scope !== null && memberRows.length > 0) {
+    const allowed = new Set(scope);
+    if (!memberRows.some((m) => allowed.has(m.id))) throw new UserError("Group not found.");
+  }
+  return scope;
+}
+
 export async function createGroup(
   user: SessionUser,
   name: string,
@@ -289,7 +362,8 @@ export async function createGroup(
 ): Promise<{ id: number }> {
   assertGroupsManage(user);
   const label = cleanName(name);
-  await assertGroupableAccounts(user, accountIds);
+  const { scope } = await scopeFor(user);
+  await assertGroupableAccounts(scope, accountIds);
   let groupId: number;
   try {
     const [row] = await db.insert(accountGroups).values({ name: label }).returning({ id: accountGroups.id });
@@ -298,13 +372,20 @@ export async function createGroup(
     if (isUniqueViolation(e)) throw new UserError(`A group named “${label}” already exists.`);
     throw e;
   }
-  await db.update(accounts).set({ groupId }).where(inArray(accounts.id, accountIds));
+  try {
+    await claimAccounts(groupId, accountIds);
+  } catch (e) {
+    // No transactions on neon-http — compensate so no empty group is left behind.
+    await db.delete(accountGroups).where(eq(accountGroups.id, groupId));
+    throw e;
+  }
   return { id: groupId };
 }
 
 export async function renameGroup(user: SessionUser, id: number, name: string): Promise<void> {
   assertGroupsManage(user);
   const label = cleanName(name);
+  await assertGroupManageable(user, id);
   try {
     const updated = await db
       .update(accountGroups)
@@ -320,15 +401,14 @@ export async function renameGroup(user: SessionUser, id: number, name: string): 
 
 export async function addAccountsToGroup(user: SessionUser, id: number, accountIds: number[]): Promise<void> {
   assertGroupsManage(user);
-  const [group] = await db.select({ id: accountGroups.id }).from(accountGroups).where(eq(accountGroups.id, id)).limit(1);
-  if (!group) throw new UserError("Group not found.");
-  await assertGroupableAccounts(user, accountIds);
-  await db.update(accounts).set({ groupId: id }).where(inArray(accounts.id, accountIds));
+  const scope = await assertGroupManageable(user, id);
+  await assertGroupableAccounts(scope, accountIds);
+  await claimAccounts(id, accountIds);
 }
 
 export async function removeAccountFromGroup(user: SessionUser, accountId: number): Promise<void> {
   assertGroupsManage(user);
-  const scope = await scopeFor(user);
+  const { scope } = await scopeFor(user);
   if (scope !== null && !scope.includes(accountId)) {
     throw new UserError("You can only manage accounts assigned to you.");
   }
@@ -338,6 +418,7 @@ export async function removeAccountFromGroup(user: SessionUser, accountId: numbe
 /** Deleting a group only ungroups its members (FK SET NULL) — accounts stay intact. */
 export async function deleteGroup(user: SessionUser, id: number): Promise<void> {
   assertGroupsManage(user);
+  await assertGroupManageable(user, id);
   const deleted = await db.delete(accountGroups).where(eq(accountGroups.id, id)).returning({ id: accountGroups.id });
   if (!deleted.length) throw new UserError("Group not found.");
 }

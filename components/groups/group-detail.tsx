@@ -152,6 +152,13 @@ export function GroupDetailView({
             </tr>
           </thead>
           <tbody>
+            {detail.members.length === 0 && (
+              <tr>
+                <td colSpan={7} className="px-4 py-8 text-center text-sm text-text-muted">
+                  No accounts in this group — add one above, or delete the group.
+                </td>
+              </tr>
+            )}
             {detail.members.map((m) => (
               <tr key={m.id} className="border-b border-border-subtle last:border-0 hover:bg-surface-hover">
                 <td className="px-4 py-2.5">

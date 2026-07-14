@@ -5,7 +5,7 @@ import { inArray } from "drizzle-orm";
 import { accounts, accountGroups, invoices, academicYears, oems, cohorts } from "@/lib/db/schema";
 import { computeAccount } from "@/lib/money/compute";
 import type { InvoiceInputWithStatus, Status } from "@/lib/money/types";
-import { type SessionUser } from "./authz";
+import { canManageGroups, type SessionUser } from "./authz";
 import { assignedIds } from "./accounts";
 import { loadPaymentLites, loadPaymentLedger, type PaymentEntry } from "./payments";
 import { todayISO } from "@/lib/dates";
@@ -165,8 +165,10 @@ export async function getAccountDetail(
     type: acc.type,
     oem: acc.oem,
     selfSupplied: acc.isSelf,
-    groupId: acc.groupId,
-    groupName: acc.groupName,
+    // Group metadata is Finance-only (grouped view) — don't serialize it to
+    // roles that can't see groups, even when they're assigned to the account.
+    groupId: canManageGroups(user) ? acc.groupId : null,
+    groupName: canManageGroups(user) ? acc.groupName : null,
     status: c.status,
     totalStudents,
     totals: {

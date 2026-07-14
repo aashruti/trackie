@@ -182,4 +182,29 @@ describe("account groups — rollups & membership", () => {
     await expect(listUngroupedAccounts(DELIVERY_ROLE)).rejects.toThrow();
     await expect(createGroup(VIEWER, "Nope", [fx.acc1])).rejects.toThrow();
   });
+
+  it("an emptied group stays visible and deletable (never orphaned)", async () => {
+    const { id } = await createGroup(SUPER, `Empty ${RUN}`, [fx.acc1]);
+    await removeAccountFromGroup(SUPER, fx.acc1); // last member out
+    const row = (await listGroups(SUPER, YEAR)).find((g) => g.id === id)!;
+    expect(row.memberCount).toBe(0); // still listed
+    const detail = (await getGroupDetail(SUPER, id, YEAR))!;
+    expect(detail.members).toEqual([]); // detail page renders, no 404
+    await addAccountsToGroup(SUPER, id, [fx.acc1]); // refillable
+    await removeAccountFromGroup(SUPER, fx.acc1);
+    await deleteGroup(SUPER, id); // and deletable
+    expect((await listGroups(SUPER, YEAR)).find((g) => g.id === id)).toBeUndefined();
+  });
+
+  it("a scoped admin can't see, rename, delete or add to a group with only out-of-scope members", async () => {
+    const admin = { id: fx.adminId, role: "admin" as const };
+    // acc2 is NOT assigned to the admin; group it alone.
+    const { id } = await createGroup(SUPER, `Hidden ${RUN}`, [fx.acc2]);
+    expect((await listGroups(admin, YEAR)).find((g) => g.id === id)).toBeUndefined();
+    expect(await getGroupDetail(admin, id, YEAR)).toBeNull();
+    await expect(renameGroup(admin, id, "Stolen")).rejects.toThrow(/not found/i);
+    await expect(deleteGroup(admin, id)).rejects.toThrow(/not found/i);
+    await expect(addAccountsToGroup(admin, id, [fx.acc1])).rejects.toThrow(/not found/i);
+    await deleteGroup(SUPER, id); // super-admin cleans up (acc2 ungroups)
+  });
 });
