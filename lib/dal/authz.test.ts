@@ -8,6 +8,8 @@ import {
   assertDeliveryAccess,
   canManageDelivery,
   assertDeliveryManage,
+  canManageGroups,
+  assertGroupsManage,
   type SessionUser,
 } from "./authz";
 
@@ -69,6 +71,21 @@ describe("canAccessDelivery (delivery team + admin read for the renewal report)"
     expect(() => assertDeliveryAccess(hr)).toThrow();
     expect(() => assertDeliveryAccess(admin)).not.toThrow();
     expect(() => assertDeliveryAccess(delivery)).not.toThrow();
+  });
+});
+
+describe("canManageGroups (account groups are Finance-only)", () => {
+  it("super-admin and admin can manage groups", () => {
+    expect(canManageGroups(superAdmin)).toBe(true);
+    expect(canManageGroups(admin)).toBe(true);
+  });
+  it("viewer, hr and delivery are locked out", () => {
+    expect(canManageGroups(viewer)).toBe(false);
+    expect(canManageGroups(hr)).toBe(false);
+    expect(canManageGroups(delivery)).toBe(false);
+    expect(() => assertGroupsManage(viewer)).toThrow();
+    expect(() => assertGroupsManage(delivery)).toThrow();
+    expect(() => assertGroupsManage(admin)).not.toThrow();
   });
 });
 

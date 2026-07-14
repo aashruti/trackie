@@ -46,7 +46,14 @@ export async function listAccountsForUser(
   const scope = scopeAccountIds(user, assigned);
 
   const accRows = await db
-    .select({ id: accounts.id, name: accounts.name, type: accounts.type, oem: oems.name, isSelf: oems.isSelf })
+    .select({
+      id: accounts.id,
+      name: accounts.name,
+      type: accounts.type,
+      oem: oems.name,
+      isSelf: oems.isSelf,
+      groupId: accounts.groupId,
+    })
     .from(accounts)
     .innerJoin(oems, eq(accounts.oemId, oems.id))
     .where(scope === null ? undefined : inArray(accounts.id, scope.length ? scope : [-1]));
@@ -102,6 +109,7 @@ export async function listAccountsForUser(
       name: a.name,
       type: a.type,
       oem: a.oem,
+      groupId: a.groupId,
       billing: computed.billing,
       received: computed.received,
       outstanding: computed.outstanding,

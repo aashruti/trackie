@@ -88,3 +88,18 @@ export function assertDeliveryManage(user: SessionUser): void {
     throw new UserError("Only the Delivery team / Super Admin can modify delivery data");
   }
 }
+
+/**
+ * Account groups (the grouped profitability view) live in the Finance section:
+ * super-admin and admin manage groups AND are the only viewers. Rollups are
+ * still scoped to the caller's visible accounts (scopeAccountIds).
+ */
+export function canManageGroups(user: SessionUser): boolean {
+  return user.role === "super-admin" || user.role === "admin";
+}
+
+export function assertGroupsManage(user: SessionUser): void {
+  if (!canManageGroups(user)) {
+    throw new UserError("Account groups are available to Admin / Super Admin only");
+  }
+}
