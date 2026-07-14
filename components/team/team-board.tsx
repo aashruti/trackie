@@ -15,8 +15,9 @@ import {
   type TaskDetailRow,
   type TaskComment,
   type Option,
+  type ProgramOption,
 } from "@/lib/board/constants";
-import type { TaskStatus, TaskPriority, TaskCommentKind } from "@/lib/db/enums";
+import type { TaskStatus, TaskPriority, TaskCommentKind, TaskBoard } from "@/lib/db/enums";
 import { fmtDay, isOverdue, todayISO } from "@/lib/dates";
 import { moveTaskAction, addTaskCommentAction, updateTaskPriorityAction } from "@/app/(app)/team/actions";
 
@@ -32,8 +33,12 @@ export function TeamBoard({
   tasks,
   accounts,
   users,
+  programs = [],
   meCode,
   variant = "board",
+  board = "team",
+  basePath = "/team",
+  columns = BOARD_COLUMNS,
   doneWindow = "30",
   backlogCount = 0,
   initialAssignee = "all",
@@ -42,8 +47,15 @@ export function TeamBoard({
   tasks: TaskDetailRow[];
   accounts: Option[];
   users: Option[];
+  programs?: ProgramOption[];
   meCode: string;
   variant?: "board" | "backlog";
+  /** Which kanban this instance serves — new tasks are created on it. */
+  board?: TaskBoard;
+  /** Route the board lives on (done-window select round-trips through it). */
+  basePath?: string;
+  /** Which status columns to render (delivery shows all six, backlog included). */
+  columns?: typeof BOARD_COLUMNS;
   doneWindow?: string;
   backlogCount?: number;
   initialAssignee?: string;
@@ -64,14 +76,20 @@ export function TeamBoard({
   const [oem, setOem] = useState("all");
   const [statusFilter, setStatusFilter] = useState<TaskStatus | "all">("all");
   const [dueToday, setDueToday] = useState(initialDue === "today");
+  const [programFilter, setProgramFilter] = useState("all");
   const [dragOverCol, setDragOverCol] = useState<TaskStatus | null>(null);
   const [adding, setAdding] = useState(false);
   const [openId, setOpenId] = useState<number | null>(null);
   const dragId = useRef<number | null>(null);
   const today = todayISO();
+  const isDelivery = board === "delivery";
 
   const oems = useMemo(
     () => Array.from(new Set(optimistic.map((t) => t.oem).filter((o): o is string => !!o))).sort(),
+    [optimistic],
+  );
+  const boardPrograms = useMemo(
+    () => Array.from(new Set(optimistic.map((t) => t.programName).filter((p): p is string => !!p))).sort(),
     [optimistic],
   );
 
@@ -80,18 +98,19 @@ export function TeamBoard({
     return optimistic.filter((t) => {
       if (assignee !== "all" && String(t.assigneeId) !== assignee) return false;
       if (oem !== "all" && (t.oem ?? "") !== oem) return false;
+      if (programFilter !== "all" && (t.programName ?? "") !== programFilter) return false;
       if (dueToday && !(t.status !== "done" && t.dueDate && t.dueDate <= today)) return false;
       if (q) {
-        const hay = `${t.title} ${t.accountName ?? ""} ${t.assigneeName ?? ""} ${t.oem ?? ""}`.toLowerCase();
+        const hay = `${t.title} ${t.accountName ?? ""} ${t.assigneeName ?? ""} ${t.oem ?? ""} ${t.programName ?? ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [optimistic, assignee, oem, dueToday, search, today]);
+  }, [optimistic, assignee, oem, programFilter, dueToday, search, today]);
 
   const shownColumns = useMemo(
-    () => (statusFilter === "all" ? BOARD_COLUMNS : BOARD_COLUMNS.filter((c) => c.id === statusFilter)),
-    [statusFilter],
+    () => (statusFilter === "all" ? columns : columns.filter((c) => c.id === statusFilter)),
+    [statusFilter, columns],
   );
 
   const stats = teamStats(filtered);
@@ -128,33 +147,36 @@ export function TeamBoard({
         <div>
           <div className="flex items-center gap-2.5">
             <h2 className="text-2xl font-bold tracking-tight text-text-primary">
-              {isBacklog ? "Backlog" : "Team board"}
+              {isBacklog ? "Backlog" : isDelivery ? "Delivery board" : "Team board"}
             </h2>
             <span className="rounded-full border border-[var(--primary-border)] bg-[var(--primary-subtle)] px-2 py-0.5 text-[11px] font-semibold text-[var(--primary-text)]">
-              {isBacklog ? "Triage" : "Internal delivery"}
+              {isBacklog ? "Triage" : isDelivery ? "Program delivery" : "Internal delivery"}
             </span>
-            {!isBacklog ? (
-              <Link
-                href="/team/backlog"
-                className="inline-flex items-center gap-1.5 rounded-md border border-border-strong px-2.5 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover"
-              >
-                Backlog
-                <span className="tabular rounded-full bg-surface-sunken px-1.5 text-[11px] font-bold text-text-muted">{backlogCount}</span>
-                →
-              </Link>
-            ) : (
-              <Link
-                href="/team"
-                className="inline-flex items-center gap-1.5 rounded-md border border-border-strong px-2.5 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover"
-              >
-                ← Board
-              </Link>
-            )}
+            {!isDelivery &&
+              (!isBacklog ? (
+                <Link
+                  href="/team/backlog"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border-strong px-2.5 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover"
+                >
+                  Backlog
+                  <span className="tabular rounded-full bg-surface-sunken px-1.5 text-[11px] font-bold text-text-muted">{backlogCount}</span>
+                  →
+                </Link>
+              ) : (
+                <Link
+                  href="/team"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border-strong px-2.5 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover"
+                >
+                  ← Board
+                </Link>
+              ))}
           </div>
           <p className="mt-1 text-sm text-text-secondary">
             {isBacklog
               ? "Untriaged work · open items onto the board when ready"
-              : "Active delivery · drag a card, click to open it, or use its status menu"}
+              : isDelivery
+                ? "Event and program work · drag a card, click to open it, or use its status menu"
+                : "Active delivery · drag a card, click to open it, or use its status menu"}
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
@@ -176,6 +198,15 @@ export function TeamBoard({
             <option value="all">All OEMs</option>
             {oems.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
+          {isDelivery && (
+            <>
+              <label className="sr-only" htmlFor="tb-program">Filter by program</label>
+              <select id="tb-program" className={selectCls} value={programFilter} onChange={(e) => setProgramFilter(e.target.value)}>
+                <option value="all">All programs</option>
+                {boardPrograms.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </>
+          )}
           {!isBacklog && (
             <>
               <label className="sr-only" htmlFor="tb-status">Focus a status</label>
@@ -186,14 +217,14 @@ export function TeamBoard({
                 onChange={(e) => setStatusFilter(e.target.value as TaskStatus | "all")}
               >
                 <option value="all">All statuses</option>
-                {BOARD_COLUMNS.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+                {columns.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
               </select>
               <label className="sr-only" htmlFor="tb-done">Show completed since</label>
               <select
                 id="tb-done"
                 className={selectCls}
                 value={doneWindow}
-                onChange={(e) => startTransition(() => router.push(`/team?done=${e.target.value}`, { scroll: false }))}
+                onChange={(e) => startTransition(() => router.push(`${basePath}?done=${e.target.value}`, { scroll: false }))}
                 title="How far back to show completed (Done) tasks"
               >
                 <option value="30">Show done: 30 days</option>
@@ -313,6 +344,8 @@ export function TeamBoard({
         <NewTaskDialog
           accounts={accounts}
           users={users}
+          programs={programs}
+          board={board}
           defaultStatus={isBacklog ? "backlog" : "open"}
           onClose={() => setAdding(false)}
         />
@@ -400,7 +433,7 @@ function TaskCard({
         ) : (
           <>
             <span className="text-[11px] font-semibold text-text-secondary">{task.accountName}</span>
-            {task.oem && <Chip>{task.oem}</Chip>}
+            {task.programName ? <Chip>{task.programName}</Chip> : task.oem && <Chip>{task.oem}</Chip>}
           </>
         )}
       </div>

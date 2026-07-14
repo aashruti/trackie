@@ -29,7 +29,13 @@ const HR: Item[] = [
   { label: "Leave", href: "/hr/leave", icon: "M4 6h16v14H4zM4 10h16M8 3v4M16 3v4" },
   { label: "Attendance", href: "/hr/attendance", icon: "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z" },
   { label: "Payroll", href: "/hr/payroll", icon: "M3 6h18v12H3zM3 10h18M7 15h4" },
-  { label: "HR settings", href: "/hr/settings", icon: "M12 9a3 3 0 100 6 3 3 0 000-6M4 12h2M18 12h2M12 4v2M12 18v2M6 6l1.5 1.5M16.5 16.5L18 18M18 6l-1.5 1.5M7.5 16.5L6 18", soon: true },
+  { label: "HR settings", href: "/hr/settings", icon: "M12 9a3 3 0 100 6 3 3 0 000-6M4 12h2M18 12h2M12 4v2M12 18v2M6 6l1.5 1.5M16.5 16.5L18 18M18 6l-1.5 1.5M7.5 16.5L6 18" },
+];
+
+const DELIVERY: Item[] = [
+  { label: "Programs", href: "/delivery/programs", icon: "M4 19.5A2.5 2.5 0 016.5 17H20M4 19.5A2.5 2.5 0 006.5 22H20V2H6.5A2.5 2.5 0 004 4.5z" },
+  { label: "Delivery board", href: "/delivery/board", icon: "M4 5h16v6H4zM4 13h7v6H4z" },
+  { label: "Delivery settings", href: "/delivery/settings", icon: "M12 9a3 3 0 100 6 3 3 0 000-6M4 12h2M18 12h2M12 4v2M12 18v2M6 6l1.5 1.5M16.5 16.5L18 18M18 6l-1.5 1.5M7.5 16.5L6 18" },
 ];
 
 const ME: Item[] = [
@@ -134,10 +140,13 @@ export function Sidebar({
   isEmployee?: boolean;
 }) {
   const pathname = usePathname();
-  // Finance/admin are for super-admin & admin; HR is for super-admin & hr; the
-  // "Me" self-service group appears for anyone flagged as an employee.
+  // Finance/admin are for super-admin & admin; HR is for super-admin & hr;
+  // Delivery is for super-admin & delivery (admins reach the delivery report
+  // through the account page instead); the "Me" self-service group appears for
+  // anyone flagged as an employee.
   const showFinance = role === "super-admin" || role === "admin";
   const showHr = role === "super-admin" || role === "hr";
+  const showDelivery = role === "super-admin" || role === "delivery";
   const finance: Item[] = [
     FINANCE_BASE[0],
     FINANCE_BASE[1],
@@ -163,6 +172,13 @@ export function Sidebar({
           <Group
             title="HR"
             items={showFinance ? HR : [{ label: "Dashboard", href: "/dashboard", icon: "M3 12l9-9 9 9M5 10v10h14V10" }, ...HR]}
+            pathname={pathname}
+          />
+        )}
+        {showDelivery && (
+          <Group
+            title="Delivery"
+            items={showFinance ? DELIVERY : [{ label: "Dashboard", href: "/dashboard", icon: "M3 12l9-9 9 9M5 10v10h14V10" }, ...DELIVERY]}
             pathname={pathname}
           />
         )}

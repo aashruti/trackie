@@ -74,7 +74,7 @@ export function TaskDetailDialog({
             </div>
             <p className="text-xs text-text-muted">
               {task.accountName ?? "Internal"}
-              {task.oem ? ` · ${task.oem}` : ""}
+              {task.programName ? ` · ${task.programName}` : task.oem ? ` · ${task.oem}` : ""}
             </p>
           </div>
           <span

@@ -1,16 +1,18 @@
 import "server-only";
 import { and, asc, desc, eq, gte, inArray, lte, ne, or, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { tasks, taskComments, accounts, oems, users, userAccounts } from "@/lib/db/schema";
-import type { TaskStatus, TaskPriority, TaskCommentKind } from "@/lib/db/enums";
-import type { TaskRow, TaskComment, TaskDetailRow, Option } from "@/lib/board/constants";
+import { tasks, taskComments, accounts, oems, users, userAccounts, programs } from "@/lib/db/schema";
+import type { TaskStatus, TaskPriority, TaskCommentKind, TaskBoard } from "@/lib/db/enums";
+import type { TaskRow, TaskComment, TaskDetailRow, Option, ProgramOption } from "@/lib/board/constants";
 import { todayISO } from "@/lib/dates";
 
 /**
- * Team board reads/writes. Available to every authenticated role (the page +
- * actions assert a session). Tasks link to a real account + a real user; the
- * assignment rule below rejects assigning a task to a user who isn't on the
- * account.
+ * Board reads/writes. Available to every authenticated role (the page +
+ * actions assert a session). One `tasks` table serves two kanbans, split by the
+ * `board` column: "team" (the original board) and "delivery" (the delivery
+ * team's board, whose tasks may carry program context). Tasks link to a real
+ * account + a real user; the assignment rule below rejects assigning a TEAM
+ * task to a user who isn't on the account.
  */
 
 const TASK_SELECT = {
@@ -26,6 +28,9 @@ const TASK_SELECT = {
   startDate: tasks.startDate,
   dueDate: tasks.dueDate,
   status: tasks.status,
+  board: tasks.board,
+  programId: tasks.programId,
+  programName: programs.name,
   commentCount: sql<number>`(select count(*)::int from ${taskComments} where ${taskComments.taskId} = ${tasks.id})`,
 } as const;
 
@@ -36,7 +41,11 @@ const TASK_SELECT = {
  * `statuses` further restricts which lifecycle columns to load.
  */
 export async function listTasks(
-  { doneWithinDays = 30, statuses }: { doneWithinDays?: number | null; statuses?: TaskStatus[] } = {},
+  {
+    doneWithinDays = 30,
+    statuses,
+    board = "team",
+  }: { doneWithinDays?: number | null; statuses?: TaskStatus[]; board?: TaskBoard } = {},
 ): Promise<TaskRow[]> {
   let doneFilter = undefined;
   if (doneWithinDays != null) {
@@ -54,7 +63,8 @@ export async function listTasks(
     .leftJoin(accounts, eq(tasks.accountId, accounts.id))
     .leftJoin(oems, eq(accounts.oemId, oems.id))
     .leftJoin(users, eq(tasks.assigneeId, users.id))
-    .where(and(statusFilter, doneFilter))
+    .leftJoin(programs, eq(tasks.programId, programs.id))
+    .where(and(eq(tasks.board, board), statusFilter, doneFilter))
     .orderBy(asc(tasks.status), desc(tasks.dueDate), desc(tasks.id));
 }
 
@@ -77,19 +87,19 @@ async function loadCommentsByTask(taskIds: number[]): Promise<Map<number, TaskCo
 
 /** Board tasks with their comment threads attached (for the detail dialog). */
 export async function listTasksWithComments(
-  opts: { doneWithinDays?: number | null; statuses?: TaskStatus[] } = {},
+  opts: { doneWithinDays?: number | null; statuses?: TaskStatus[]; board?: TaskBoard } = {},
 ): Promise<TaskDetailRow[]> {
   const rows = await listTasks(opts);
   const comments = await loadCommentsByTask(rows.map((r) => r.id));
   return rows.map((r) => ({ ...r, comments: comments.get(r.id) ?? [] }));
 }
 
-/** Count of tasks in a given status (e.g. the Backlog badge). */
-export async function countTasksByStatus(status: TaskStatus): Promise<number> {
+/** Count of tasks in a given status on a board (e.g. the Backlog badge). */
+export async function countTasksByStatus(status: TaskStatus, board: TaskBoard = "team"): Promise<number> {
   const [row] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(tasks)
-    .where(eq(tasks.status, status));
+    .where(and(eq(tasks.status, status), eq(tasks.board, board)));
   return row?.n ?? 0;
 }
 
@@ -115,6 +125,7 @@ export async function myTasksToday(userId: number): Promise<TaskRow[]> {
     .leftJoin(accounts, eq(tasks.accountId, accounts.id))
     .leftJoin(oems, eq(accounts.oemId, oems.id))
     .leftJoin(users, eq(tasks.assigneeId, users.id))
+    .leftJoin(programs, eq(tasks.programId, programs.id))
     .where(
       and(
         eq(tasks.assigneeId, userId),
@@ -126,13 +137,30 @@ export async function myTasksToday(userId: number): Promise<TaskRow[]> {
     .orderBy(asc(tasks.dueDate), desc(tasks.priority));
 }
 
-/** Accounts + users for the New-task pickers and board filters. */
-export async function listTaskOptions(): Promise<{ accounts: Option[]; users: Option[] }> {
-  const [accRows, userRows] = await Promise.all([
+/** Lean user picker options (e.g. the event-owner select) — one query, no extras. */
+export async function listUserOptions(): Promise<Option[]> {
+  return db.select({ id: users.id, name: users.name }).from(users).orderBy(asc(users.name));
+}
+
+/** Accounts + users + programs for the New-task pickers and board filters. */
+export async function listTaskOptions(): Promise<{
+  accounts: Option[];
+  users: Option[];
+  programs: ProgramOption[];
+}> {
+  const [accRows, userRows, programRows] = await Promise.all([
     db.select({ id: accounts.id, name: accounts.name }).from(accounts).orderBy(asc(accounts.name)),
     db.select({ id: users.id, name: users.name }).from(users).orderBy(asc(users.name)),
+    db
+      .select({ id: programs.id, name: programs.name, accountId: programs.accountId, status: programs.status })
+      .from(programs)
+      .orderBy(asc(programs.name)),
   ]);
-  return { accounts: accRows, users: userRows };
+  // Active programs first — completed/on-hold ones sink but stay pickable.
+  const progs = programRows
+    .sort((a, b) => Number(b.status === "active") - Number(a.status === "active"))
+    .map(({ id, name, accountId }) => ({ id, name, accountId }));
+  return { accounts: accRows, users: userRows, programs: progs };
 }
 
 /**
@@ -194,12 +222,38 @@ export type NewTaskInput = {
   startDate?: string | null; // ISO "YYYY-MM-DD"
   dueDate?: string | null;
   status?: TaskStatus;
+  board?: TaskBoard;
+  programId?: number | null; // delivery board: picking a program implies the account
 };
 
 export async function createTask(input: NewTaskInput): Promise<{ id: number }> {
-  const accountId = input.accountId ?? null;
+  const board = input.board ?? "team";
+  let accountId = input.accountId ?? null;
   const assigneeId = input.assigneeId ?? null;
-  await assertAssignable(assigneeId, accountId);
+  const programId = input.programId ?? null;
+
+  // Program context is a delivery-board concept. Rejecting it elsewhere also
+  // keeps program names (delivery-gated data) off the all-roles team board.
+  if (programId != null && board !== "delivery") {
+    throw new Error("Programs can only be linked to delivery-board tasks");
+  }
+
+  if (programId != null) {
+    const [program] = await db
+      .select({ accountId: programs.accountId })
+      .from(programs)
+      .where(eq(programs.id, programId))
+      .limit(1);
+    if (!program) throw new Error("Program not found");
+    if (accountId != null && accountId !== program.accountId) {
+      throw new Error("That program belongs to a different account");
+    }
+    accountId = program.accountId; // program implies its account
+  }
+
+  // The user_accounts membership rule is a sales-side constraint; delivery
+  // staff work across accounts without assignments, so their board skips it.
+  if (board === "team") await assertAssignable(assigneeId, accountId);
 
   const [row] = await db
     .insert(tasks)
@@ -212,6 +266,8 @@ export async function createTask(input: NewTaskInput): Promise<{ id: number }> {
       startDate: input.startDate ?? null,
       dueDate: input.dueDate ?? null,
       status: input.status ?? "backlog",
+      board,
+      programId,
     })
     .returning({ id: tasks.id });
   return { id: row.id };

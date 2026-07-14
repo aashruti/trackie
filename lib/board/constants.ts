@@ -8,6 +8,7 @@ import type {
   TaskStatus,
   TaskPriority,
   TaskCommentKind,
+  TaskBoard,
   LeadStage,
   ActivityType,
 } from "@/lib/db/enums";
@@ -26,6 +27,9 @@ export type TaskRow = {
   startDate: string | null; // ISO "YYYY-MM-DD"
   dueDate: string | null; // ISO "YYYY-MM-DD"
   status: TaskStatus;
+  board: TaskBoard;
+  programId: number | null; // delivery-board tasks may carry program context
+  programName: string | null;
   commentCount: number;
 };
 
@@ -40,6 +44,9 @@ export type TaskComment = {
 export type TaskDetailRow = TaskRow & { comments: TaskComment[] };
 
 export type Option = { id: number; name: string };
+
+/** Program picker option for the delivery board (program → implies account). */
+export type ProgramOption = { id: number; name: string; accountId: number };
 
 export type LeadActivityRow = {
   id: number;

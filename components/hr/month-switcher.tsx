@@ -6,10 +6,20 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 
 /**
  * Prev/next month navigator. Writes `?month=YYYY-MM` on the current path so the
- * server component re-renders for the chosen month. "Next" is disabled once the
- * shown month reaches the current one (no future attendance to view).
+ * server component re-renders for the chosen month. By default "Next" is
+ * disabled once the shown month reaches the current one (no future attendance
+ * to view); pass `allowFuture` for forward-planning views like the delivery
+ * calendar.
  */
-export function MonthSwitcher({ year, month }: { year: number; month: number }) {
+export function MonthSwitcher({
+  year,
+  month,
+  allowFuture = false,
+}: {
+  year: number;
+  month: number;
+  allowFuture?: boolean;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -17,7 +27,7 @@ export function MonthSwitcher({ year, month }: { year: number; month: number }) 
   const now = new Date();
   const cy = now.getUTCFullYear();
   const cm = now.getUTCMonth() + 1;
-  const atCurrent = year > cy || (year === cy && month >= cm);
+  const atCurrent = !allowFuture && (year > cy || (year === cy && month >= cm));
 
   function go(delta: number) {
     let y = year;

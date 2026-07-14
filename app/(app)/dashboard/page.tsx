@@ -19,6 +19,8 @@ import { HrDashboard } from "@/components/hr/hr-dashboard";
 import { listPendingRequests } from "@/lib/dal/hr/leave";
 import { getDayAttendance, listActiveEmployees } from "@/lib/dal/hr/attendance";
 import { listPayrollRuns } from "@/lib/dal/hr/payroll";
+import { DeliveryDashboardPanel } from "@/components/delivery/delivery-dashboard";
+import { getDeliveryDashboard } from "@/lib/dal/delivery/dashboard";
 import type { AttendanceDayType } from "@/lib/db/enums";
 import type { SessionUser } from "@/lib/dal/authz";
 
@@ -87,6 +89,21 @@ async function HrDashboardView({ user, years, YEAR }: { user: SessionShape; year
   );
 }
 
+/** Delivery-role users land on programs / events / budgets, not finance. */
+async function DeliveryDashboardView({ user, years, YEAR }: { user: SessionShape; years: string[]; YEAR: string }) {
+  const actor: SessionUser = { id: Number(user.id), role: user.role };
+  const data = await getDeliveryDashboard(actor);
+
+  return (
+    <>
+      <Topbar section="Overview" title="Dashboard" user={user} years={years} currentYear={YEAR} />
+      <main className="mx-auto w-full max-w-[1440px] space-y-6 px-6 py-6">
+        <DeliveryDashboardPanel data={data} />
+      </main>
+    </>
+  );
+}
+
 export default async function DashboardPage() {
   const session = await auth();
   const user = session!.user;
@@ -96,6 +113,10 @@ export default async function DashboardPage() {
   // irrelevant (they have no assigned accounts). Super-admin still sees finance.
   if (user.role === "hr") {
     return <HrDashboardView user={user} years={years} YEAR={YEAR} />;
+  }
+  // Delivery-role users likewise get a delivery overview.
+  if (user.role === "delivery") {
+    return <DeliveryDashboardView user={user} years={years} YEAR={YEAR} />;
   }
 
   const userId = Number(user.id);

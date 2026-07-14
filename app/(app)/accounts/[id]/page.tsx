@@ -13,6 +13,7 @@ import { PrintButton } from "@/components/reports/print-button";
 import { DeleteAccountButton } from "@/components/accounts/delete-account-button";
 import { getAccountDetail } from "@/lib/dal/account-detail";
 import { getYearContext } from "@/lib/dal/years";
+import { canAccessDelivery } from "@/lib/dal/authz";
 
 function Kpi({ label, value, tone }: { label: string; value: number; tone?: "default" | "positive" | "negative" | "pending" | "info" }) {
   return (
@@ -58,6 +59,14 @@ export default async function AccountDetailPage({
             <div className="ml-auto flex gap-2">
               {user.role === "super-admin" && (
                 <DeleteAccountButton accountId={detail.id} accountName={detail.name} />
+              )}
+              {canAccessDelivery({ id: Number(user.id), role: user.role }) && (
+                <Link
+                  href={`/delivery/report/${detail.id}`}
+                  className="no-print rounded-md border border-border-strong px-3 py-1.5 text-sm font-medium text-text-secondary hover:bg-surface-hover"
+                >
+                  Delivery report
+                </Link>
               )}
               <AccountReportButton detail={detail} year={YEAR} />
               <PrintButton label="Print / PDF" />

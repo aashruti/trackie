@@ -35,6 +35,10 @@ import {
   UPLOAD_STATUSES,
   PAYROLL_RUN_STATUSES,
   LATE_LOP_MODES,
+  PROGRAM_STATUSES,
+  DELIVERY_EVENT_STATUSES,
+  DELIVERY_ACTIVITY_TYPES,
+  TASK_BOARDS,
 } from "./enums";
 
 export const roleEnum = pgEnum("role", ROLES);
@@ -57,6 +61,10 @@ export const attendanceSourceEnum = pgEnum("attendance_source", ATTENDANCE_SOURC
 export const uploadStatusEnum = pgEnum("upload_status", UPLOAD_STATUSES);
 export const payrollRunStatusEnum = pgEnum("payroll_run_status", PAYROLL_RUN_STATUSES);
 export const lateLopModeEnum = pgEnum("late_lop_mode", LATE_LOP_MODES);
+export const programStatusEnum = pgEnum("program_status", PROGRAM_STATUSES);
+export const deliveryEventStatusEnum = pgEnum("delivery_event_status", DELIVERY_EVENT_STATUSES);
+export const deliveryActivityTypeEnum = pgEnum("delivery_activity_type", DELIVERY_ACTIVITY_TYPES);
+export const taskBoardEnum = pgEnum("task_board", TASK_BOARDS);
 
 export const oems = pgTable("oems", {
   id: serial("id").primaryKey(),
@@ -171,6 +179,12 @@ export const tasks = pgTable("tasks", {
   // When the task entered "done" — drives the board's recency window (old done
   // tasks are hidden by default so the board stays bounded).
   completedAt: timestamp("completed_at"),
+  // Which kanban this task lives on. The delivery team gets its own board;
+  // existing rows stay on "team".
+  board: taskBoardEnum("board").notNull().default("team"),
+  // Delivery-board tasks may carry program context (null elsewhere). set null so
+  // deleting a program orphans, not drops, its tasks.
+  programId: integer("program_id").references(() => programs.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -500,3 +514,93 @@ export const payslips = pgTable(
   },
   (t) => [unique().on(t.runId, t.employeeId)],
 );
+
+/* =============================================================================
+   DELIVERY MODULE — Programs, Events & Activities
+   The delivery team executes what sales sold. One account can run several
+   programs at once, each with its OWN provider (oems) and teaching style
+   (delivery_methods) — e.g. Medica runs an IBM D2S program AND a Datagami T3
+   program. Events under a program carry an allocated budget; spend is NEVER
+   stored — it is Σ delivery_activities.cost at read time. The `delivery` role
+   (see enums) manages this module; admin (sales) gets read access for the
+   renewal report. Design & rules:
+   docs/superpowers/specs/2026-07-14-delivery-module-design.md
+   ============================================================================= */
+
+// Teaching-style catalogue ("Direct to Students" D2S, "Teach the Teacher" T3, …)
+// managed in Delivery settings. Deactivate rather than delete once in use — the
+// FK from programs is `no action`, so deleting an in-use method fails loudly.
+export const deliveryMethods = pgTable("delivery_methods", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  code: text("code").notNull().unique(), // "D2S", "T3"
+  description: text("description"),
+  active: boolean("active").notNull().default(true),
+});
+
+// A sold program being delivered under an account.
+export const programs = pgTable("programs", {
+  id: serial("id").primaryKey(),
+  // cascade: deleting an account sweeps its delivery data (deleteAccount in the
+  // finance DAL stays untouched — it never has to know programs exist).
+  accountId: integer("account_id")
+    .notNull()
+    .references(() => accounts.id, { onDelete: "cascade" }),
+  // Provider of THIS program (IBM vs Datagami) — independent of the account's
+  // sales-side oemId, since one university can run programs from two providers.
+  oemId: integer("oem_id")
+    .notNull()
+    .references(() => oems.id),
+  deliveryMethodId: integer("delivery_method_id")
+    .notNull()
+    .references(() => deliveryMethods.id),
+  name: text("name").notNull(),
+  description: text("description"),
+  status: programStatusEnum("status").notNull().default("active"),
+  startDate: date("start_date"),
+  endDate: date("end_date"),
+  // Optional program-level budget envelope (null = untracked; per-event budgets
+  // are the operative limit either way).
+  totalBudget: numeric("total_budget"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// A budgeted event under a program (workshop, hackathon, guest lecture…).
+export const deliveryEvents = pgTable("delivery_events", {
+  id: serial("id").primaryKey(),
+  programId: integer("program_id")
+    .notNull()
+    .references(() => programs.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  description: text("description"),
+  venue: text("venue"),
+  startDate: date("start_date").notNull(),
+  endDate: date("end_date"), // null = single-day event
+  // Allocated budget. Spend is derived (Σ activity costs), never stored.
+  budget: numeric("budget").notNull().default("0"),
+  status: deliveryEventStatusEnum("status").notNull().default("planned"),
+  // Delivery owner running the event. set null so deleting a user orphans it.
+  ownerUserId: integer("owner_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Everything done under an event — the log that becomes the annual/renewal
+// report, doubling as the expense ledger via `cost` (0 = non-monetary).
+export const deliveryActivities = pgTable("delivery_activities", {
+  id: serial("id").primaryKey(),
+  eventId: integer("event_id")
+    .notNull()
+    .references(() => deliveryEvents.id, { onDelete: "cascade" }),
+  type: deliveryActivityTypeEnum("type").notNull().default("note"),
+  title: text("title").notNull(),
+  body: text("body"),
+  activityDate: date("activity_date").notNull(),
+  cost: numeric("cost").notNull().default("0"),
+  // Attribution: FK for integrity + display-name snapshot (mirrors
+  // lead_activities.author) so renames/deletions don't erase report history.
+  createdByUserId: integer("created_by_user_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  author: text("author").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
