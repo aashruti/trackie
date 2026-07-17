@@ -153,6 +153,20 @@ describe("selectReport", () => {
     expect(selectReport({ rows: [a, b] }, ["new"]).byOem.map((o) => o.oem)).toEqual(["AAFM", "IBM"]);
     expect(selectReport({ rows: [b, a] }, ["new"]).byOem.map((o) => o.oem)).toEqual(["AAFM", "IBM"]);
   });
+
+  it("breaks OEM ties on names a collator calls equal", () => {
+    // ICU treats U+200B as ignorable, so `"IBM".localeCompare("IBM​")` is 0
+    // even though the names differ — and a 0 lets `sort` fall back to the
+    // unordered DB row order. Code-unit order separates them in both runtimes.
+    const plain = "IBM";
+    const zwsp = "IBM​";
+    const tied = (id: number, oem: string) =>
+      row({ id, oem, byCategory: { ...emptyByCategory(), new: metrics({ netMargin: 10 }) } });
+    const a = tied(1, plain);
+    const b = tied(2, zwsp);
+    expect(selectReport({ rows: [a, b] }, ["new"]).byOem.map((o) => o.oem)).toEqual([plain, zwsp]);
+    expect(selectReport({ rows: [b, a] }, ["new"]).byOem.map((o) => o.oem)).toEqual([plain, zwsp]);
+  });
 });
 
 describe("toggleCategory", () => {

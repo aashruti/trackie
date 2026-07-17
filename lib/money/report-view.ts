@@ -184,8 +184,15 @@ export function selectReport(
   // (common when filtering — every account lacking that bill type sits at 0) could
   // order differently in the workbook than on screen.
   rows.sort((x, y) => y.billed - x.billed || x.id - y.id);
+  // Deliberately code-unit order, NOT `localeCompare`: the screen sorts in the
+  // browser's locale and the export sorts in Node, and a collator can order the
+  // two differently (`"IBM".localeCompare("Yale")` flips sign under lt-LT). ICU
+  // also calls distinct names equal when they differ only by an ignorable
+  // character, and a 0 here would fall back to unordered DB row order. Code-unit
+  // order is total and identical in both runtimes — worth more than collation
+  // niceness for a tie-break that only fires on equal netMargin.
   const byOem = [...oemAgg.values()].sort(
-    (x, y) => y.netMargin - x.netMargin || x.oem.localeCompare(y.oem),
+    (x, y) => y.netMargin - x.netMargin || (x.oem < y.oem ? -1 : x.oem > y.oem ? 1 : 0),
   );
   return { rows, byOem, aging, totals };
 }
