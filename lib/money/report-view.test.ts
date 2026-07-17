@@ -1,15 +1,19 @@
 import { describe, it, expect } from "vitest";
 import {
+  DEFAULT_SORT,
   REPORT_CATEGORIES,
   categoryLabels,
   categorySlug,
   emptyByCategory,
   emptyMetrics,
   parseCategories,
+  parseSort,
   selectReport,
+  sortRows,
   toggleCategory,
   type ReportMetrics,
   type ReportRow,
+  type ViewRow,
 } from "./report-view";
 
 const metrics = (p: Partial<ReportMetrics>): ReportMetrics => ({ ...emptyMetrics(), ...p });
@@ -216,5 +220,81 @@ describe("categorySlug", () => {
 
   it("joins a partial selection in canonical order", () => {
     expect(categorySlug(["new", "advance"])).toBe("advance+new");
+  });
+});
+
+const vrow = (over: Partial<ViewRow> = {}): ViewRow => ({
+  id: 1, name: "A", oem: "IBM", status: "raised",
+  ...emptyMetrics(),
+  ...over,
+});
+
+describe("sortRows", () => {
+  it("sorts numbers descending then ascending", () => {
+    const rows = [vrow({ id: 1, billed: 10 }), vrow({ id: 2, billed: 30 }), vrow({ id: 3, billed: 20 })];
+    expect(sortRows(rows, { key: "billed", dir: "desc" }).map((r) => r.id)).toEqual([2, 3, 1]);
+    expect(sortRows(rows, { key: "billed", dir: "asc" }).map((r) => r.id)).toEqual([1, 3, 2]);
+  });
+
+  it("sorts names alphabetically, not by code unit", () => {
+    // Code-unit order would put "UOW" (U=85) before "amity" (a=97) — wrong for a
+    // user-facing A–Z sort. A pinned collator gets this right.
+    const rows = [vrow({ id: 1, name: "UOW" }), vrow({ id: 2, name: "amity" })];
+    expect(sortRows(rows, { key: "name", dir: "asc" }).map((r) => r.name)).toEqual(["amity", "UOW"]);
+  });
+
+  it("does not mutate its input", () => {
+    const rows = [vrow({ id: 1, billed: 10 }), vrow({ id: 2, billed: 30 })];
+    sortRows(rows, { key: "billed", dir: "desc" });
+    expect(rows.map((r) => r.id)).toEqual([1, 2]);
+  });
+
+  it("breaks ties on id under every key, so order ignores input order", () => {
+    const a = vrow({ id: 1, name: "Same", billed: 5 });
+    const b = vrow({ id: 2, name: "Same", billed: 5 });
+    for (const key of ["billed", "name"] as const) {
+      for (const dir of ["asc", "desc"] as const) {
+        expect(sortRows([a, b], { key, dir }).map((r) => r.id)).toEqual([1, 2]);
+        expect(sortRows([b, a], { key, dir }).map((r) => r.id)).toEqual([1, 2]);
+      }
+    }
+  });
+
+  it("sorts by status (a string field)", () => {
+    const rows = [vrow({ id: 1, status: "raised" }), vrow({ id: 2, status: "overdue" })];
+    expect(sortRows(rows, { key: "status", dir: "asc" }).map((r) => r.id)).toEqual([2, 1]);
+  });
+});
+
+describe("parseSort", () => {
+  it("defaults when key is absent or unknown", () => {
+    expect(parseSort(null, null)).toEqual(DEFAULT_SORT);
+    expect(parseSort("bogus", "asc")).toEqual(DEFAULT_SORT);
+  });
+
+  it("accepts a known key and direction", () => {
+    expect(parseSort("name", "asc")).toEqual({ key: "name", dir: "asc" });
+    expect(parseSort("netMargin", "desc")).toEqual({ key: "netMargin", dir: "desc" });
+  });
+
+  it("falls back to the default direction when dir is garbage", () => {
+    expect(parseSort("name", "sideways")).toEqual({ key: "name", dir: DEFAULT_SORT.dir });
+  });
+});
+
+describe("selectReport sort argument", () => {
+  it("defaults to billed desc — today's order, unchanged", () => {
+    const r1 = row({ id: 1, byCategory: { ...emptyByCategory(), new: metrics({ billed: 10 }) } });
+    const r2 = row({ id: 2, byCategory: { ...emptyByCategory(), new: metrics({ billed: 30 }) } });
+    const data = { rows: [r1, r2] };
+    expect(selectReport(data, ["new"]).rows.map((r) => r.id)).toEqual([2, 1]);
+    expect(selectReport(data, ["new"], DEFAULT_SORT).rows.map((r) => r.id)).toEqual([2, 1]);
+  });
+
+  it("honours an explicit sort", () => {
+    const r1 = row({ id: 1, name: "Zeta", byCategory: { ...emptyByCategory(), new: metrics({ billed: 30 }) } });
+    const r2 = row({ id: 2, name: "Alpha", byCategory: { ...emptyByCategory(), new: metrics({ billed: 10 }) } });
+    const v = selectReport({ rows: [r1, r2] }, ["new"], { key: "name", dir: "asc" });
+    expect(v.rows.map((r) => r.name)).toEqual(["Alpha", "Zeta"]);
   });
 });

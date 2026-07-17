@@ -141,9 +141,50 @@ export function parseCategories(raw: string | null): ReportCategory[] {
   return hit.length ? hit : [...REPORT_CATEGORIES];
 }
 
+export type SortDir = "asc" | "desc";
+/** Sortable ViewRow fields. `id` is excluded — it is a tie-break, not a column. */
+export type SortKey = keyof ReportMetrics | "name" | "oem" | "status";
+
+export interface ReportSort {
+  key: SortKey;
+  dir: SortDir;
+}
+
+/** Biggest billed first — the report's long-standing default. */
+export const DEFAULT_SORT: ReportSort = { key: "billed", dir: "desc" };
+
+const STRING_KEYS = new Set<SortKey>(["name", "oem", "status"]);
+const SORT_KEYS = new Set<string>([...METRIC_KEYS, "name", "oem", "status"]);
+
+/** Parse `?sort=&dir=`. Unknown key → the default sort; unknown dir → default dir. */
+export function parseSort(key: string | null, dir: string | null): ReportSort {
+  if (!key || !SORT_KEYS.has(key)) return DEFAULT_SORT;
+  const d: SortDir = dir === "asc" || dir === "desc" ? dir : DEFAULT_SORT.dir;
+  return { key: key as SortKey, dir: d };
+}
+
+export function sortRows(rows: ViewRow[], sort: ReportSort): ViewRow[] {
+  const sign = sort.dir === "asc" ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    const cmp = STRING_KEYS.has(sort.key)
+      // Collator PINNED to "en", not the ambient locale: the screen sorts in the
+      // browser and the export sorts in Node, and an unpinned collator can order
+      // the two differently ("IBM" vs "Yale" flips under lt-LT). Unlike the byOem
+      // tie-break below, code-unit order is not an option here — it would put
+      // "UOW" before "amity", which is not what a user means by A–Z.
+      ? String(a[sort.key]).localeCompare(String(b[sort.key]), "en")
+      : (a[sort.key] as number) - (b[sort.key] as number);
+    // Tie-break always id-ascending, never sign-flipped: the accounts query has no
+    // ORDER BY and the screen and export are independent requests, so ties must
+    // resolve identically in both.
+    return cmp !== 0 ? sign * cmp : a.id - b.id;
+  });
+}
+
 export function selectReport(
   data: ReportData,
   selected: readonly ReportCategory[],
+  sort: ReportSort = DEFAULT_SORT,
 ): ReportView {
   const picked = canonical(selected);
   const totals = emptyMetrics();
@@ -176,14 +217,10 @@ export function selectReport(
     return { id: r.id, name: r.name, oem: r.oem, ...m, status: accountStatus(bills) };
   });
 
-  // Sorting lives here, not in the DAL: a raw row has no single `billed`, only
-  // per-type buckets — so row order responds to the filter.
-  //
-  // Tie-break on a stable unique key: the accounts query has no ORDER BY, and the
-  // screen and the export are two independent requests. Without this, tied rows
-  // (common when filtering — every account lacking that bill type sits at 0) could
-  // order differently in the workbook than on screen.
-  rows.sort((x, y) => y.billed - x.billed || x.id - y.id);
+  // Sorting lives here, not in the DAL or the table: a raw row has no single
+  // `billed`, only per-type buckets — and the screen and the export must agree on
+  // order, so one definition serves both.
+  const sorted = sortRows(rows, sort);
   // Deliberately code-unit order, NOT `localeCompare`: the screen sorts in the
   // browser's locale and the export sorts in Node, and a collator can order the
   // two differently (`"IBM".localeCompare("Yale")` flips sign under lt-LT). ICU
@@ -194,5 +231,5 @@ export function selectReport(
   const byOem = [...oemAgg.values()].sort(
     (x, y) => y.netMargin - x.netMargin || (x.oem < y.oem ? -1 : x.oem > y.oem ? 1 : 0),
   );
-  return { rows, byOem, aging, totals };
+  return { rows: sorted, byOem, aging, totals };
 }
