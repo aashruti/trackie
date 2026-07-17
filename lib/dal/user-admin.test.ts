@@ -1,12 +1,14 @@
 import { describe, it, expect, afterAll, vi } from "vitest";
 import { count, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { users, authSessions } from "@/lib/db/schema";
+import { users, authSessions, userRoles } from "@/lib/db/schema";
 import { verifyPassword } from "@/lib/auth/password";
 import {
   createUser,
   listUsers,
   setUserAccounts,
+  setUserRoles,
+  wouldOrphanSuperAdmins,
   deleteUser,
   resetUserPassword,
   signOutUserEverywhere,
@@ -27,7 +29,7 @@ describe("user-admin", () => {
       name: "Test Manager",
       email: "test-manager@datagami.local",
       password: "secret123",
-      role: "sales",
+      roles: ["sales"],
     });
     userId = u.id;
 
@@ -35,12 +37,12 @@ describe("user-admin", () => {
 
     const users = await listUsers(SUPER);
     const created = users.find((x) => x.id === u.id)!;
-    expect(created.role).toBe("sales");
+    expect(created.roles).toEqual(["sales"]);
     expect(created.assignedAccountIds.sort()).toEqual([...pick].sort());
 
-    // The new sales user now sees exactly those accounts. (createUser is
-    // Task 6's job to also seed user_roles; here the actor is constructed
-    // directly, independent of that gap.)
+    // The new sales user now sees exactly those accounts — proves createUser
+    // actually seeds user_roles (not just the users.role scalar), since
+    // scopeAccountIds/canEdit read the role SET.
     const scoped = await listAccountsForUser({ id: u.id, roles: ["sales"] }, "FY26–27");
     expect(scoped.map((a) => a.id).sort()).toEqual([...pick].sort());
   });
@@ -50,8 +52,44 @@ describe("user-admin", () => {
       listUsers({ id: 2, roles: ["sales"] }),
     ).rejects.toThrow();
     await expect(
-      createUser({ id: 2, roles: ["sales"] }, { name: "x", email: "x@y.z", password: "secret123", role: "viewer" }),
+      createUser({ id: 2, roles: ["sales"] }, { name: "x", email: "x@y.z", password: "secret123", roles: ["viewer"] }),
     ).rejects.toThrow();
+  });
+
+  it("createUser defaults to [\"viewer\"] and seeds user_roles — closes the lockout gap", async () => {
+    // Before Task 6, createUser wrote only the users.role scalar; a freshly
+    // created user had ZERO user_roles rows and logged in with roles: [],
+    // locked out of every gated surface. Prove the row actually exists.
+    const u = await createUser(SUPER, {
+      name: "No Roles Given",
+      email: "no-roles-given@datagami.local",
+      password: "secret123",
+    });
+    try {
+      const rows = await db.select().from(userRoles).where(eq(userRoles.userId, u.id));
+      expect(rows.map((r) => r.role)).toEqual(["viewer"]);
+      const created = (await listUsers(SUPER)).find((x) => x.id === u.id)!;
+      expect(created.roles).toEqual(["viewer"]);
+    } finally {
+      await deleteUser(SUPER, u.id);
+    }
+  });
+
+  it("createUser seeds a stacked role set into user_roles, and users.role scalar = roles[0]", async () => {
+    const u = await createUser(SUPER, {
+      name: "Stacked Creation",
+      email: "stacked-creation@datagami.local",
+      password: "secret123",
+      roles: ["sales", "delivery"],
+    });
+    try {
+      const rows = await db.select().from(userRoles).where(eq(userRoles.userId, u.id));
+      expect(rows.map((r) => r.role).sort()).toEqual(["delivery", "sales"]);
+      const [row] = await db.select().from(users).where(eq(users.id, u.id)).limit(1);
+      expect(row.role).toBe("sales"); // roles[0] — the rollback-seed scalar
+    } finally {
+      await deleteUser(SUPER, u.id);
+    }
   });
 
   it("resets another user's password so the new one works and the old one stops", async () => {
@@ -59,7 +97,7 @@ describe("user-admin", () => {
       name: "Reset Target",
       email: "reset-target@datagami.local",
       password: "oldpassword1",
-      role: "viewer",
+      roles: ["viewer"],
     });
     try {
       await resetUserPassword(SUPER, u.id, "brandnewpass1");
@@ -96,7 +134,7 @@ describe("user-admin", () => {
 
   it("createUser now requires 8 characters too", async () => {
     await expect(
-      createUser(SUPER, { name: "x", email: "too-short@datagami.local", password: "short12", role: "viewer" }),
+      createUser(SUPER, { name: "x", email: "too-short@datagami.local", password: "short12", roles: ["viewer"] }),
     ).rejects.toThrow(/8 characters/i);
   });
 
@@ -105,7 +143,7 @@ describe("user-admin", () => {
       name: "Kick Target",
       email: "kick-target@datagami.local",
       password: "keepthispass1",
-      role: "viewer",
+      roles: ["viewer"],
     });
     try {
       const sid = await createSession(u.id);
@@ -132,7 +170,7 @@ describe("user-admin", () => {
       name: "Revoke Target",
       email: "revoke-target@datagami.local",
       password: "oldpassword1",
-      role: "viewer",
+      roles: ["viewer"],
     });
     try {
       const sid = await createSession(u.id);
@@ -150,7 +188,7 @@ describe("user-admin", () => {
       name: "Order Target",
       email: "order-target@datagami.local",
       password: "oldpassword1",
-      role: "viewer",
+      roles: ["viewer"],
     });
     try {
       await createSession(u.id);
@@ -185,5 +223,119 @@ describe("user-admin", () => {
 
   afterAll(async () => {
     if (userId) await deleteUser(SUPER, userId);
+  });
+});
+
+describe("setUserRoles — the multi-select role set", () => {
+  it("rejects a non-super-admin actor", async () => {
+    await expect(
+      setUserRoles({ id: 2, roles: ["sales"] }, 3, ["viewer"]),
+    ).rejects.toThrow(/Super Admin/i);
+  });
+
+  it("rejects an empty role set — a user must hold at least one", async () => {
+    const u = await createUser(SUPER, {
+      name: "Empty Roles Target",
+      email: "empty-roles-target@datagami.local",
+      password: "secret123",
+      roles: ["viewer"],
+    });
+    try {
+      await expect(setUserRoles(SUPER, u.id, [])).rejects.toThrow(/at least one role/i);
+      // Rejected — the user's role set is untouched.
+      const rows = await db.select().from(userRoles).where(eq(userRoles.userId, u.id));
+      expect(rows.map((r) => r.role)).toEqual(["viewer"]);
+    } finally {
+      await deleteUser(SUPER, u.id);
+    }
+  });
+
+  it("replaces the set (delete-all + re-insert) and writes users.role = roles[0]", async () => {
+    const u = await createUser(SUPER, {
+      name: "Stacking Target",
+      email: "stacking-target@datagami.local",
+      password: "secret123",
+      roles: ["viewer"],
+    });
+    try {
+      await setUserRoles(SUPER, u.id, ["sales", "delivery"]);
+      const rows = await db.select().from(userRoles).where(eq(userRoles.userId, u.id));
+      expect(rows.map((r) => r.role).sort()).toEqual(["delivery", "sales"]);
+      const [row] = await db.select().from(users).where(eq(users.id, u.id)).limit(1);
+      expect(row.role).toBe("sales"); // roles[0]
+
+      // Narrowing back to a single role fully replaces the set, not merges it.
+      await setUserRoles(SUPER, u.id, ["hr"]);
+      const narrowed = await db.select().from(userRoles).where(eq(userRoles.userId, u.id));
+      expect(narrowed.map((r) => r.role)).toEqual(["hr"]);
+    } finally {
+      await deleteUser(SUPER, u.id);
+    }
+  });
+
+  it("dedupes a role passed twice", async () => {
+    const u = await createUser(SUPER, {
+      name: "Dedup Target",
+      email: "dedup-target@datagami.local",
+      password: "secret123",
+      roles: ["viewer"],
+    });
+    try {
+      await setUserRoles(SUPER, u.id, ["sales", "sales"]);
+      const rows = await db.select().from(userRoles).where(eq(userRoles.userId, u.id));
+      expect(rows.map((r) => r.role)).toEqual(["sales"]);
+    } finally {
+      await deleteUser(SUPER, u.id);
+    }
+  });
+
+  it("allows demoting a throwaway super-admin away from super-admin when other super-admins exist", async () => {
+    // We can't safely engineer the local DB down to exactly one super-admin
+    // (it holds real staff records) to exercise the BLOCKING branch end to
+    // end — that's what wouldOrphanSuperAdmins (below) proves in isolation.
+    // This proves the ALLOW branch's wiring: a throwaway super-admin can step
+    // down as long as the real staff super-admins keep the total above one.
+    const u = await createUser(SUPER, {
+      name: "Demotable Super",
+      email: "demotable-super@datagami.local",
+      password: "secret123",
+      roles: ["super-admin"],
+    });
+    try {
+      await setUserRoles(SUPER, u.id, ["viewer"]);
+      const rows = await db.select().from(userRoles).where(eq(userRoles.userId, u.id));
+      expect(rows.map((r) => r.role)).toEqual(["viewer"]);
+    } finally {
+      await deleteUser(SUPER, u.id);
+    }
+  });
+
+  it("a role change never touches user_accounts", async () => {
+    const all = await listAccountsForUser(SUPER, "FY26–27");
+    const pick = all.slice(0, 1).map((a) => a.id);
+    const u = await createUser(SUPER, {
+      name: "Accounts Untouched",
+      email: "accounts-untouched@datagami.local",
+      password: "secret123",
+      roles: ["sales"],
+    });
+    try {
+      await setUserAccounts(SUPER, u.id, pick);
+      await setUserRoles(SUPER, u.id, ["sales", "delivery"]);
+      const after = (await listUsers(SUPER)).find((x) => x.id === u.id)!;
+      expect(after.assignedAccountIds.sort()).toEqual([...pick].sort());
+    } finally {
+      await deleteUser(SUPER, u.id);
+    }
+  });
+});
+
+describe("wouldOrphanSuperAdmins — pure guard logic (no DB)", () => {
+  it("blocks only when the target currently holds super-admin, the new set drops it, and they're the last one", () => {
+    expect(wouldOrphanSuperAdmins(true, 1, ["viewer"])).toBe(true); // the exact lockout scenario
+    expect(wouldOrphanSuperAdmins(true, 2, ["viewer"])).toBe(false); // another super-admin remains
+    expect(wouldOrphanSuperAdmins(false, 1, ["viewer"])).toBe(false); // target wasn't super-admin — count unaffected
+    expect(wouldOrphanSuperAdmins(true, 1, ["super-admin", "delivery"])).toBe(false); // still holds it
+    expect(wouldOrphanSuperAdmins(true, 0, ["viewer"])).toBe(true); // defensive: 0 is also "last or fewer"
   });
 });

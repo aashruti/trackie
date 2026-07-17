@@ -1,5 +1,5 @@
 import "server-only";
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { users, userAccounts, userRoles } from "@/lib/db/schema";
 import { hashPassword } from "@/lib/auth/password";
@@ -22,32 +22,52 @@ export interface UserRow {
   id: number;
   name: string;
   email: string;
-  role: Role;
+  /** The role SET (source of truth: user_roles), not the legacy scalar. */
+  roles: Role[];
   assignedAccountIds: number[];
 }
 
 export async function listUsers(actor: SessionUser): Promise<UserRow[]> {
   assertSuperAdmin(actor);
-  const rows = await db.select().from(users).orderBy(asc(users.name));
-  const assignments = await db.select().from(userAccounts);
+  // Independent reads — batch (house rule).
+  const [rows, assignments, roleRows] = await Promise.all([
+    db.select().from(users).orderBy(asc(users.name)),
+    db.select().from(userAccounts),
+    db.select().from(userRoles),
+  ]);
   const byUser = new Map<number, number[]>();
   for (const a of assignments) {
     const list = byUser.get(a.userId) ?? [];
     list.push(a.accountId);
     byUser.set(a.userId, list);
   }
+  const rolesByUser = new Map<number, Role[]>();
+  for (const r of roleRows) {
+    const list = rolesByUser.get(r.userId) ?? [];
+    list.push(r.role);
+    rolesByUser.set(r.userId, list);
+  }
   return rows.map((u) => ({
     id: u.id,
     name: u.name,
     email: u.email,
-    role: u.role,
+    // Fall back to the legacy scalar only for a user whose user_roles row is
+    // somehow missing (shouldn't happen post-backfill, but never show "no role").
+    roles: rolesByUser.get(u.id) ?? [u.role],
     assignedAccountIds: byUser.get(u.id) ?? [],
   }));
 }
 
+/**
+ * Create a user and seed BOTH `users.role` (the scalar rollback seed) and
+ * `user_roles` (the set — source of truth for authz). Roles default to
+ * `["viewer"]` — the "no area" role — when the caller passes none; an empty
+ * `user_roles` set would sign the new user in with `roles: []` and lock them
+ * out of every gated surface.
+ */
 export async function createUser(
   actor: SessionUser,
-  input: { name: string; email: string; password: string; role: Role },
+  input: { name: string; email: string; password: string; roles?: Role[] },
 ): Promise<{ id: number }> {
   assertSuperAdmin(actor);
   const name = input.name.trim();
@@ -55,22 +75,62 @@ export async function createUser(
   if (!name || !email) throw new Error("Name and email are required");
   if (input.password.length < MIN_PASSWORD) throw new Error(`Password must be at least ${MIN_PASSWORD} characters`);
 
+  const roles: Role[] = input.roles?.length ? [...new Set(input.roles)] : ["viewer"];
+
   const existing = await db.select().from(users).where(eq(users.email, email)).limit(1);
   if (existing.length) throw new Error("A user with that email already exists");
 
   const [row] = await db
     .insert(users)
-    .values({ name, email, passwordHash: await hashPassword(input.password), role: input.role })
+    .values({ name, email, passwordHash: await hashPassword(input.password), role: roles[0] })
     .returning();
+  await db.insert(userRoles).values(roles.map((role) => ({ userId: row.id, role })));
   return { id: row.id };
 }
 
-export async function updateUserRole(actor: SessionUser, userId: number, role: Role): Promise<void> {
+/**
+ * Pure decision for the last-super-admin guard — no DB, so it is exhaustively
+ * unit-testable without ever touching the real super-admins in the local DB
+ * (a target's role change can only orphan the system if they currently hold
+ * super-admin, the new set drops it, AND they were the only holder left).
+ */
+export function wouldOrphanSuperAdmins(
+  currentlyHoldsSuper: boolean,
+  totalSuperAdmins: number,
+  newRoles: Role[],
+): boolean {
+  return currentlyHoldsSuper && !newRoles.includes("super-admin") && totalSuperAdmins <= 1;
+}
+
+/**
+ * Replace a user's role SET. Mirrors setUserAccounts (delete-all then
+ * re-insert). Also writes the scalar `users.role` to `roles[0]` for the
+ * rollback-seed's display/consistency during the expand phase.
+ *
+ * Two invariants: a user must hold at least one role (else they're locked
+ * out — `viewer` is the floor), and the system must never end up with zero
+ * users holding `super-admin`.
+ */
+export async function setUserRoles(actor: SessionUser, userId: number, roles: Role[]): Promise<void> {
   assertSuperAdmin(actor);
-  if (actor.id === userId && role !== "super-admin") {
-    throw new Error("You can't demote yourself");
+  const unique = [...new Set(roles)];
+  if (unique.length === 0) throw new Error("A user must have at least one role");
+
+  if (!unique.includes("super-admin")) {
+    const [holdsSuper] = await db
+      .select({ userId: userRoles.userId })
+      .from(userRoles)
+      .where(and(eq(userRoles.userId, userId), eq(userRoles.role, "super-admin")))
+      .limit(1);
+    const total = holdsSuper ? await superAdminCount() : 0;
+    if (wouldOrphanSuperAdmins(!!holdsSuper, total, unique)) {
+      throw new Error("Can't remove the last Super Admin");
+    }
   }
-  await db.update(users).set({ role }).where(eq(users.id, userId));
+
+  await db.delete(userRoles).where(eq(userRoles.userId, userId));
+  await db.insert(userRoles).values(unique.map((role) => ({ userId, role })));
+  await db.update(users).set({ role: unique[0] }).where(eq(users.id, userId));
 }
 
 /**
@@ -155,7 +215,7 @@ export async function deleteUser(actor: SessionUser, userId: number): Promise<vo
 }
 
 /**
- * Count of super-admins — used to prevent removing the last one (future guard).
+ * Count of super-admins — used by setUserRoles to prevent removing the last one.
  * Reads user_roles (the set, source of truth for authz), NOT users.role — the
  * scalar is a stale rollback seed that won't reflect roles granted/revoked
  * after the initial backfill.

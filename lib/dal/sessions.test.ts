@@ -12,7 +12,7 @@ describe("sessions", () => {
       name: "Session Test",
       email,
       password: "throwaway1",
-      role: "viewer",
+      roles: ["viewer"],
     });
     made.push(u.id);
     return u.id;
