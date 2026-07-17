@@ -3,51 +3,31 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { accounts, invoices, academicYears, oems } from "@/lib/db/schema";
 import { computeAccount } from "@/lib/money/compute";
-import type { InvoiceInputWithStatus, Status } from "@/lib/money/types";
+import type { InvoiceInputWithStatus } from "@/lib/money/types";
+import {
+  emptyByCategory,
+  type BillLite,
+  type ReportData,
+  type ReportRow,
+} from "@/lib/money/report-view";
 import { scopeAccountIds, type SessionUser } from "./authz";
 import { assignedIds } from "./accounts";
 import { loadPaymentLites } from "./payments";
 import { loadCohortPricing } from "./cohort-pricing";
 
-export interface ReportRow {
-  id: number;
-  name: string;
-  oem: string;
-  students: number;
-  billed: number;
-  received: number;
-  outstanding: number;
-  payable: number;
-  paidToOem: number;
-  outstandingToOem: number;
-  netMargin: number;
-  netGst: number;
-  tdsReceivable: number;
-  tdsPayable: number;
-  advanceTdsCost: number;
-  status: Status;
-}
-
-export interface ReportData {
-  rows: ReportRow[];
-  byOem: { oem: string; billed: number; netMargin: number; payable: number }[];
-  aging: { current: number; d31_60: number; d61_90: number; d90plus: number };
-  totals: Omit<ReportRow, "id" | "name" | "oem" | "status">;
-}
-
+/**
+ * Raw, UNFILTERED report data: per account, money bucketed by bill type.
+ *
+ * Totals, by-OEM rollups, aging and row order are NOT computed here — they all
+ * depend on which bill types the viewer ticked, and live in `selectReport`
+ * (lib/money/report-view.ts). Keeping server copies would just be a second
+ * source of truth that drifts from the screen.
+ */
 export async function getReportData(
   user: SessionUser,
   yearLabel: string,
 ): Promise<ReportData> {
-  const blankTotals = {
-    students: 0, billed: 0, received: 0, outstanding: 0, payable: 0,
-    paidToOem: 0, outstandingToOem: 0, netMargin: 0, netGst: 0,
-    tdsReceivable: 0, tdsPayable: 0, advanceTdsCost: 0,
-  };
-  const empty: ReportData = {
-    rows: [], byOem: [], aging: { current: 0, d31_60: 0, d61_90: 0, d90plus: 0 },
-    totals: { ...blankTotals },
-  };
+  const empty: ReportData = { rows: [] };
 
   const [year] = await db
     .select()
@@ -65,10 +45,7 @@ export async function getReportData(
     .innerJoin(oems, eq(accounts.oemId, oems.id))
     .where(scope === null ? undefined : inArray(accounts.id, scope.length ? scope : [-1]));
 
-  const data: ReportData = { rows: [], byOem: [], aging: { ...empty.aging }, totals: { ...blankTotals } };
-  const oemAgg = new Map<string, { billed: number; netMargin: number; payable: number }>();
-
-  if (!accRows.length) return data;
+  if (!accRows.length) return empty;
 
   const accountIds = accRows.map((a) => a.id);
   const allInvRows = await db
@@ -89,6 +66,8 @@ export async function getReportData(
     loadCohortPricing(allInvIds),
   ]);
 
+  const rows: ReportRow[] = [];
+
   for (const a of accRows) {
     const invRows = invsByAccount.get(a.id) ?? [];
     const inputs: InvoiceInputWithStatus[] = invRows.map((r) => ({
@@ -100,40 +79,41 @@ export async function getReportData(
       cohortPricing: cohortPx.get(r.id),
     }));
 
+    // One computeAccount call per account, exactly as before — the engine is
+    // untouched. It already returns each invoice computed and tagged with its
+    // category, so bucketing is a pure JS pass over a result we already have.
     const c = computeAccount(inputs);
-    const students = c.invoices.filter((i) => i.category !== "advance").reduce((s, i) => s + i.students, 0);
-
-    const row: ReportRow = {
-      id: a.id, name: a.name, oem: a.oem, students,
-      billed: c.billing, received: c.received, outstanding: c.outstanding,
-      payable: c.payable, paidToOem: c.paidToOem, outstandingToOem: c.outstandingToOem,
-      netMargin: c.netMargin, netGst: c.netGst, tdsReceivable: c.tdsReceivable,
-      tdsPayable: c.tdsPayable, advanceTdsCost: c.advanceTdsCost, status: c.status,
-    };
-    data.rows.push(row);
-
-    const t = data.totals;
-    t.students += students; t.billed += c.billing; t.received += c.received;
-    t.outstanding += c.outstanding; t.payable += c.payable; t.paidToOem += c.paidToOem;
-    t.outstandingToOem += c.outstandingToOem; t.netMargin += c.netMargin;
-    t.netGst += c.netGst; t.tdsReceivable += c.tdsReceivable; t.tdsPayable += c.tdsPayable;
-    t.advanceTdsCost += c.advanceTdsCost;
-
-    const agg = oemAgg.get(a.oem) ?? { billed: 0, netMargin: 0, payable: 0 };
-    agg.billed += c.billing; agg.netMargin += c.netMargin; agg.payable += c.payable;
-    oemAgg.set(a.oem, agg);
+    const byCategory = emptyByCategory();
+    const bills: BillLite[] = [];
 
     for (const inv of c.invoices) {
-      if (inv.outstanding <= 1) continue;
-      if (inv.status === "overdue") data.aging.d90plus += inv.outstanding;
-      else if (inv.status === "partially-paid") data.aging.d31_60 += inv.outstanding;
-      else data.aging.current += inv.outstanding;
+      const cat = inv.category;
+      const m = byCategory[cat];
+      // An advance is a token payment, not a headcount (preserves the old
+      // `filter(i => i.category !== "advance")` student total).
+      m.students += cat === "advance" ? 0 : inv.students;
+      m.billed += inv.billing;
+      m.received += inv.received;
+      m.outstanding += inv.outstanding;
+      m.payable += inv.payable;
+      m.paidToOem += inv.paidToOem;
+      m.outstandingToOem += inv.outstandingToOem;
+      m.netMargin += inv.netMargin;
+      m.netGst += inv.gstDiff;
+      m.tdsReceivable += inv.tdsIn;
+      m.tdsPayable += inv.tdsOut;
+      m.advanceTdsCost += inv.advanceTdsCost;
+
+      bills.push({
+        category: cat,
+        status: inv.status,
+        outstanding: inv.outstanding,
+        received: inv.received,
+      });
     }
+
+    rows.push({ id: a.id, name: a.name, oem: a.oem, byCategory, bills });
   }
 
-  data.rows.sort((x, y) => y.billed - x.billed);
-  data.byOem = [...oemAgg.entries()]
-    .map(([oem, v]) => ({ oem, ...v }))
-    .sort((x, y) => y.netMargin - x.netMargin);
-  return data;
+  return { rows };
 }
