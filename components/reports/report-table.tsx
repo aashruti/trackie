@@ -17,12 +17,16 @@ export function ReportTable<T extends object>({
   columns,
   rows,
   totals,
+  sort,
+  onSort,
 }: {
   title: string;
   subtitle?: string;
   columns: Column<T>[];
   rows: T[];
   totals?: Partial<Record<keyof T, number>> & { label?: string };
+  sort?: { key: keyof T; dir: "asc" | "desc" };
+  onSort?: (k: keyof T) => void;
 }) {
   return (
     <Card className="print-card">
@@ -31,14 +35,31 @@ export function ReportTable<T extends object>({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border-subtle text-xs text-text-muted">
-              {columns.map((c) => (
-                <th
-                  key={String(c.key)}
-                  className={`px-4 py-2.5 font-medium ${c.align === "right" || c.money ? "text-right" : "text-left"}`}
-                >
-                  {c.label}
-                </th>
-              ))}
+              {columns.map((c) => {
+                const right = c.align === "right" || c.money;
+                const active = sort?.key === c.key;
+                const arrow = active ? (sort!.dir === "asc" ? " ↑" : " ↓") : "";
+                return (
+                  <th
+                    key={String(c.key)}
+                    className={`px-4 py-2.5 font-medium ${right ? "text-right" : "text-left"}`}
+                  >
+                    {onSort ? (
+                      <button
+                        type="button"
+                        onClick={() => onSort(c.key)}
+                        aria-label={`Sort by ${c.label}`}
+                        className={`select-none hover:text-text-primary ${active ? "text-text-primary" : ""}`}
+                      >
+                        {c.label}
+                        {arrow}
+                      </button>
+                    ) : (
+                      c.label
+                    )}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>

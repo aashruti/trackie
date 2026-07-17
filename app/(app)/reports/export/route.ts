@@ -5,6 +5,7 @@ import {
   categoryLabels,
   categorySlug,
   parseCategories,
+  parseSort,
   selectReport,
 } from "@/lib/money/report-view";
 
@@ -26,8 +27,9 @@ export async function GET(req: Request) {
   if (!year) return new Response("Bad request: year is required", { status: 400 });
 
   const types = parseCategories(url.searchParams.get("types"));
+  const sort = parseSort(url.searchParams.get("sort"), url.searchParams.get("dir"));
   const data = await getReportData({ id: Number(user.id), role: user.role }, year);
-  const v = selectReport(data, types);
+  const v = selectReport(data, types, sort);
   const labels = categoryLabels(types);
 
   // Every sheet restates the year and the filter, so an extracted sheet still

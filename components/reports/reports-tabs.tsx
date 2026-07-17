@@ -7,12 +7,15 @@ import { Money } from "@/components/ui/money";
 import { ReportTable, type Column } from "./report-table";
 import { TypeFilter } from "./type-filter";
 import {
+  DEFAULT_SORT,
   REPORT_CATEGORIES,
   selectReport,
   toggleCategory,
   type ReportCategory,
+  type ReportSort,
   type OemRollup,
   type ReportData,
+  type SortKey,
   type ViewRow,
 } from "@/lib/money/report-view";
 
@@ -22,10 +25,19 @@ type Tab = (typeof TABS)[number];
 export function ReportsTabs({ data, year }: { data: ReportData; year: string }) {
   const [tab, setTab] = useState<Tab>("Margin");
   const [types, setTypes] = useState<ReportCategory[]>([...REPORT_CATEGORIES]);
-  const view = useMemo(() => selectReport(data, types), [data, types]);
+  const [sort, setSort] = useState<ReportSort>(DEFAULT_SORT);
+  const view = useMemo(() => selectReport(data, types, sort), [data, types, sort]);
   const t = view.totals;
 
-  const exportHref = `/reports/export?year=${encodeURIComponent(year)}&types=${types.join(",")}`;
+  function toggleSort(key: SortKey) {
+    setSort((s) =>
+      s.key === key
+        ? { key, dir: s.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: key === "name" || key === "oem" || key === "status" ? "asc" : "desc" },
+    );
+  }
+
+  const exportHref = `/reports/export?year=${encodeURIComponent(year)}&types=${types.join(",")}&sort=${sort.key}&dir=${sort.dir}`;
 
   const marginCols: Column<ViewRow>[] = [
     { key: "name", label: "Account" },
@@ -103,6 +115,8 @@ export function ReportsTabs({ data, year }: { data: ReportData; year: string }) 
             students: t.students, billed: t.billed, received: t.received,
             outstanding: t.outstanding, netMargin: t.netMargin,
           }}
+          sort={sort}
+          onSort={(k) => toggleSort(k as SortKey)}
         />
       )}
 
@@ -117,6 +131,8 @@ export function ReportsTabs({ data, year }: { data: ReportData; year: string }) 
             netGst: t.netGst, tdsReceivable: t.tdsReceivable,
             tdsPayable: t.tdsPayable, advanceTdsCost: t.advanceTdsCost,
           }}
+          sort={sort}
+          onSort={(k) => toggleSort(k as SortKey)}
         />
       )}
 
@@ -130,6 +146,8 @@ export function ReportsTabs({ data, year }: { data: ReportData; year: string }) 
             label: "Total",
             payable: t.payable, paidToOem: t.paidToOem, outstandingToOem: t.outstandingToOem,
           }}
+          sort={sort}
+          onSort={(k) => toggleSort(k as SortKey)}
         />
       )}
 
