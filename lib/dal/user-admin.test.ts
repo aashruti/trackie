@@ -1,7 +1,7 @@
-import { describe, it, expect, afterAll } from "vitest";
-import { eq } from "drizzle-orm";
+import { describe, it, expect, afterAll, vi } from "vitest";
+import { count, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { users } from "@/lib/db/schema";
+import { users, authSessions } from "@/lib/db/schema";
 import { verifyPassword } from "@/lib/auth/password";
 import {
   createUser,
@@ -138,6 +138,44 @@ describe("user-admin", () => {
       await resetUserPassword(SUPER, u.id, "brandnewpass1");
       // The whole point: the reset locks out anyone already signed in.
       expect(await sessionExists(sid)).toBe(false);
+    } finally {
+      await deleteUser(SUPER, u.id);
+    }
+  });
+
+  it("revokes before changing the password, so a mid-way failure can't lock anyone out", async () => {
+    const u = await createUser(SUPER, {
+      name: "Order Target",
+      email: "order-target@datagami.local",
+      password: "oldpassword1",
+      role: "viewer",
+    });
+    try {
+      await createSession(u.id);
+      // These two steps cannot be atomic — the neon-http driver used in
+      // production has no transaction support — so ORDER is the only safeguard.
+      // Revoke-then-change fails safe: the old password still works. The reverse
+      // fails catastrophically, changing the password while reporting failure, so
+      // nobody relays the new one and the user is locked out of an account their
+      // intruder is still inside.
+      //
+      // Proven, not assumed: make the password update throw, then check what
+      // survived.
+      const spy = vi.spyOn(db, "update").mockImplementationOnce(() => {
+        throw new Error("simulated DB failure mid-reset");
+      });
+      await expect(resetUserPassword(SUPER, u.id, "brandnewpass1")).rejects.toThrow(/simulated/);
+      spy.mockRestore();
+
+      const [row] = await db.select().from(users).where(eq(users.id, u.id)).limit(1);
+      // Password untouched — the user can still get in.
+      expect(await verifyPassword("oldpassword1", row.passwordHash)).toBe(true);
+      // And the sessions were still revoked, so an intruder is out either way.
+      const [{ n }] = await db
+        .select({ n: count() })
+        .from(authSessions)
+        .where(eq(authSessions.userId, u.id));
+      expect(n).toBe(0);
     } finally {
       await deleteUser(SUPER, u.id);
     }

@@ -56,12 +56,19 @@ export async function changePasswordAction(
   if (!valid) return { ok: false, error: "Current password is incorrect." };
 
   const hash = await hashPassword(newPassword);
-  await db.update(users).set({ passwordHash: hash }).where(eq(users.id, userId));
 
-  // Ends every session including this one, so the user lands on /login. Chosen
-  // deliberately: someone who suspects compromise can evict an intruder without
-  // waiting for an admin.
+  // Revoke FIRST, change SECOND — see resetUserPassword for why this order, and
+  // why it isn't a transaction (neon-http has no transaction support). If the
+  // update fails here, sessions are gone but the old password still works, so
+  // "failed" is honest and the user simply signs in again. The other order would
+  // report failure after the password had already changed, and the retry would
+  // then reject their now-stale "current password" — locking them out.
+  //
+  // This ends every session including the current one, so the user lands on
+  // /login. Deliberate: someone who suspects compromise can evict an intruder
+  // without waiting for an admin.
   await deleteUserSessions(userId);
+  await db.update(users).set({ passwordHash: hash }).where(eq(users.id, userId));
 
   return { ok: true };
 }

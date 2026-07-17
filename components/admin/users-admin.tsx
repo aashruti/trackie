@@ -117,6 +117,7 @@ function UserCard({ user, accounts, self }: { user: UserRow; accounts: AccountOp
   const [pwOpen, setPwOpen] = useState(false);
   const [pw, setPw] = useState("");
   const [pwDone, setPwDone] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
 
   const scoped = user.role !== "super-admin";
 
@@ -180,10 +181,22 @@ function UserCard({ user, accounts, self }: { user: UserRow; accounts: AccountOp
   function signOutEverywhere() {
     if (!confirm(`Sign ${user.name} out of every device? They'll need to sign in again.`)) return;
     setError(null);
+    setNote(null);
     startTransition(async () => {
       const res = await signOutUserEverywhereAction(user.id);
-      if (res.ok) setPwDone(false);
-      else setError(res.error);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      // Say what happened. Ending zero sessions is a real, useful answer — it
+      // means they were not signed in anywhere — and without this the button
+      // looks broken in exactly that case.
+      setPwDone(false);
+      setNote(
+        res.ended === 0
+          ? `${user.name} wasn't signed in anywhere.`
+          : `Signed ${user.name} out of ${res.ended} session${res.ended === 1 ? "" : "s"}.`,
+      );
     });
   }
 
@@ -238,6 +251,7 @@ function UserCard({ user, accounts, self }: { user: UserRow; accounts: AccountOp
       </div>
 
       {error && <p className="mt-2 text-xs text-[var(--negative-text)]">{error}</p>}
+      {note && <p className="mt-2 text-xs text-[var(--positive-text)]">{note}</p>}
 
       {open && scoped && (
         <div className="mt-4 rounded-lg border border-border bg-surface-sunken p-4">

@@ -98,12 +98,22 @@ export async function resetUserPassword(
   const [target] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
   if (!target) throw new Error("User not found");
 
+  // Order matters, and it cannot be a transaction: the neon-http driver used in
+  // production throws "No transactions support" (neon-http/session.js:152), so
+  // db.transaction() would pass locally on postgres.js and break on deploy.
+  //
+  // Revoke FIRST, change SECOND. If the second step fails, sessions are gone but
+  // the old password still works — the user signs back in, mildly annoyed, and
+  // the caller's "failed" is honest. The other order fails catastrophically: the
+  // password would already have changed while the caller reported failure, so
+  // nobody would relay the new password — locking the user out of an account
+  // whose intruder is still signed in, which is exactly what this prevents.
+  const ended = await deleteUserSessions(userId);
   await db
     .update(users)
     .set({ passwordHash: await hashPassword(newPassword) })
     .where(eq(users.id, userId));
 
-  const ended = await deleteUserSessions(userId);
   console.info(`[security] password reset by user ${actor.id} for user ${userId} (${ended} sessions ended)`);
 }
 
