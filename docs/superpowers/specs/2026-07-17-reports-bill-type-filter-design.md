@@ -238,10 +238,19 @@ missing `year` → 400, and sheet/filename naming.
 
 - **The OEM drill-down** (`/reports/oem/[oem]`, `lib/dal/oem-report.ts`,
   `oem-csv-button.tsx`) stays unfiltered and keeps its client CSV.
-- **`CATEGORY_LABEL` duplication.** Two local copies already exist
-  (`invoice-ladder.tsx:14`, `add-invoice.tsx:18`); this adds a third in `report-view.ts`.
-  Collapsing all three means editing files this feature does not otherwise touch.
-  Deliberate follow-up, confirmed with user.
+- **`CATEGORY_LABEL` duplication.** *(Corrected 2026-07-17 — this section originally said
+  "two copies"; a code review found **seven**.)* The label map is already inlined in
+  `today-panel.tsx:9`, `add-invoice.tsx:19`, `detail-tabs.tsx:25`, `invoice-ladder.tsx:15`,
+  `account-report.tsx:6`, `rollover-wizard.tsx:13`, and `oem-report.ts:57`;
+  `report-view.ts` makes eight. **They have already drifted:** `rollover-wizard.tsx:13`
+  says `"Advance"` where the other six say `"Advance bill"` — so this is a live
+  inconsistency users can see, not hypothetical debt.
+
+  Still deliberately out of scope: consolidating means editing seven files this feature
+  does not otherwise touch, and the drift predates it. But `report-view.ts` is the first
+  pure, client-**and**-server-importable home the map has ever had, which makes it the
+  natural consolidation point when someone does take it on. Raised as a follow-up rather
+  than silently widened into this diff.
 - **No bill-level (one row per invoice) listing.** Explicitly rejected in favour of
   recomputed account rows.
 - **No migration, no money-engine change.**

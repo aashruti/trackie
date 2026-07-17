@@ -1150,6 +1150,6 @@ The Task 2 test `"per-account rows aggregate to the same totals as the portfolio
 
 ## Follow-ups deliberately left out (from the spec's §9)
 
-- `CATEGORY_LABEL` now exists in three places (`invoice-ladder.tsx:14`, `add-invoice.tsx:18`, `report-view.ts`). Collapsing them touches files this feature does not otherwise need.
+- `CATEGORY_LABEL` now exists in **eight** places — `today-panel.tsx:9`, `add-invoice.tsx:19`, `detail-tabs.tsx:25`, `invoice-ladder.tsx:15`, `account-report.tsx:6`, `rollover-wizard.tsx:13`, `oem-report.ts:57`, and now `report-view.ts`. They have **already drifted**: `rollover-wizard.tsx:13` says `"Advance"` where the rest say `"Advance bill"`. Consolidating touches seven files this feature does not otherwise need, so it stays out — but `report-view.ts` is the first pure, client-and-server-importable home the map has had, making it the natural landing spot.
 - Aging's `d61_90` bucket remains permanently zero — a real fix needs date arithmetic against `dueDate`.
 - The OEM drill-down (`/reports/oem/[oem]`) stays unfiltered and keeps its client-side CSV.
