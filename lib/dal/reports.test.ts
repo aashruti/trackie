@@ -63,4 +63,21 @@ describe("getReportData", () => {
     // Sanity: the seeded year does have students on non-advance bills.
     expect(selectReport(data, REPORT_CATEGORIES).totals.students).toBeGreaterThan(0);
   });
+
+  /**
+   * The only test here that can catch money landing in the WRONG category
+   * bucket. Parity checks the all-types total and the slice-sum adds all three
+   * back — both hold under any permutation of the category labels. This one
+   * pins a label to a category-specific number: `compute.ts` zeroes
+   * `advanceTdsCost` on every non-advance bill by construction, so swapping
+   * advance↔new fails both legs at once. Zero/nonzero only — no amounts — so a
+   * reseed cannot make it brittle.
+   */
+  it("only advance bills carry advance TDS cost", async () => {
+    const data = await getReportData(SUPER, YEAR);
+    expect(selectReport(data, ["old"]).totals.advanceTdsCost).toBe(0);
+    expect(selectReport(data, ["new"]).totals.advanceTdsCost).toBe(0);
+    // Sanity: needs an OEM advance in the seed — self-supplied advances cost 0.
+    expect(selectReport(data, ["advance"]).totals.advanceTdsCost).toBeGreaterThan(0);
+  });
 });

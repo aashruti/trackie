@@ -26,13 +26,18 @@ export function TypeFilter({
             type="button"
             onClick={() => onToggle(c)}
             aria-pressed={on}
-            disabled={locked}
+            // aria-disabled, not `disabled`: `disabled` drops the chip out of the
+            // tab order, so a keyboard user just finds one chip missing with no
+            // way to reach the explanation. The click still fires — toggleCategory
+            // already returns a no-op for the last type, and that pure guard, not
+            // this attribute, is what keeps the selection non-empty.
+            aria-disabled={locked}
             title={locked ? "At least one bill type must stay selected" : undefined}
             className={`rounded-md border px-3 py-1.5 text-sm font-medium transition-colors ${
               on
                 ? "border-[var(--primary-text)] bg-[var(--primary-subtle)] text-[var(--primary-text)]"
                 : "border-border-strong text-text-secondary hover:bg-surface-hover"
-            } ${locked ? "cursor-default" : ""}`}
+            } ${locked ? "cursor-not-allowed opacity-50" : ""}`}
           >
             {CATEGORY_LABEL[c]}
           </button>
