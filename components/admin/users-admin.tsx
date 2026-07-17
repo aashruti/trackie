@@ -9,6 +9,7 @@ import {
   updateUserRoleAction,
   deleteUserAction,
   resetUserPasswordAction,
+  signOutUserEverywhereAction,
 } from "@/app/(app)/admin/users/actions";
 import type { Role } from "@/lib/db/enums";
 import type { UserRow } from "@/lib/dal/user-admin";
@@ -176,6 +177,16 @@ function UserCard({ user, accounts, self }: { user: UserRow; accounts: AccountOp
     });
   }
 
+  function signOutEverywhere() {
+    if (!confirm(`Sign ${user.name} out of every device? They'll need to sign in again.`)) return;
+    setError(null);
+    startTransition(async () => {
+      const res = await signOutUserEverywhereAction(user.id);
+      if (res.ok) setPwDone(false);
+      else setError(res.error);
+    });
+  }
+
   return (
     <Card className="p-5">
       <div className="flex flex-wrap items-center gap-3">
@@ -211,6 +222,13 @@ function UserCard({ user, accounts, self }: { user: UserRow; accounts: AccountOp
               Reset password
             </button>
           )}
+          <button
+            onClick={signOutEverywhere}
+            disabled={pending}
+            className="rounded-md border border-border-strong px-3 py-1.5 text-sm font-medium text-text-secondary hover:bg-surface-hover"
+          >
+            Sign out everywhere
+          </button>
           {!self && (
             <button onClick={remove} disabled={pending} className="rounded-md border border-border-strong px-3 py-1.5 text-sm font-medium text-[var(--negative-text)] hover:bg-surface-hover">
               Delete

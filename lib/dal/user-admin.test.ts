@@ -3,7 +3,14 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { users } from "@/lib/db/schema";
 import { verifyPassword } from "@/lib/auth/password";
-import { createUser, listUsers, setUserAccounts, deleteUser, resetUserPassword } from "./user-admin";
+import {
+  createUser,
+  listUsers,
+  setUserAccounts,
+  deleteUser,
+  resetUserPassword,
+  signOutUserEverywhere,
+} from "./user-admin";
 import { listAccountsForUser } from "./accounts";
 import { createSession, sessionExists } from "./sessions";
 
@@ -89,6 +96,33 @@ describe("user-admin", () => {
     await expect(
       createUser(SUPER, { name: "x", email: "too-short@datagami.local", password: "short12", role: "viewer" }),
     ).rejects.toThrow(/8 characters/i);
+  });
+
+  it("sign out everywhere ends sessions without touching the password", async () => {
+    const u = await createUser(SUPER, {
+      name: "Kick Target",
+      email: "kick-target@datagami.local",
+      password: "keepthispass1",
+      role: "viewer",
+    });
+    try {
+      const sid = await createSession(u.id);
+      const ended = await signOutUserEverywhere(SUPER, u.id);
+      expect(ended).toBe(1);
+      expect(await sessionExists(sid)).toBe(false);
+
+      // The password is untouched — that is the whole distinction from a reset.
+      const [row] = await db.select().from(users).where(eq(users.id, u.id)).limit(1);
+      expect(await verifyPassword("keepthispass1", row.passwordHash)).toBe(true);
+    } finally {
+      await deleteUser(SUPER, u.id);
+    }
+  });
+
+  it("only a super admin can sign someone out everywhere", async () => {
+    for (const role of ["admin", "hr", "delivery", "viewer"] as const) {
+      await expect(signOutUserEverywhere({ id: 2, role }, 3)).rejects.toThrow(/Super Admin/i);
+    }
   });
 
   it("a password reset ends the target's sessions", async () => {

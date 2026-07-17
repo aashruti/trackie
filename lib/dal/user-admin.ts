@@ -107,6 +107,23 @@ export async function resetUserPassword(
   console.info(`[security] password reset by user ${actor.id} for user ${userId} (${ended} sessions ended)`);
 }
 
+/**
+ * End every session for a user WITHOUT changing their password — the case a
+ * reset cannot serve when you only want someone out, not locked out.
+ *
+ * Self is allowed, unlike resetUserPassword: signing yourself out everywhere is
+ * recoverable (sign in again), not a lockout risk.
+ */
+export async function signOutUserEverywhere(
+  actor: SessionUser,
+  userId: number,
+): Promise<number> {
+  assertSuperAdmin(actor);
+  const ended = await deleteUserSessions(userId);
+  console.info(`[security] sessions ended by user ${actor.id} for user ${userId} (${ended})`);
+  return ended;
+}
+
 /** Replace a user's account assignments. */
 export async function setUserAccounts(
   actor: SessionUser,
