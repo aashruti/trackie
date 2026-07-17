@@ -13,17 +13,46 @@
  *  3. Future schema changes: edit schema.ts → npx drizzle-kit generate →
  *     commit the SQL file. This script picks it up on next deploy automatically.
  *
- * Run locally:  npx tsx scripts/db-migrate.ts
- * On Vercel:    runs automatically as part of `vercel-build` (see package.json)
+ * Which database does this touch?
+ *   npx tsx scripts/db-migrate.ts           → your LOCAL db (.env.local)
+ *   npx tsx scripts/db-migrate.ts --prod    → PRODUCTION (.env.production.local)
+ *   on Vercel                               → whatever the platform injects
+ *
+ * Production requires the explicit flag. It used to be the silent default: both
+ * env files were loaded with production first, and dotenv never overwrites an
+ * already-set variable — so `.env.local` could not win and the plain command
+ * migrated production from a laptop. The comment here even said "Run locally".
+ * A schema change against production should be something you asked for.
  */
 import { config } from "dotenv";
-config({ path: ".env.production.local" });
-config({ path: ".env.local" });
+
+// On Vercel the platform injects DATABASE_URL and no .env files are present, so
+// load nothing. VERCEL is never set in .env.local, so it only ever means the
+// real platform.
+const onVercel = !!process.env.VERCEL;
+const wantsProd =
+  process.argv.includes("--prod") || process.env.MIGRATE_TARGET === "production";
+
+if (!onVercel) {
+  config({ path: wantsProd ? ".env.production.local" : ".env.local" });
+}
 
 import { neon } from "@neondatabase/serverless";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 
 const url = process.env.DATABASE_URL ?? "";
+if (!url) {
+  const which = onVercel ? "the Vercel environment" : wantsProd ? ".env.production.local" : ".env.local";
+  console.error(`DATABASE_URL is not set — expected it in ${which}.`);
+  process.exit(1);
+}
+
+// Say which database is about to be altered, before altering it. The old
+// default silently pointed at production; a schema change should never be a
+// surprise.
+const target = onVercel ? "vercel" : wantsProd ? "PRODUCTION" : "local";
+console.log(`Migrating ${target}: ${new URL(url).host}\n`);
+
 const isNeon = /neon\.tech/.test(url) || !!process.env.VERCEL;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { migrate } = isNeon ? require("drizzle-orm/neon-http/migrator") : require("drizzle-orm/postgres-js/migrator");
