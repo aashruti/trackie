@@ -9,6 +9,7 @@ import {
   updateUserRoleAction,
   deleteUserAction,
   resetUserPasswordAction,
+  signOutUserEverywhereAction,
 } from "@/app/(app)/admin/users/actions";
 import type { Role } from "@/lib/db/enums";
 import type { UserRow } from "@/lib/dal/user-admin";
@@ -116,6 +117,7 @@ function UserCard({ user, accounts, self }: { user: UserRow; accounts: AccountOp
   const [pwOpen, setPwOpen] = useState(false);
   const [pw, setPw] = useState("");
   const [pwDone, setPwDone] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
 
   const scoped = user.role !== "super-admin";
 
@@ -176,6 +178,28 @@ function UserCard({ user, accounts, self }: { user: UserRow; accounts: AccountOp
     });
   }
 
+  function signOutEverywhere() {
+    if (!confirm(`Sign ${user.name} out of every device? They'll need to sign in again.`)) return;
+    setError(null);
+    setNote(null);
+    startTransition(async () => {
+      const res = await signOutUserEverywhereAction(user.id);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      // Say what happened. Ending zero sessions is a real, useful answer — it
+      // means they were not signed in anywhere — and without this the button
+      // looks broken in exactly that case.
+      setPwDone(false);
+      setNote(
+        res.ended === 0
+          ? `${user.name} wasn't signed in anywhere.`
+          : `Signed ${user.name} out of ${res.ended} session${res.ended === 1 ? "" : "s"}.`,
+      );
+    });
+  }
+
   return (
     <Card className="p-5">
       <div className="flex flex-wrap items-center gap-3">
@@ -211,6 +235,13 @@ function UserCard({ user, accounts, self }: { user: UserRow; accounts: AccountOp
               Reset password
             </button>
           )}
+          <button
+            onClick={signOutEverywhere}
+            disabled={pending}
+            className="rounded-md border border-border-strong px-3 py-1.5 text-sm font-medium text-text-secondary hover:bg-surface-hover"
+          >
+            Sign out everywhere
+          </button>
           {!self && (
             <button onClick={remove} disabled={pending} className="rounded-md border border-border-strong px-3 py-1.5 text-sm font-medium text-[var(--negative-text)] hover:bg-surface-hover">
               Delete
@@ -220,6 +251,7 @@ function UserCard({ user, accounts, self }: { user: UserRow; accounts: AccountOp
       </div>
 
       {error && <p className="mt-2 text-xs text-[var(--negative-text)]">{error}</p>}
+      {note && <p className="mt-2 text-xs text-[var(--positive-text)]">{note}</p>}
 
       {open && scoped && (
         <div className="mt-4 rounded-lg border border-border bg-surface-sunken p-4">
@@ -280,7 +312,7 @@ function UserCard({ user, accounts, self }: { user: UserRow; accounts: AccountOp
           </div>
           {pwDone && (
             <p className="mt-2 text-xs text-[var(--positive-text)]">
-              Password updated. Send it to {user.name} — they are not signed out, and this is the only time it is shown.
+              Password updated and {user.name} is signed out everywhere. Send them the new password — this is the only time it is shown.
             </p>
           )}
         </div>

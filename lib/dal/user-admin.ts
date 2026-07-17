@@ -5,6 +5,7 @@ import { users, userAccounts } from "@/lib/db/schema";
 import { hashPassword } from "@/lib/auth/password";
 import type { Role } from "@/lib/db/enums";
 import { type SessionUser } from "./authz";
+import { deleteUserSessions } from "./sessions";
 
 function assertSuperAdmin(user: SessionUser) {
   if (user.role !== "super-admin") throw new Error("Only a Super Admin can manage users");
@@ -76,10 +77,9 @@ export async function updateUserRole(actor: SessionUser, userId: number, role: R
  * Set another user's password. The super admin types it and relays it — this is
  * an internal tool and that trade-off was chosen deliberately (see the spec).
  *
- * NOTE: this does NOT sign the target out. Sessions are JWTs
- * (lib/auth/config.ts) and cannot be revoked without a denylist, so an existing
- * session survives the reset. Fixes "forgot my password"; does NOT fix "lock out
- * an intruder".
+ * Signs the target out everywhere: every session row for them is deleted, so
+ * each of their devices is rejected on its next request. This is what makes the
+ * feature usable for a compromised account, not just a forgotten password.
  */
 export async function resetUserPassword(
   actor: SessionUser,
@@ -98,13 +98,40 @@ export async function resetUserPassword(
   const [target] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
   if (!target) throw new Error("User not found");
 
+  // Order matters, and it cannot be a transaction: the neon-http driver used in
+  // production throws "No transactions support" (neon-http/session.js:152), so
+  // db.transaction() would pass locally on postgres.js and break on deploy.
+  //
+  // Revoke FIRST, change SECOND. If the second step fails, sessions are gone but
+  // the old password still works — the user signs back in, mildly annoyed, and
+  // the caller's "failed" is honest. The other order fails catastrophically: the
+  // password would already have changed while the caller reported failure, so
+  // nobody would relay the new password — locking the user out of an account
+  // whose intruder is still signed in, which is exactly what this prevents.
+  const ended = await deleteUserSessions(userId);
   await db
     .update(users)
     .set({ passwordHash: await hashPassword(newPassword) })
     .where(eq(users.id, userId));
 
-  // There is no audit table; this is the honest minimum for a security action.
-  console.info(`[security] password reset by user ${actor.id} for user ${userId}`);
+  console.info(`[security] password reset by user ${actor.id} for user ${userId} (${ended} sessions ended)`);
+}
+
+/**
+ * End every session for a user WITHOUT changing their password — the case a
+ * reset cannot serve when you only want someone out, not locked out.
+ *
+ * Self is allowed, unlike resetUserPassword: signing yourself out everywhere is
+ * recoverable (sign in again), not a lockout risk.
+ */
+export async function signOutUserEverywhere(
+  actor: SessionUser,
+  userId: number,
+): Promise<number> {
+  assertSuperAdmin(actor);
+  const ended = await deleteUserSessions(userId);
+  console.info(`[security] sessions ended by user ${actor.id} for user ${userId} (${ended})`);
+  return ended;
 }
 
 /** Replace a user's account assignments. */
