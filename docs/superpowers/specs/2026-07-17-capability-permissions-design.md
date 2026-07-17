@@ -1,240 +1,248 @@
-# Capability-Based Permissions
+# Role-Based Permissions (editable roles → capabilities)
 
 **Date:** 2026-07-17
-**Status:** Approved for implementation (user chose the full capability grid over role-stacking;
-immediate effect; View/Manage per area; Create-account and Delete-year as separate toggles)
-**Depends on:** the session store (PR #18) — its per-request DB read is what makes immediate effect cheap
+**Status:** Approved for implementation. User decisions: **editable roles** (a role owns a capability
+set; editing it propagates to every holder), **one role per user** (a role held by any number of
+people), **account/university access stays per-user**, **HR split into sub-actions** so "manage
+attendance but not approve leave" is expressible, and **immediate effect**.
+**Depends on:** the session store (PR #18) — its per-request DB read is what makes live propagation cheap.
+
+> **Supersedes the earlier draft of this file**, which stored capabilities directly on each user and
+> treated named roles as one-click UI "sugar". The user wants roles to be **first-class, editable,
+> inherited**: change a role's permissions and every user holding it updates automatically. That is a
+> stored Users → Role → Capabilities binding, not sugar. Rebuilt around it.
 
 ## 1. Problem
 
-A user has **exactly one** role (`super-admin` / `admin` / `hr` / `delivery` / `viewer`) — a single
-enum column, and every permission check is `role === X`. The roles are mutually exclusive, so:
+A user has **exactly one** hard-coded role (`super-admin` / `admin` / `hr` / `delivery` / `viewer`) —
+a single enum column, checked everywhere as `role === X`. Three limits:
 
-- **No cross-functional users.** Someone who does both HR and Delivery must be `super-admin`, which
-  also grants finance. There is no way to hold two hats without holding all of them.
-- **No read-only-per-area.** "viewer" sees only the team board. There is no "sees finance but can't
-  edit it" — View and Manage are welded together inside each role.
-
-The user wants per-user, per-area control: each area independently **View** (read-only) or **Manage**
-(read + write), any combination, toggled per person.
+- **No cross-functional users.** Someone doing HR *and* Delivery must be `super-admin`, which also
+  grants finance. No way to hold two hats without holding all of them.
+- **No read-only-per-area, no partial-area.** "viewer" sees only the team board. You cannot express
+  "sees finance but can't edit it", nor "HR person who manages attendance but can't approve leave".
+- **Roles are baked into code.** Adding "Finance & Delivery Head" means an enum change and a deploy.
+  The user wants to **create and edit roles at runtime**, and have edits apply to holders live.
 
 ## 2. The model
 
-Every area exposes two capabilities — **View** and **Manage** — where **Manage implies View**
-(granting Manage confers read access; you never grant Manage without View). Plus three standalone
-toggles that are about *scope* or *danger*, not read-vs-write.
+```
+User ──(one)──▶ Role ──(many)──▶ Capabilities
+     ╲
+      ╲──(many)──▶ Accounts (universities they may touch)   [orthogonal, per-user]
+```
 
-### The 15 capabilities
+- A **role** is a named row that owns a set of **capabilities**. Editable at runtime.
+- A **user** holds **exactly one** role and inherits its capabilities. A role may be held by any
+  number of users.
+- **Editing a role's capabilities propagates to every holder on their next request** — because a
+  user's effective capabilities are *resolved through their role*, never copied onto the user (§7).
+- **University access is per-user** (the existing `userAccounts` table), orthogonal to the role: two
+  people both holding "Finance Head" can cover different universities (§6).
+- **Cross-functional = a custom role**, e.g. "Finance & Delivery Head". You don't stack roles; you
+  make a role with both areas' capabilities.
 
-**View/Manage pairs (one per area):**
+## 3. Capabilities (17)
 
-| Area | `.view` grants | `.manage` additionally grants |
+HR is split into sub-actions (the user's "manage attendance but not approve leave" case); the other
+areas stay View/Manage where no finer signal exists. Adding sub-actions to another area later is
+purely additive.
+
+**Finance / Leads / Groups / Delivery / Users — View + Manage (Manage implies View):**
+
+| Capability | `.view` | `.manage` adds |
 | --- | --- | --- |
-| `finance` | accounts, invoices, payments, reports (read); includes new-year rollover setup under manage | edit accounts, record receipts, pay OEM, run rollover |
-| `leads` | see the CRM pipeline | create / convert leads |
-| `groups` | see the grouped profitability view | create / edit account groups |
-| `hr` | see attendance, leave, payroll | mark attendance, approve leave, run payroll |
-| `delivery` | see programs, events, board | create / edit programs, log activities |
-| `users` | see the user list | create users, reset passwords, assign capabilities |
+| `finance.*` | accounts, invoices, payments, reports (read); rollover setup under manage | edit accounts, record receipts, pay OEM, run rollover |
+| `leads.*` | see the CRM pipeline | create / convert leads |
+| `groups.*` | see the grouped profitability view | create / edit account groups |
+| `delivery.*` | see programs, events, board | create / edit programs, log activities |
+| `users.*` | see the user list & roles | create users, edit roles, reset passwords, assign roles |
 
-**Standalone toggles:**
+**HR — split, because the sub-actions are independently meaningful:**
 
-| Capability | Meaning | Why not View/Manage |
-| --- | --- | --- |
-| `accounts.all` | see **all** accounts, bypassing the assigned-account scope | it's a *scope* modifier, orthogonal to read/write (see §6) |
-| `accounts.create` | create brand-new accounts | super-admin-only today — stricter than editing existing ones, so kept a separate grant (user's call) |
-| `year.delete` | delete an academic year | destructive, irreversible, super-admin-only — kept behind a deliberate danger toggle (user's call) |
+| Capability | Grants |
+| --- | --- |
+| `hr.view` | see HR dashboards, rosters, reports |
+| `hr.attendance.manage` | upload / mark / edit others' attendance |
+| `hr.leave.approve` | approve or reject others' leave requests |
+| `hr.payroll.manage` | run and finalise payroll |
 
-### The universal floor — self-service, available to everyone
+(Each maps to a real, separable surface — `/hr/attendance`, `/hr/leave`, `/hr/payroll` — with its own
+DAL, so these gates are enforceable, not cosmetic.) **Each HR manage/approve sub-capability implies
+`hr.view`** — you cannot manage attendance you cannot see — so a role with any HR manage sub-action
+auto-includes `hr.view`, the same Manage-implies-View rule the other areas use.
 
-Some surfaces are **self-service**: a person acting on *their own* records. These are available to
-**every authenticated user**, gated by nothing, because acting on your own data needs no grant:
+**Standalone toggles (scope / danger, not read-vs-write):**
+
+| Capability | Meaning |
+| --- | --- |
+| `accounts.all` | see **all** accounts, bypassing the per-user assigned-account scope (§6) |
+| `accounts.create` | create brand-new accounts (super-admin-only today) |
+| `year.delete` | delete an academic year (destructive, super-admin-only today) |
+
+### The universal floor — self-service, everyone, no role needed
+
+**Self-service** (acting on your *own* records) is available to **every authenticated user**, gated
+by nothing:
 
 - the **team board** (`/team`)
 - **apply for / view own leave** (`/me/leave`)
 - **view own payslips** (`/me/payslips`)
 - **mark / view own attendance** (`/me/attendance`)
 
-The HR capabilities gate only the **management** surface (`/hr/*`) — approving others' leave, running
-payroll, seeing everyone's attendance. The split is *self-service vs. management*: **applying for
-leave is universal; approving it needs `hr.manage`.** The same shape applies wherever a `/me/*`
-self-view mirrors an `/hr/*` management view.
+**Applying for leave is universal; approving it needs `hr.leave.approve`.** This fixes a live bug:
+today the `proxy.ts` redirect sends `viewer` to `/team` for everything, so a viewer **cannot even
+reach `/me/leave` to apply**. The self-service DALs are already scoped to the caller's own id
+(`getEmployeeForUser(actor.id)`, `listMyRequests(user)` — verified), so a universal floor leaks
+nobody else's data. The redirect generalises: a user whose role grants no area capabilities lands on
+their self-service surface, never a dead end.
 
-**This fixes a current bug.** Today the `proxy.ts` redirect sends `viewer` to `/team` for everything,
-so a viewer **cannot even reach `/me/leave` to apply** — the page has no gate of its own, only the
-blanket redirect blocks it. Under this model the redirect generalises: a user with no area
-capabilities lands on their self-service surface, never a dead end, and can always apply for their own
-leave.
+## 4. Seeded roles + the backfill
 
-## 3. Backfill — the highest-stakes part of this whole change
+Roles are editable, but the system ships with a starter set. Two groups:
 
-18 real people are in production with existing roles. **A wrong backfill row locks someone out of
-production on deploy.** Each current role maps to exactly these capabilities, chosen to reproduce
-today's `authz.ts` matrix precisely:
+**(a) Backfill-equivalent roles — reproduce today's five roles exactly, so no existing user's access
+changes on deploy.** This is the lockout guard's reference (§9).
 
-| Current role | Capabilities granted |
+| Seeds as role | Capabilities (must equal the legacy role's `authz.ts` answers exactly) |
 | --- | --- |
-| **super-admin** | Manage on all six areas + `accounts.all` + `accounts.create` + `year.delete` (everything) |
-| **admin** | `finance.view`, `finance.manage`, `leads.view`, `leads.manage`, `groups.view`, `groups.manage`, `delivery.view` |
-| **hr** | `hr.view`, `hr.manage` |
-| **delivery** | `delivery.view`, `delivery.manage` |
-| **viewer** | *(none — team board only)* |
+| **Super Admin** *(system, protected)* | all 17 |
+| **Finance Manager** *(← legacy `admin`)* | `finance.view/manage`, `leads.view/manage`, `groups.view/manage`, `delivery.view` *(no `accounts.all` — stays account-scoped)* |
+| **HR Head** *(← legacy `hr`)* | `hr.view`, `hr.attendance.manage`, `hr.leave.approve`, `hr.payroll.manage` |
+| **Delivery Manager** *(← legacy `delivery`)* | `delivery.view/manage` |
+| **Employee** *(← legacy `viewer`)* | *(none — universal floor only)* |
 
-Note the deliberate asymmetries, each reproducing a current rule:
-- `admin` gets `delivery.view` but **not** `delivery.manage` (`canAccessDelivery` includes admin;
-  `canManageDelivery` does not).
-- `admin` gets neither `accounts.all` (admins are account-scoped) nor `accounts.create` nor `users.*`
-  (the users page is super-admin-only) nor `year.delete`.
-- `admin` **does** get `finance.manage`, which includes new-year rollover — matching `new-year` being
-  `super || admin` today.
+**Backfill step:** create these five roles, then set each user's `role_id` to the role matching their
+old `role` enum. Idempotent.
 
-**The migration must assert, per user, that the derived capability set reproduces every
-`authz.ts`/`can*` answer the user's old role gave.** This is a test, not a hope — see §9.
+**(b) Extra ready-to-assign roles from the user's examples** (net-new; editable/deletable):
 
-## 4. Storage
-
-**Migration `0015_user_capabilities.sql`** — a `capability` pgEnum over the 15 values, and a
-`user_capabilities` join table `(user_id, capability)` with a composite PK, `ON DELETE CASCADE` on
-`user_id`, indexed on `user_id`. This mirrors the existing `userAccounts` join-table pattern exactly.
-
-Backfill runs **in the migration** (or a one-shot invoked by it): read each user's `role`, insert the
-mapped rows. Idempotent (`ON CONFLICT DO NOTHING`).
-
-## 5. Authz rewrite
-
-**`lib/dal/authz.ts`** is the hub. `SessionUser` changes from `{ id, role }` to
-`{ id, capabilities: Capability[] }` (an array; membership tested with `.includes`). Every `can*`
-helper becomes a capability check:
-
-| Helper | Was | Becomes |
-| --- | --- | --- |
-| `canManageHr` | `super \|\| hr` | `has("hr.manage")` |
-| `canAccessDelivery` | `super \|\| delivery \|\| admin` | `has("delivery.view")` |
-| `canManageDelivery` | `super \|\| delivery` | `has("delivery.manage")` |
-| `canAccessLeads` | `super \|\| admin` | `has("leads.view")` |
-| `canManageGroups` | `super \|\| admin` | `has("groups.manage")` |
-| `canEdit` | `super \|\| (admin && assigned)` | `has("finance.manage") && (has("accounts.all") \|\| assigned)` |
-| `scopeAccountIds` | `super → all; else assigned` | `has("accounts.all") → all; else assigned` |
-
-**`assertSuperAdmin` is overloaded and must NOT collapse to one capability.** It currently gates three
-different things, and each maps to a *different* capability — mapping them all to `users.manage` would,
-for example, let a user-manager delete academic years:
-
-| `assertSuperAdmin` call site | Correct capability |
+| Role | Capabilities |
 | --- | --- |
-| `lib/dal/user-admin.ts` (create/edit users, reset passwords, roles) | `has("users.manage")` |
-| `lib/dal/account-admin.ts` (account-admin mutations) | `has("finance.manage")` — with `accounts.create` for the create path |
-| `lib/dal/rollover.ts:257` (delete academic year) | `has("year.delete")` |
-| `accounts/new` (create account) | `has("accounts.create")` |
+| **Finance & Delivery Head** | `finance.view/manage`, `delivery.view/manage`, `accounts.all` |
+| **Finance Head** | `finance.view/manage`, `accounts.all` — read+write finance, all universities |
+| **HR User** | `hr.view`, `hr.attendance.manage` — **cannot approve leave**, exactly the user's example |
 
-Each call site is converted to its specific capability; there is no blanket `assertSuperAdmin`
-replacement.
+## 5. Storage
 
-A small helper `has(user, cap)` centralises the check, and **Manage-implies-View is enforced at the
-grant boundary** (granting `x.manage` always co-grants `x.view`), so read checks never have to test
-both.
+**Migration `0015_roles.sql`:**
+- `capability` **pgEnum** over the 17 values.
+- `roles` — `id` serial PK, `name` text NOT NULL UNIQUE, `is_system` boolean NOT NULL default false
+  (protects seeded Super Admin from deletion / capability-stripping, §8), `created_at`.
+- `role_capabilities` — `(role_id → roles.id ON DELETE CASCADE, capability)` composite PK; indexed on
+  `role_id`.
+- `users` += `role_id` integer, FK → `roles.id` **ON DELETE RESTRICT** (you can't delete a role while
+  users hold it — the UI reassigns them first). Nullable during the expand phase (§8), then NOT NULL.
+- Backfill (§4) runs in/after the migration.
 
-`~45 mechanical actor sites` change from `{ id, role: user.role }` to
-`{ id, capabilities: user.capabilities }`. `~35 direct-comparison sites` (listed in the exploration
-map) each convert to the matching `has(...)`. The three riskiest, called out because a mechanical
-find-replace would get them wrong:
+`userAccounts` is unchanged (§6).
 
-- **`dashboard/page.tsx`** picks ONE view by role order (`hr` before `delivery` before finance). A
-  user with several areas would silently get only the first. This must become additive — show every
-  panel the user has View for.
-- **`components/shell/sidebar.tsx`** — nav visibility per area becomes per-capability; the natural fit.
-- **`~14 DAL sites`** use `role === "super-admin"` as a proxy for "unrestricted account scope". Each
-  becomes `has("accounts.all")`, not an identity check.
+## 6. Account scope stays per-user and orthogonal
 
-## 6. Account scope stays orthogonal
+`userAccounts(user_id, account_id)` still governs *which* finance accounts a user sees. `accounts.all`
+(a capability, so it lives on the role) bypasses it. So: **role = what you can do; `userAccounts` =
+which universities you can do finance things to** (consulted only when the role lacks `accounts.all`).
+Two "Finance Head" holders with different `userAccounts` rows see different universities — which is
+why account access is per-user, not per-role (user's decision).
 
-`userAccounts` still governs *which* finance accounts a scoped user sees. `accounts.all` is the
-capability that bypasses it — exactly as `super-admin` does today. So the model stays two-dimensional:
-**capabilities = what you can do; `userAccounts` = which accounts you can do finance things to** (only
-relevant when you lack `accounts.all`).
+## 7. Authz — resolve through the role, live
 
-## 7. Immediate effect (user's choice)
+`SessionUser` becomes `{ id, capabilities: Capability[] }`. The capabilities are **resolved from the
+user's role**, so editing the role updates everyone holding it without touching user rows.
 
-The `jwt` callback already reads the DB every request (the session store's `sessionExists`). It will
-read the user's capabilities in the **same round trip** and put them on the token, so a capability
-change applies on the user's **next request** — no logout, no forced sign-out.
+- `lib/dal/authz.ts` `can*` helpers become capability checks via a `has(user, cap)` helper:
+  `canManageHr → has("hr.*")` per action; `canManageDelivery → has("delivery.manage")`;
+  `canEdit → has("finance.manage") && (has("accounts.all") || assigned)`;
+  `scopeAccountIds → has("accounts.all") ? all : assigned`. **Manage-implies-View is enforced at the
+  grant boundary** so read checks test one capability.
+- **`assertSuperAdmin` is overloaded — it must NOT collapse to one capability.** Each call site maps
+  to a *different* one; a blanket mapping would, e.g., let a user-manager delete academic years:
 
-This is the payoff of the session-store work: a month ago, capabilities cached in the JWT would have
-needed a re-login (or the forced-logout hammer) to refresh. Now it's one extra column on a query we
-already run. `token.role` is replaced by `token.capabilities`; `next-auth.d.ts` and the session
-callback change to carry the array.
+  | `assertSuperAdmin` site | Correct capability |
+  | --- | --- |
+  | `lib/dal/user-admin.ts` (manage users, reset passwords, assign roles) | `has("users.manage")` |
+  | `lib/dal/account-admin.ts` (account mutations) | `has("finance.manage")` (+ `accounts.create` on create) |
+  | `lib/dal/rollover.ts:257` (delete academic year) | `has("year.delete")` |
+  | `accounts/new` (create account) | `has("accounts.create")` |
 
-## 8. Display — `role` becomes derived, then dropped
+- The `jwt` callback already reads the DB every request (session store). It resolves the user's role
+  → capabilities in the **same round trip** and puts the array on the token. So a role edit, or a
+  user's role reassignment, applies on their **next request** — no logout. `token.role` →
+  `token.capabilities`; `next-auth.d.ts` and the session callback carry the array.
+- `~45 mechanical actor sites` change `{ id, role }` → `{ id, capabilities }`. `~35 direct-comparison
+  sites` each convert to the matching `has(...)`. **Three are error-prone and called out:**
+  - **`dashboard/page.tsx`** picks ONE view by role order — must become additive (show every panel
+    the user has View for), or a cross-functional user only sees their first-matched panel.
+  - **`components/shell/sidebar.tsx`** — nav visibility becomes per-capability.
+  - **`~14 DAL sites`** use `role === "super-admin"` as a proxy for "unrestricted account scope" →
+    each becomes `has("accounts.all")`, not an identity check.
 
-`role` currently drives display (user menu, badges, topbar). After this it governs nothing. Rather
-than leave a vestigial column (the exact drift that produced the orphan `password_changed_at`), this
-uses a deliberate **expand/contract**:
+## 8. Not locking everyone out — guards
 
-- **Expand (this PR):** add `user_capabilities`, backfill from `role`, switch all authz + display to
-  capabilities. The user card shows derived area badges (e.g. "Finance · Delivery · HR"). `role` stays
-  in the DB **only** as a rollback seed, read by nothing.
-- **Contract (tracked follow-up, separate PR):** once verified in production, a migration drops the
-  `role` column. This is an explicit, tracked task — not an orphan — closed out deliberately.
+- **Super Admin role is `is_system`:** cannot be deleted, and cannot have `users.manage` removed
+  (that check lives in the role-edit DAL). Losing it would strip the ability to manage roles/users.
+- **Last-admin guard:** the existing `superAdminCount()` generalises to "at least one **enabled user**
+  whose role includes `users.manage`" — block any edit (role capability change, role reassignment,
+  user delete/deactivate) that would drop that count to zero.
+- **`ON DELETE RESTRICT`** on `users.role_id`: a role can't be deleted out from under its holders; the
+  UI forces reassignment first.
 
-## 9. Testing — the lockout guard is non-negotiable
+## 9. Expand / contract for the old `role` column
 
-- **`lib/dal/authz.test.ts`** is rewritten: every `can*` assertion now runs against capability sets
-  instead of roles. The existing 20 role-based cases become the reference for the backfill.
-- **A backfill-equivalence test:** for each of the five legacy roles, assert that
-  `capabilitiesFor(role)` makes every `can*`/`assert*` return exactly what the role returned. This is
-  the test that proves nobody's access silently changes.
-- **A production-safety step in the plan:** before deploy, run a read-only check that every one of the
-  18 users' derived capabilities reproduce their current effective access. Driven, not assumed.
-- **Browser verification:** a backfilled `admin` sees exactly the finance/leads/groups/delivery-view
-  surface they see today; granting that same user `delivery.manage` makes the delivery edit controls
-  appear on the **next navigation**, no re-login (proving §7); a `hr`-only user still can't reach
-  finance.
+The legacy `users.role` enum still feeds display and the backfill. Rather than leave it to rot (the
+drift that produced the orphan `password_changed_at`):
 
-## 10. Admin UI
+- **Expand (this work):** add `roles` / `role_capabilities` / `users.role_id`, backfill, switch all
+  authz + display to the role/capability model. Display now shows **`role.name`** directly (roles are
+  named rows — no derived badges needed). `role` stays only as a rollback seed, read by nothing.
+- **Contract (tracked follow-up PR):** once verified in production, drop `users.role`. Explicit task,
+  not an orphan.
 
-The single-select role `<select>` on each user row becomes a **grouped capability grid**: six areas
-each with View/Manage (Manage auto-checks View), plus the three standalone toggles in a small "Access
-scope & danger" group. Changes save through the existing `updateUser*` action shape and, per §7, take
-effect on the target's next request.
+## 10. Admin UI — two surfaces
 
-### 10a. Presets (predefined roles)
+**Manage roles** (`/admin/roles`, needs `users.manage`): list roles; create/rename/delete (delete
+blocked while held); an **editable capability grid per role** — six areas (Finance/Leads/Groups/
+Delivery/Users as View+Manage, HR as its four sub-toggles) plus the three standalone toggles. Saving
+a role's grid is the "propagates to all holders" moment. The seeded roles (§4) appear here, editable;
+Super Admin shows its protections (can't delete, can't drop `users.manage`).
 
-A row of **preset buttons** sits above the grid. Clicking one **applies** its capability set to the
-tick-boxes; the admin can then adjust individual toggles before saving. **A preset is UI sugar — a
-one-click tick-pattern — not a stored binding.** The backend stores only the resulting capabilities,
-so there is exactly one source of truth (the grid); a preset never competes with it. This is the
-deliberate reason presets do *not* reintroduce the hybrid model's two-concepts problem.
+**Assign role** (on each user row in `/admin/users`): a single-select of roles (replacing the old
+role `<select>`), plus the existing per-user university assignment. Saving takes effect on the
+target's next request (§7).
 
-The presets are defined once, as capability sets, and are the same bundles the backfill uses — so a
-preset named "Finance Admin" grants exactly what today's `admin` role does:
+There is no separate "presets" concept — **the roles *are* the presets**, now first-class and
+editable, exactly as the user asked.
 
-| Preset | Capabilities |
-| --- | --- |
-| **Super Admin** | everything (all 15) |
-| **Finance Admin** | `finance.view/manage`, `leads.view/manage`, `groups.view/manage`, `delivery.view` — today's `admin` |
-| **Finance (read-only)** | `finance.view`, `leads.view`, `groups.view`, `delivery.view` — the view-only person the old model couldn't express |
-| **HR Manager** | `hr.view/manage` |
-| **Delivery Manager** | `delivery.view/manage` |
-| **Employee** | *(none — universal floor only: team board + self-service)* — today's `viewer` |
+## 11. Testing — the lockout guard is non-negotiable
 
-Because presets and the backfill share one definition (`PRESETS` in the capability module), they
-can't drift: the backfill in §3 is literally "apply the preset that matches each legacy role."
+- **`lib/dal/authz.test.ts`** rewritten to assert `can*` against capability sets.
+- **Backfill-equivalence test (both directions):** for each of the five legacy roles, the seeded
+  role's capabilities make every `can*`/`assert*` return **exactly** what the legacy role returned —
+  no less (nobody loses access) **and no more** (nobody is silently over-granted).
+- **Live-propagation test:** a user holding role R; add a capability to R; the user's next resolved
+  capability set includes it **without** touching the user row — proving inheritance, not copy.
+- **Role DAL tests:** create/rename/delete-blocked-while-held; can't delete Super Admin; can't strip
+  `users.manage` from Super Admin; last-`users.manage` guard.
+- **Pre-deploy production check (read-only):** every one of the 18 users' resolved capabilities
+  reproduces their current effective access. Driven, not assumed.
+- **Browser:** a backfilled Finance Manager sees exactly today's surface; editing that role to add
+  `delivery.manage` makes delivery edit controls appear for **all** its holders on next navigation
+  (no re-login); an HR User can open `/hr/attendance` but the leave-approve control is absent; any
+  user can reach `/me/leave` to apply.
 
-**Preset ≠ label.** Applying "HR Manager" then ticking `delivery.view` is fine — the user simply has
-those capabilities; they are not "an HR Manager with an exception". The card shows derived area badges
-(§8), not a preset name, so there is nothing to go stale.
+## 12. Out of scope
 
-## 11. Out of scope
+- **Dropping the legacy `role` column** — the tracked contract PR (§9).
+- **Per-account capabilities** ("manage finance for university X only"). Scope stays the coarse
+  per-user `userAccounts` grain.
+- **Multiple roles per user** — explicitly rejected; cross-functional = a custom role.
+- **A role/permission audit log** — grants are `console.info`'d like the other security actions.
 
-- **Dropping the `role` column** — deliberately deferred to the contract PR (§8), tracked.
-- **Per-account capabilities** (e.g. "manage finance for account X only"). Scope stays at the coarse
-  `userAccounts` grain; capabilities are global to the user.
-- **A capability audit log.** Grants are `console.info`'d like the other security actions.
+## 13. Risk
 
-## 12. Risk
-
-This rewrites the authorization layer of a working app with real users and money. The two failure
-modes that matter: **someone locked out** (guarded by §9's backfill-equivalence test + the pre-deploy
-per-user check) and **someone over-granted** (guarded by the same equivalence test — the backfill must
-grant *no more* than the old role, not just *no less*). Both are caught by asserting exact equivalence,
-in both directions, before deploy.
+This rewrites the authorization layer of a live app with real users and money. Two failure modes:
+**someone locked out** and **someone over-granted** — both caught by §11's two-direction
+backfill-equivalence test plus the per-user pre-deploy check. Plus a new one this model introduces:
+**a bad role edit hits every holder at once** (that's the feature). Mitigated by the §8 guards (system
+role, last-admin, delete-restrict) and by role edits being reversible — re-editing the role restores
+access on the next request, since nothing was copied onto users.
