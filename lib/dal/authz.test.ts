@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   canEdit, canAccessLeads, assertLeadsAccess, scopeAccountIds,
-  canAccessDelivery, assertDeliveryAccess, canManageDelivery, assertDeliveryManage,
+  canAccessDelivery, canManageDelivery,
   canManageGroups, assertGroupsManage, canManageHr, assertHrAccess,
   type SessionUser,
 } from "./authz";

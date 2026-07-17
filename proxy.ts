@@ -1,19 +1,31 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth/config";
 
+// Roles that grant access to a functional AREA (finance, HR, delivery, admin).
+// A user holding none of these — a pure `viewer`, or a brand-new user whose
+// role set is still empty — is confined to the universal self-service floor.
+const AREA_ROLES = ["super-admin", "sales", "hr", "delivery"];
+
 export default auth((req) => {
   const { nextUrl } = req;
-  const user = req.auth?.user as { role?: string } | undefined;
+  // Read the role SET, not a scalar `role` — the session carries roles[] now.
+  // (An earlier cast to { role?: string } silently read undefined here.)
+  const roles = (req.auth?.user as { roles?: string[] } | undefined)?.roles;
 
   // Unauthenticated → sign in (preserves the previous middleware behaviour).
-  if (!user) {
+  if (!roles) {
     return NextResponse.redirect(new URL("/login", nextUrl));
   }
 
-  // Viewers (Designer / Employee) only get the Team board — send them there.
   const path = nextUrl.pathname;
-  const teamOnly = path === "/team" || path.startsWith("/team/");
-  if (user.role === "viewer" && !teamOnly) {
+  const hasArea = roles.some((r) => AREA_ROLES.includes(r));
+  // Self-service floor — universal (spec §2): the team board plus each user's
+  // own leave / payslips / attendance. Available even to a role-less/viewer
+  // user, who would otherwise be wrongly blocked from /me/leave.
+  const selfServe =
+    path === "/team" || path.startsWith("/team/") ||
+    path === "/me" || path.startsWith("/me/");
+  if (!hasArea && !selfServe) {
     return NextResponse.redirect(new URL("/team", nextUrl));
   }
 });
