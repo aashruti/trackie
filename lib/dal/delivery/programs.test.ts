@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { db } from "@/lib/db/client";
-import { accounts, deliveryMethods, oems, programs as programsTable, users } from "@/lib/db/schema";
+import { accounts, deliveryMethods, oems, programs as programsTable, userAccounts, users } from "@/lib/db/schema";
 import { eq, inArray } from "drizzle-orm";
 import {
   createProgram,
@@ -12,6 +12,8 @@ import {
 } from "./programs";
 import { addActivity, createEvent, deleteActivity, deleteEvent, setEventStatus } from "./events";
 import { getAccountDeliveryReport } from "./report";
+import { getDeliveryDashboard } from "./dashboard";
+import type { SessionUser } from "@/lib/dal/authz";
 
 const SUPER = { id: 1, roles: ["super-admin" as const] };
 // Sales lost delivery read/write in the admin→sales split (the ONE intended
@@ -243,5 +245,160 @@ describe("programs — CRUD, rollups, budget math", () => {
     await createEvent(SUPER, { programId: id, title: "Doomed", startDate: "2026-07-01" });
     await deleteProgram(SUPER, id);
     expect(await getProgramDetail(SUPER, id)).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Account scoping (spec §5): delivery reads are filtered to the caller's
+// assigned universities, mirroring the finance DAL. Two fresh throwaway
+// accounts (A, B) isolate this from both the seed data and the other
+// describe block's fixtures, so every count below is exact — no "probably
+// in the top 10" luck.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("account scoping — delivery reads are filtered to assigned universities", () => {
+  // Same UTC-day math as dashboard.ts's private isoPlusDays, so "upcoming"
+  // fixtures land inside its 14-day horizon regardless of when the suite runs.
+  function isoPlusDays(days: number): string {
+    const d = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+  }
+
+  const scope = { accountAId: 0, accountBId: 0, scopedUserId: 0, allAccessUserId: 0 };
+  const ids = { programA: 0, programB: 0, users: [] as number[] };
+  const cleanupProgramIds: number[] = [];
+
+  // Roles are stackable sets now — one delivery user scoped to {A} only
+  // (the new behavior), and one assigned to {A, B} (simulating the 0015
+  // safety backfill that gave pre-existing delivery users ALL accounts).
+  let DELIVERY_A: { id: number; roles: ["delivery"] };
+  let DELIVERY_ALL: { id: number; roles: ["delivery"] };
+
+  beforeAll(async () => {
+    const [accA] = await db
+      .insert(accounts)
+      .values({ name: `ScopeA-${RUN}`, type: "university", city: "Pune", oemId: fixtures.oemId })
+      .returning({ id: accounts.id });
+    const [accB] = await db
+      .insert(accounts)
+      .values({ name: `ScopeB-${RUN}`, type: "university", city: "Pune", oemId: fixtures.oemId })
+      .returning({ id: accounts.id });
+    scope.accountAId = accA.id;
+    scope.accountBId = accB.id;
+
+    const [uScoped] = await db
+      .insert(users)
+      .values({ name: `Scoped Delivery ${RUN}`, email: `scoped-delivery-${RUN}@test.local`, passwordHash: "x", role: "delivery" })
+      .returning({ id: users.id });
+    const [uAll] = await db
+      .insert(users)
+      .values({ name: `All-Access Delivery ${RUN}`, email: `all-delivery-${RUN}@test.local`, passwordHash: "x", role: "delivery" })
+      .returning({ id: users.id });
+    scope.scopedUserId = uScoped.id;
+    scope.allAccessUserId = uAll.id;
+    ids.users.push(uScoped.id, uAll.id);
+    DELIVERY_A = { id: uScoped.id, roles: ["delivery"] };
+    DELIVERY_ALL = { id: uAll.id, roles: ["delivery"] };
+
+    await db.insert(userAccounts).values([
+      { userId: uScoped.id, accountId: accA.id }, // assigned {A} only
+      { userId: uAll.id, accountId: accA.id }, // assigned {A, B} — the backfill case
+      { userId: uAll.id, accountId: accB.id },
+    ]);
+
+    const { id: pA } = await createProgram(SUPER, {
+      accountId: accA.id,
+      oemId: fixtures.oemId,
+      deliveryMethodId: fixtures.methodId,
+      name: `ScopeProgA-${RUN}`,
+    });
+    const { id: pB } = await createProgram(SUPER, {
+      accountId: accB.id,
+      oemId: fixtures.oemId,
+      deliveryMethodId: fixtures.methodId,
+      name: `ScopeProgB-${RUN}`,
+    });
+    ids.programA = pA;
+    ids.programB = pB;
+    cleanupProgramIds.push(pA, pB);
+
+    // A fixed-date event per account for calendar/report assertions, plus a
+    // matching over-budget activity so the dashboard's "having" query has
+    // something to filter on both sides.
+    const evA = await createEvent(SUPER, { programId: pA, title: "ScopeEventA", startDate: "2026-07-10", budget: 1000 });
+    const evB = await createEvent(SUPER, { programId: pB, title: "ScopeEventB", startDate: "2026-07-10", budget: 1000 });
+    await addActivity(SUPER, "Scope Tester", { eventId: evA.id, type: "expense", title: "Spend A", activityDate: "2026-07-10", cost: 2000 });
+    await addActivity(SUPER, "Scope Tester", { eventId: evB.id, type: "expense", title: "Spend B", activityDate: "2026-07-10", cost: 2000 });
+
+    // A relative-to-now "planned" event per account so dashboard "upcoming"
+    // (a 14-day rolling window) is deterministic regardless of run date.
+    await createEvent(SUPER, { programId: pA, title: "UpcomingA", startDate: isoPlusDays(3) });
+    await createEvent(SUPER, { programId: pB, title: "UpcomingB", startDate: isoPlusDays(3) });
+  });
+
+  afterAll(async () => {
+    if (cleanupProgramIds.length) await db.delete(programsTable).where(inArray(programsTable.id, cleanupProgramIds));
+    await db.delete(userAccounts).where(inArray(userAccounts.userId, ids.users));
+    await db.delete(users).where(inArray(users.id, ids.users));
+    await db.delete(accounts).where(inArray(accounts.id, [scope.accountAId, scope.accountBId]));
+  });
+
+  it("listPrograms: scoped user sees A, not B; super-admin and all-access delivery see both", async () => {
+    const namesFor = async (user: SessionUser) => (await listPrograms(user, {})).map((r) => r.name);
+
+    const scopedNames = await namesFor(DELIVERY_A);
+    expect(scopedNames).toContain(`ScopeProgA-${RUN}`);
+    expect(scopedNames).not.toContain(`ScopeProgB-${RUN}`);
+
+    const allNames = await namesFor(DELIVERY_ALL);
+    expect(allNames).toContain(`ScopeProgA-${RUN}`);
+    expect(allNames).toContain(`ScopeProgB-${RUN}`);
+
+    const superNames = await namesFor(SUPER);
+    expect(superNames).toContain(`ScopeProgA-${RUN}`);
+    expect(superNames).toContain(`ScopeProgB-${RUN}`);
+  });
+
+  it("getProgramDetail: a program outside scope is null, not another account's data", async () => {
+    expect(await getProgramDetail(DELIVERY_A, ids.programB)).toBeNull();
+    const own = await getProgramDetail(DELIVERY_A, ids.programA);
+    expect(own?.name).toBe(`ScopeProgA-${RUN}`);
+    // The all-access (backfilled) delivery user reaches both.
+    expect((await getProgramDetail(DELIVERY_ALL, ids.programA))?.name).toBe(`ScopeProgA-${RUN}`);
+    expect((await getProgramDetail(DELIVERY_ALL, ids.programB))?.name).toBe(`ScopeProgB-${RUN}`);
+  });
+
+  it("getProgramCalendar: out-of-scope program is null; in-scope shows its own event", async () => {
+    expect(await getProgramCalendar(DELIVERY_A, ids.programB, 2026, 7)).toBeNull();
+    const cal = await getProgramCalendar(DELIVERY_A, ids.programA, 2026, 7);
+    expect(cal?.cells["2026-07-10"]?.events[0]).toMatchObject({ title: "ScopeEventA" });
+  });
+
+  it("getAccountDeliveryReport: out-of-scope account is null; in-scope account reports its own program", async () => {
+    expect(await getAccountDeliveryReport(DELIVERY_A, scope.accountBId)).toBeNull();
+    const report = await getAccountDeliveryReport(DELIVERY_A, scope.accountAId);
+    expect(report?.programs.map((p) => p.name)).toEqual([`ScopeProgA-${RUN}`]);
+    // The all-access delivery user reaches both accounts' reports.
+    expect(await getAccountDeliveryReport(DELIVERY_ALL, scope.accountBId)).not.toBeNull();
+  });
+
+  it("getDeliveryDashboard: counts, over-budget and recent activity are all filtered by scope", async () => {
+    const dashA = await getDeliveryDashboard(DELIVERY_A);
+    expect(dashA.programs).toMatchObject({ total: 1, active: 1 });
+    expect(dashA.overBudgetCount).toBe(1);
+    expect(dashA.overBudget.every((e) => e.title !== "ScopeEventB")).toBe(true);
+    expect(dashA.recent.some((r) => r.title === "Spend A")).toBe(true);
+    expect(dashA.recent.every((r) => r.title !== "Spend B")).toBe(true);
+    expect(dashA.upcomingCount).toBe(1);
+    expect(dashA.upcoming.every((e) => e.title !== "UpcomingB")).toBe(true);
+
+    // The all-access (backfilled) delivery user's dashboard sees both — the
+    // regression guard: scoping must not drop an existing all-accounts user
+    // to zero visibility.
+    const dashAll = await getDeliveryDashboard(DELIVERY_ALL);
+    expect(dashAll.programs).toMatchObject({ total: 2, active: 2 });
+    expect(dashAll.overBudgetCount).toBe(2);
+    expect(dashAll.recent.some((r) => r.title === "Spend A")).toBe(true);
+    expect(dashAll.recent.some((r) => r.title === "Spend B")).toBe(true);
+    expect(dashAll.upcomingCount).toBe(2);
   });
 });

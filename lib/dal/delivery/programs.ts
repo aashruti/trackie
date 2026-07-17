@@ -14,8 +14,10 @@ import {
 import {
   assertDeliveryAccess,
   assertDeliveryManage,
+  scopeAccountIds,
   type SessionUser,
 } from "@/lib/dal/authz";
+import { assignedIds } from "@/lib/dal/accounts";
 import { UserError } from "@/lib/dal/errors";
 import { PROGRAM_STATUSES, type DeliveryActivityType, type DeliveryEventStatus, type ProgramStatus } from "@/lib/db/enums";
 import { assertDateOrder, assertIsoDate, buildCalendarCells, monthDays, toMoney, type CalendarCell } from "./util";
@@ -149,9 +151,12 @@ export async function listPrograms(
   filters: { accountId?: number; status?: ProgramStatus } = {},
 ): Promise<ProgramListRow[]> {
   assertDeliveryAccess(user);
+  const assigned = user.roles.includes("super-admin") ? [] : await assignedIds(user.id);
+  const scope = scopeAccountIds(user, assigned); // null → unrestricted (super-admin)
   const conds = [
     filters.accountId ? eq(programs.accountId, filters.accountId) : undefined,
     filters.status ? eq(programs.status, filters.status) : undefined,
+    scope ? inArray(programs.accountId, scope.length ? scope : [-1]) : undefined,
   ].filter((c): c is NonNullable<typeof c> => !!c);
 
   const rows = await db
@@ -174,7 +179,11 @@ export async function listPrograms(
 /** One program with its events and per-event activity logs (newest activity first). */
 export async function getProgramDetail(user: SessionUser, id: number): Promise<ProgramDetail | null> {
   assertDeliveryAccess(user);
+  const assigned = user.roles.includes("super-admin") ? [] : await assignedIds(user.id);
+  const scope = scopeAccountIds(user, assigned); // null → unrestricted (super-admin)
   // Header + events both key on `id` alone — fetch them together (house rule).
+  // A program outside the caller's scope must read as "not found", not leak
+  // another account's data.
   const [[row], eventRows] = await Promise.all([
     db
       .select({ ...PROGRAM_SELECT, description: programs.description })
@@ -182,7 +191,11 @@ export async function getProgramDetail(user: SessionUser, id: number): Promise<P
       .innerJoin(accounts, eq(programs.accountId, accounts.id))
       .innerJoin(oems, eq(programs.oemId, oems.id))
       .innerJoin(deliveryMethods, eq(programs.deliveryMethodId, deliveryMethods.id))
-      .where(eq(programs.id, id))
+      .where(
+        scope
+          ? and(eq(programs.id, id), inArray(programs.accountId, scope.length ? scope : [-1]))
+          : eq(programs.id, id),
+      )
       .limit(1),
     db
       .select({
@@ -357,6 +370,8 @@ export async function getProgramCalendar(
   month: number,
 ): Promise<ProgramCalendar | null> {
   assertDeliveryAccess(user);
+  const assigned = user.roles.includes("super-admin") ? [] : await assignedIds(user.id);
+  const scope = scopeAccountIds(user, assigned); // null → unrestricted (super-admin)
   const days = monthDays(year, month);
   const first = days[0];
   const last = days[days.length - 1];
@@ -367,7 +382,11 @@ export async function getProgramCalendar(
       .select({ id: programs.id, name: programs.name, accountName: accounts.name })
       .from(programs)
       .innerJoin(accounts, eq(programs.accountId, accounts.id))
-      .where(eq(programs.id, programId))
+      .where(
+        scope
+          ? and(eq(programs.id, programId), inArray(programs.accountId, scope.length ? scope : [-1]))
+          : eq(programs.id, programId),
+      )
       .limit(1),
     // Events overlapping the month (may bleed in from either side).
     db

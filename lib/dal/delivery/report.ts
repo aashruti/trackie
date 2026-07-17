@@ -11,7 +11,8 @@ import {
   programs,
   users,
 } from "@/lib/db/schema";
-import { assertDeliveryAccess, type SessionUser } from "@/lib/dal/authz";
+import { assertDeliveryAccess, scopeAccountIds, type SessionUser } from "@/lib/dal/authz";
+import { assignedIds } from "@/lib/dal/accounts";
 import type { ProgramStatus } from "@/lib/db/enums";
 import type { ProgramActivity, ProgramEvent } from "./programs";
 
@@ -47,6 +48,12 @@ export async function getAccountDeliveryReport(
   accountId: number,
 ): Promise<AccountDeliveryReport | null> {
   assertDeliveryAccess(user);
+  const assigned = user.roles.includes("super-admin") ? [] : await assignedIds(user.id);
+  const scope = scopeAccountIds(user, assigned); // null → unrestricted (super-admin)
+  // An account outside the caller's scope reads as "not found" — same
+  // not-found contract the function already uses when the account itself
+  // doesn't exist, so this never distinguishes "scoped out" from "no such account".
+  if (scope && !scope.includes(accountId)) return null;
 
   const [[account], programRows] = await Promise.all([
     db
