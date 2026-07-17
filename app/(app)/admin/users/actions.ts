@@ -7,6 +7,7 @@ import {
   setUserAccounts,
   updateUserRole,
   deleteUser,
+  resetUserPassword,
 } from "@/lib/dal/user-admin";
 import type { Role } from "@/lib/db/enums";
 import { makeVerifyToken } from "@/lib/auth/email-verify";
@@ -55,4 +56,16 @@ export async function deleteUserAction(userId: number) {
   await deleteUser(await actor(), userId);
   revalidatePath("/admin/users");
   return { ok: true };
+}
+
+export async function resetUserPasswordAction(userId: number, password: string) {
+  try {
+    await resetUserPassword(await actor(), userId, password);
+  } catch (e) {
+    // A too-short password is an expected error, not an exception — same shape
+    // as profile/actions.ts.
+    return { ok: false as const, error: e instanceof Error ? e.message : "Failed to reset password" };
+  }
+  revalidatePath("/admin/users");
+  return { ok: true as const };
 }

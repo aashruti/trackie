@@ -8,6 +8,7 @@ import {
   setUserAccountsAction,
   updateUserRoleAction,
   deleteUserAction,
+  resetUserPasswordAction,
 } from "@/app/(app)/admin/users/actions";
 import type { Role } from "@/lib/db/enums";
 import type { UserRow } from "@/lib/dal/user-admin";
@@ -112,6 +113,9 @@ function UserCard({ user, accounts, self }: { user: UserRow; accounts: AccountOp
   const [selected, setSelected] = useState<Set<number>>(new Set(user.assignedAccountIds));
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [pwOpen, setPwOpen] = useState(false);
+  const [pw, setPw] = useState("");
+  const [pwDone, setPwDone] = useState(false);
 
   const scoped = user.role !== "super-admin";
 
@@ -158,6 +162,20 @@ function UserCard({ user, accounts, self }: { user: UserRow; accounts: AccountOp
     });
   }
 
+  function resetPassword() {
+    setError(null);
+    setPwDone(false);
+    startTransition(async () => {
+      const res = await resetUserPasswordAction(user.id, pw);
+      if (res.ok) {
+        setPwDone(true);
+        setPw("");
+      } else {
+        setError(res.error);
+      }
+    });
+  }
+
   return (
     <Card className="p-5">
       <div className="flex flex-wrap items-center gap-3">
@@ -183,6 +201,14 @@ function UserCard({ user, accounts, self }: { user: UserRow; accounts: AccountOp
           {scoped && (
             <button onClick={() => setOpen((o) => !o)} className="rounded-md border border-border-strong px-3 py-1.5 text-sm font-medium text-text-secondary hover:bg-surface-hover">
               Assign accounts ({user.assignedAccountIds.length})
+            </button>
+          )}
+          {!self && (
+            <button
+              onClick={() => { setPwOpen((o) => !o); setPwDone(false); }}
+              className="rounded-md border border-border-strong px-3 py-1.5 text-sm font-medium text-text-secondary hover:bg-surface-hover"
+            >
+              Reset password
             </button>
           )}
           {!self && (
@@ -220,6 +246,43 @@ function UserCard({ user, accounts, self }: { user: UserRow; accounts: AccountOp
               {pending ? "Saving…" : "Save assignments"}
             </button>
           </div>
+        </div>
+      )}
+
+      {pwOpen && !self && (
+        <div className="mt-4 rounded-lg border border-border bg-surface-sunken p-4">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-secondary">
+            Reset password for {user.email}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Deliberately type="text": this is not your own secret, it is a value
+                you must read and pass on. Masking it invites transcription typos. */}
+            <input
+              type="text"
+              value={pw}
+              onChange={(e) => setPw(e.target.value)}
+              placeholder="New password (min 8 characters)"
+              className={`${inputCls} flex-1 py-1.5`}
+            />
+            <button
+              onClick={resetPassword}
+              disabled={pending || pw.length < 8}
+              className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-fg hover:opacity-90 disabled:opacity-50"
+            >
+              {pending ? "Saving…" : "Set password"}
+            </button>
+            <button
+              onClick={() => { setPwOpen(false); setPw(""); }}
+              className="rounded-md border border-border-strong px-3 py-1.5 text-sm font-medium text-text-secondary hover:bg-surface-hover"
+            >
+              Cancel
+            </button>
+          </div>
+          {pwDone && (
+            <p className="mt-2 text-xs text-[var(--positive-text)]">
+              Password updated. Send it to {user.name} — they are not signed out, and this is the only time it is shown.
+            </p>
+          )}
         </div>
       )}
     </Card>
