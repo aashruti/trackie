@@ -17,15 +17,24 @@ import { loadPaymentLites } from "./payments";
 import { loadCohortPricing } from "./cohort-pricing";
 
 /**
+ * Keys of T whose value is a number — a metric can only map to a numeric field.
+ * `-?` is load-bearing: without it the mapped type keeps InvoiceComputed's
+ * optional props optional, so each contributes `undefined` to the union.
+ */
+type NumericKey<T> = { [K in keyof T]-?: T[K] extends number ? K : never }[keyof T];
+
+/**
  * report metric ← engine field. `students` is excluded: it is the one field with
  * a rule rather than a rename.
  *
  * Typed as a total Record, so adding a ReportMetrics field fails to compile HERE,
- * where the gap is, instead of silently reading 0 on every row.
+ * where the gap is, instead of silently reading 0 on every row. Values are
+ * constrained to numeric engine fields, so a metric cannot be pointed at
+ * `category` and silently sum garbage.
  */
 const METRIC_SOURCE: Record<
   Exclude<keyof ReportMetrics, "students">,
-  keyof InvoiceComputed
+  NumericKey<InvoiceComputed>
 > = {
   billed: "billing",
   received: "received",
@@ -43,7 +52,7 @@ const METRIC_SOURCE: Record<
 // Hoisted: the pairs are fixed, so walk them per invoice without re-deriving.
 const METRIC_ENTRIES = Object.entries(METRIC_SOURCE) as [
   Exclude<keyof ReportMetrics, "students">,
-  keyof InvoiceComputed,
+  NumericKey<InvoiceComputed>,
 ][];
 
 /**
@@ -121,7 +130,7 @@ export async function getReportData(
       const m = byCategory[cat];
       // An advance is a token payment, not a headcount.
       m.students += cat === "advance" ? 0 : inv.students;
-      for (const [metric, src] of METRIC_ENTRIES) m[metric] += inv[src] as number;
+      for (const [metric, src] of METRIC_ENTRIES) m[metric] += inv[src];
 
       bills.push({
         category: cat,
