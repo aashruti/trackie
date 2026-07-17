@@ -64,6 +64,51 @@ callback runs, so an expired token never reaches our check — the row cannot re
 expiry would only duplicate that, and keeping it accurate under Auth.js's *rolling* refresh would
 cost a write per request. The row exists solely to enable revocation.
 
+## 3a. The session check MUST fail open — this is the sharpest edge here
+
+`callbacks.jwt` is invoked **inside a `try`** in `@auth/core/lib/actions/session.js:27-62`, and the
+`catch` is:
+
+```js
+catch (e) {
+    logger.error(new JWTSessionError(e));
+    // If the JWT is not verifiable remove the broken session cookie(s).
+    response.cookies?.push(...sessionStore.clean());
+}
+```
+
+Auth.js cannot distinguish "your database was unreachable" from "this token is forged", so **any
+throw out of our check clears the session cookie**. Left unguarded, a transient DB error signs out
+**every user at once**.
+
+That is not hypothetical on this stack. `sorry, too many clients already` occurred during
+development, and `app/api/ping` exists specifically because **Neon's free tier suspends compute after
+5 minutes idle** — cold starts and connection failures are designed-in, recurring events here. The
+naive implementation would sign out the company on every hiccup: strictly worse than the problem
+being solved.
+
+**So the check fails OPEN** (user's decision): a thrown error is logged and the request proceeds;
+only a definitive "row not found" revokes.
+
+```ts
+let live: boolean;
+try {
+  live = await sessionExists(sid);
+} catch (e) {
+  console.error("[auth] session check failed; allowing through:", e);
+  return token;            // infrastructure error — NOT a revocation
+}
+if (!live) return null;    // definitively revoked
+return token;
+```
+
+The trade: a revoked session survives until the database recovers — revocation is *delayed*, not
+lost. Against a company-wide logout on every Neon hiccup, that is the smaller harm for an internal
+tool.
+
+This constraint is inherent to checking anything in the `jwt` callback; the rejected stamp approach
+(§7) would have needed the identical guard.
+
 ## 4. Known limitation: rows leak
 
 A session abandoned without signing out (browser closed) leaves an orphan row forever. It is

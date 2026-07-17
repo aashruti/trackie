@@ -301,7 +301,23 @@ Replace the `jwt` callback and add `events`:
       // No sid → a token minted before this shipped. Reject it: it predates the
       // session store and cannot be revoked, so honouring it would leave a hole
       // open for the life of the old token.
-      if (!sid || !(await sessionExists(sid))) return null;
+      if (!sid) return null;
+
+      let live: boolean;
+      try {
+        live = await sessionExists(sid);
+      } catch (e) {
+        // FAIL OPEN — load-bearing. Auth.js calls this callback inside a try and
+        // its catch clears the session cookie (actions/session.js:58), so it
+        // cannot tell "the DB was unreachable" from "this token is forged".
+        // Letting this throw would sign out EVERY user on a transient DB error —
+        // and Neon suspends by design on this stack (hence /api/ping), so that is
+        // a recurring event, not a hypothetical. A revoked session surviving a
+        // brief outage is the far smaller harm: revocation is delayed, not lost.
+        console.error("[auth] session check failed; allowing through:", e);
+        return token;
+      }
+      if (!live) return null; // definitively revoked
       return token;
     },
 ```
@@ -320,7 +336,16 @@ and, as a sibling of `callbacks` on the `NextAuth({...})` object:
 
 Import at the top: `import { createSession, sessionExists, deleteSession } from "@/lib/dal/sessions";`
 
-- [ ] **Step 2: Verify types**
+- [ ] **Step 2: Prove the fail-open guard actually works**
+
+A guard nobody has watched fail is a hope, not a guard. Verify it two ways and paste both:
+
+1. **Unit-level.** Temporarily make `sessionExists` throw unconditionally (`throw new Error("simulated DB outage")` as its first line). Run the app in the browser signed in, navigate → **you must stay signed in**, and `preview_logs` must show `[auth] session check failed; allowing through`. Revert.
+2. **Prove the danger was real.** With `sessionExists` still throwing, temporarily remove the try/catch so the error propagates → navigating must **bounce you to `/login`**, demonstrating that Auth.js's catch clears the cookie on a DB error. Restore the try/catch and confirm `git diff lib/dal/sessions.ts` is empty.
+
+Report both observations. If step 2 does *not* log you out, the premise for the guard is wrong — stop and tell me rather than keeping a guard that guards nothing.
+
+- [ ] **Step 3: Verify types**
 
 Run: `npx tsc --noEmit`
 Expected: clean. If `token.sid` errors, report rather than adding a module augmentation unprompted.
