@@ -31,8 +31,11 @@ This is mathematically sound because of a property of the money engine
 `netMargin`, `gstDiff`, `tdsIn`, `tdsOut`, `advanceTdsCost` — all `sum(k)`. So filtering
 by type is exactly "add up a subset", and no engine change is required.
 
-`status` is the **only** non-additive field (`accountStatus`, `compute.ts:101`). It is
-re-derived from the filtered subset of bills.
+`status` is the only non-additive field this module exposes (`accountStatus`,
+`compute.ts:101`); it is re-derived from the filtered subset of bills. It is not the
+*only* non-additive field in the engine — `hasNegative` (`compute.ts:137`) is a
+`.some()` over invoices too — but `hasNegative` is deliberately not part of
+`ReportMetrics` or surfaced by Reports, so it doesn't need re-deriving here.
 
 ## 3. Approaches considered
 

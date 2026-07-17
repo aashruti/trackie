@@ -39,16 +39,26 @@ export function ReportTable<T extends object>({
                 const right = c.align === "right" || c.money;
                 const active = sort?.key === c.key;
                 const arrow = active ? (sort!.dir === "asc" ? " ↑" : " ↓") : "";
+                // aria-sort only makes sense on a sortable column, and only when a
+                // sort is actually wired up (onSort present) — a table with no
+                // onSort has nothing for a screen reader to announce here.
+                const ariaSort = onSort
+                  ? active
+                    ? sort!.dir === "asc"
+                      ? ("ascending" as const)
+                      : ("descending" as const)
+                    : ("none" as const)
+                  : undefined;
                 return (
                   <th
                     key={String(c.key)}
+                    aria-sort={ariaSort}
                     className={`px-4 py-2.5 font-medium ${right ? "text-right" : "text-left"}`}
                   >
                     {onSort ? (
                       <button
                         type="button"
                         onClick={() => onSort(c.key)}
-                        aria-label={`Sort by ${c.label}`}
                         className={`select-none hover:text-text-primary ${active ? "text-text-primary" : ""}`}
                       >
                         {c.label}

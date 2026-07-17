@@ -1,4 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { eq } from "drizzle-orm";
+import { db } from "@/lib/db/client";
+import { academicYears, invoices } from "@/lib/db/schema";
 import { getReportData } from "./reports";
 import { getPortfolioForUser } from "./portfolio";
 import {
@@ -79,5 +82,30 @@ describe("getReportData", () => {
     expect(selectReport(data, ["new"]).totals.advanceTdsCost).toBe(0);
     // Sanity: needs an OEM advance in the seed — self-supplied advances cost 0.
     expect(selectReport(data, ["advance"]).totals.advanceTdsCost).toBeGreaterThan(0);
+  });
+
+  it("each bill type's students match the invoices actually in that category", async () => {
+    const data = await getReportData(SUPER, YEAR);
+
+    // Expectation comes straight from the invoices table — NOT from the DAL under
+    // test. The parity and slice-sum tests are both invariant under a category
+    // permutation (both sides read the same buckets), so only an independent
+    // source can catch old↔new money landing in the wrong bucket.
+    const [year] = await db
+      .select()
+      .from(academicYears)
+      .where(eq(academicYears.label, YEAR))
+      .limit(1);
+    const invs = await db
+      .select({ cat: invoices.category, students: invoices.students })
+      .from(invoices)
+      .where(eq(invoices.yearId, year.id));
+
+    for (const c of ["old", "new"] as const) {
+      const expected = invs
+        .filter((i) => i.cat === c)
+        .reduce((s, i) => s + i.students, 0);
+      expect(selectReport(data, [c]).totals.students).toBe(expected);
+    }
   });
 });

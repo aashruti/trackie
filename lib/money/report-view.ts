@@ -8,8 +8,12 @@ import type { Category, Status } from "./types";
  * account's invoices, so bucketing bills by category and adding up the selected
  * buckets is exactly equivalent to recomputing from scratch.
  *
- * `status` is the one field that does not sum — it is re-derived here via
- * `accountStatus` from the filtered bills.
+ * `status` is the one non-additive field exposed here — it is re-derived via
+ * `accountStatus` from the filtered bills. `hasNegative` (compute.ts) is also
+ * non-additive (a `.some()` over invoices, not a sum) but is deliberately NOT
+ * part of `ReportMetrics` / exposed by this module — only `lib/dal/portfolio.ts`
+ * and `lib/dal/accounts.ts` consume it. Don't assume every field but `status`
+ * sums here.
  *
  * This module is deliberately PURE (no `server-only`): the client component uses
  * it for instant filtering and the export route uses it to build the workbook, so

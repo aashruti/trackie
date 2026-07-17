@@ -280,6 +280,14 @@ describe("parseSort", () => {
   it("falls back to the default direction when dir is garbage", () => {
     expect(parseSort("name", "sideways")).toEqual({ key: "name", dir: DEFAULT_SORT.dir });
   });
+
+  it("rejects id — it is a tie-break, not a sortable column", () => {
+    // Column<ViewRow>.key permits "id", and reports-tabs casts it to SortKey. If
+    // an ID column is ever added, the screen would sort by it while the export
+    // fell back to the default — the exact screen/workbook divergence this
+    // architecture exists to prevent.
+    expect(parseSort("id", "asc")).toEqual(DEFAULT_SORT);
+  });
 });
 
 describe("selectReport sort argument", () => {
