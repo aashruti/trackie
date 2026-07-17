@@ -10,6 +10,13 @@ function assertSuperAdmin(user: SessionUser) {
   if (user.role !== "super-admin") throw new Error("Only a Super Admin can manage users");
 }
 
+/**
+ * Matches the self-service rule in app/(app)/profile/actions.ts. These used to
+ * disagree (6 here, 8 there), which let an admin-set password be weaker than a
+ * user-set one.
+ */
+const MIN_PASSWORD = 8;
+
 export interface UserRow {
   id: number;
   name: string;
@@ -45,7 +52,7 @@ export async function createUser(
   const name = input.name.trim();
   const email = input.email.trim().toLowerCase();
   if (!name || !email) throw new Error("Name and email are required");
-  if (input.password.length < 6) throw new Error("Password must be at least 6 characters");
+  if (input.password.length < MIN_PASSWORD) throw new Error(`Password must be at least ${MIN_PASSWORD} characters`);
 
   const existing = await db.select().from(users).where(eq(users.email, email)).limit(1);
   if (existing.length) throw new Error("A user with that email already exists");
@@ -63,6 +70,41 @@ export async function updateUserRole(actor: SessionUser, userId: number, role: R
     throw new Error("You can't demote yourself");
   }
   await db.update(users).set({ role }).where(eq(users.id, userId));
+}
+
+/**
+ * Set another user's password. The super admin types it and relays it — this is
+ * an internal tool and that trade-off was chosen deliberately (see the spec).
+ *
+ * NOTE: this does NOT sign the target out. Sessions are JWTs
+ * (lib/auth/config.ts) and cannot be revoked without a denylist, so an existing
+ * session survives the reset. Fixes "forgot my password"; does NOT fix "lock out
+ * an intruder".
+ */
+export async function resetUserPassword(
+  actor: SessionUser,
+  userId: number,
+  newPassword: string,
+): Promise<void> {
+  assertSuperAdmin(actor);
+  // Your own password goes through /profile, which demands the current one.
+  // Without this, an unlocked super-admin laptop is a permanent takeover: change
+  // the password without knowing the old one.
+  if (userId === actor.id) throw new Error("Change your own password from your profile");
+  if (newPassword.length < MIN_PASSWORD) {
+    throw new Error(`Password must be at least ${MIN_PASSWORD} characters`);
+  }
+
+  const [target] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  if (!target) throw new Error("User not found");
+
+  await db
+    .update(users)
+    .set({ passwordHash: await hashPassword(newPassword) })
+    .where(eq(users.id, userId));
+
+  // There is no audit table; this is the honest minimum for a security action.
+  console.info(`[security] password reset by user ${actor.id} for user ${userId}`);
 }
 
 /** Replace a user's account assignments. */
