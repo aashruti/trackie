@@ -92,6 +92,13 @@
       "when": 1784018300000,
       "tag": "0013_auth_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1784018400000,
+      "tag": "0014_drop_orphan_password_changed_at",
+      "breakpoints": true
     }
   ]
 }

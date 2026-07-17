@@ -1,0 +1,18 @@
+-- Reconcile production with the repo.
+--
+-- `users.password_changed_at` exists in production but no migration file
+-- describes it. It came from a design that was proposed and then rejected — a
+-- passwordChangedAt stamp compared inside the JWT callback — which lost to the
+-- backend session store now in `auth_sessions` (0013). Its migration (0012) was
+-- deleted from the repo, but by then it had already been applied to production
+-- by `scripts/db-migrate.ts`, which used to silently target prod (fixed in #19).
+--
+-- The result: prod carried 14 applied migrations while the repo described 13, so
+-- a database rebuilt from `drizzle/` no longer matched prod.
+--
+-- Safe to drop: nothing reads or writes it (verified — absent from schema.ts and
+-- from every .ts/.tsx/.sql in the repo) and every row is NULL. IF EXISTS so it is
+-- a no-op on any database that never took 0012 — e.g. local, and any fresh one.
+--
+-- Spec context: docs/superpowers/specs/2026-07-17-session-revocation-on-password-change-design.md §7
+ALTER TABLE "users" DROP COLUMN IF EXISTS "password_changed_at";
