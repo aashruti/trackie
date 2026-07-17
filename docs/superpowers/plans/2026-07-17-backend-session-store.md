@@ -303,21 +303,15 @@ Replace the `jwt` callback and add `events`:
       // open for the life of the old token.
       if (!sid) return null;
 
-      let live: boolean;
-      try {
-        live = await sessionExists(sid);
-      } catch (e) {
-        // FAIL OPEN — load-bearing. Auth.js calls this callback inside a try and
-        // its catch clears the session cookie (actions/session.js:58), so it
-        // cannot tell "the DB was unreachable" from "this token is forged".
-        // Letting this throw would sign out EVERY user on a transient DB error —
-        // and Neon suspends by design on this stack (hence /api/ping), so that is
-        // a recurring event, not a hypothetical. A revoked session surviving a
-        // brief outage is the far smaller harm: revocation is delayed, not lost.
-        console.error("[auth] session check failed; allowing through:", e);
-        return token;
-      }
-      if (!live) return null; // definitively revoked
+      // FAILS CLOSED, deliberately (spec §3a). No try/catch: the store is the
+      // source of truth for whether a session is live, so if it cannot be
+      // reached the session is not honoured. Auth.js calls this callback inside
+      // a try whose catch clears the cookie (actions/session.js:58) and cannot
+      // tell an outage from a forged token — so a DB error signs the user out,
+      // and a wide outage signs out everyone at once. That is the accepted
+      // trade: revocation must never be delayed, even at the cost of
+      // availability. If users report random logouts, look here first.
+      if (!(await sessionExists(sid))) return null;
       return token;
     },
 ```
@@ -336,14 +330,18 @@ and, as a sibling of `callbacks` on the `NextAuth({...})` object:
 
 Import at the top: `import { createSession, sessionExists, deleteSession } from "@/lib/dal/sessions";`
 
-- [ ] **Step 2: Prove the fail-open guard actually works**
+- [ ] **Step 2: Document the fail-closed behaviour by observing it**
 
-A guard nobody has watched fail is a hope, not a guard. Verify it two ways and paste both:
+The design fails closed by choice, so confirm what that actually does — the point is that the
+behaviour is *known and specified*, not discovered later by a confused user.
 
-1. **Unit-level.** Temporarily make `sessionExists` throw unconditionally (`throw new Error("simulated DB outage")` as its first line). Run the app in the browser signed in, navigate → **you must stay signed in**, and `preview_logs` must show `[auth] session check failed; allowing through`. Revert.
-2. **Prove the danger was real.** With `sessionExists` still throwing, temporarily remove the try/catch so the error propagates → navigating must **bounce you to `/login`**, demonstrating that Auth.js's catch clears the cookie on a DB error. Restore the try/catch and confirm `git diff lib/dal/sessions.ts` is empty.
+Temporarily make `sessionExists` throw unconditionally (`throw new Error("simulated DB outage")` as
+its first line). Signed in, navigate → **you must be bounced to `/login`**. Revert; confirm
+`git diff lib/dal/sessions.ts` is empty and you can sign in again.
 
-Report both observations. If step 2 does *not* log you out, the premise for the guard is wrong — stop and tell me rather than keeping a guard that guards nothing.
+Paste the observation. This is the accepted consequence of the user's choice, not a bug: it confirms
+a DB outage signs users out. If it does *not* log you out, the mechanism isn't behaving as specified
+— stop and report.
 
 - [ ] **Step 3: Verify types**
 

@@ -87,27 +87,34 @@ development, and `app/api/ping` exists specifically because **Neon's free tier s
 naive implementation would sign out the company on every hiccup: strictly worse than the problem
 being solved.
 
-**So the check fails OPEN** (user's decision): a thrown error is logged and the request proceeds;
-only a definitive "row not found" revokes.
+**The check FAILS CLOSED — the user's explicit decision, made with the consequence stated.**
+
+No try/catch: a DB error propagates, Auth.js's catch clears the cookie, and the user is signed out.
+The session store is treated as authoritative — if we cannot confirm a session is live, it is not
+honoured.
 
 ```ts
-let live: boolean;
-try {
-  live = await sessionExists(sid);
-} catch (e) {
-  console.error("[auth] session check failed; allowing through:", e);
-  return token;            // infrastructure error — NOT a revocation
-}
-if (!live) return null;    // definitively revoked
+// No guard, deliberately. If the store cannot be reached, the session is not
+// honoured. A DB error therefore signs the user out — and because Auth.js's
+// catch cannot distinguish an outage from a forged token, a wide outage signs
+// out everyone at once. Accepted: the store is the source of truth for whether
+// a session is live, and a revoked session must never act.
+if (!(await sessionExists(sid))) return null;
 return token;
 ```
 
-The trade: a revoked session survives until the database recovers — revocation is *delayed*, not
-lost. Against a company-wide logout on every Neon hiccup, that is the smaller harm for an internal
-tool.
+**The accepted consequence, recorded so nobody rediscovers it as a bug:** a transient database error
+signs out every logged-in user. On this stack that is a *when*, not an *if* — `sorry, too many
+clients already` occurred during development, and `app/api/ping` exists because Neon's free tier
+suspends compute after 5 minutes idle, so cold starts are designed in. **If users report being
+randomly logged out, this is why, and it is working as specified.**
+
+The alternative considered and rejected by the user was failing open (log the error, honour the
+token), which delays revocation during an outage rather than losing it. The user chose strict
+correctness of revocation over availability.
 
 This constraint is inherent to checking anything in the `jwt` callback; the rejected stamp approach
-(§7) would have needed the identical guard.
+(§7) would have faced the identical choice.
 
 ## 4. Known limitation: rows leak
 
