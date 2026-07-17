@@ -3,17 +3,48 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { accounts, invoices, academicYears, oems } from "@/lib/db/schema";
 import { computeAccount } from "@/lib/money/compute";
-import type { InvoiceInputWithStatus } from "@/lib/money/types";
+import type { InvoiceComputed, InvoiceInputWithStatus } from "@/lib/money/types";
 import {
   emptyByCategory,
   type BillLite,
   type ReportData,
+  type ReportMetrics,
   type ReportRow,
 } from "@/lib/money/report-view";
 import { scopeAccountIds, type SessionUser } from "./authz";
 import { assignedIds } from "./accounts";
 import { loadPaymentLites } from "./payments";
 import { loadCohortPricing } from "./cohort-pricing";
+
+/**
+ * report metric ← engine field. `students` is excluded: it is the one field with
+ * a rule rather than a rename.
+ *
+ * Typed as a total Record, so adding a ReportMetrics field fails to compile HERE,
+ * where the gap is, instead of silently reading 0 on every row.
+ */
+const METRIC_SOURCE: Record<
+  Exclude<keyof ReportMetrics, "students">,
+  keyof InvoiceComputed
+> = {
+  billed: "billing",
+  received: "received",
+  outstanding: "outstanding",
+  payable: "payable",
+  paidToOem: "paidToOem",
+  outstandingToOem: "outstandingToOem",
+  netMargin: "netMargin",
+  netGst: "gstDiff",
+  tdsReceivable: "tdsIn",
+  tdsPayable: "tdsOut",
+  advanceTdsCost: "advanceTdsCost",
+};
+
+// Hoisted: the pairs are fixed, so walk them per invoice without re-deriving.
+const METRIC_ENTRIES = Object.entries(METRIC_SOURCE) as [
+  Exclude<keyof ReportMetrics, "students">,
+  keyof InvoiceComputed,
+][];
 
 /**
  * Raw, UNFILTERED report data: per account, money bucketed by bill type.
@@ -79,8 +110,7 @@ export async function getReportData(
       cohortPricing: cohortPx.get(r.id),
     }));
 
-    // One computeAccount call per account, exactly as before — the engine is
-    // untouched. It already returns each invoice computed and tagged with its
+    // `computeAccount` already returns each invoice computed and tagged with its
     // category, so bucketing is a pure JS pass over a result we already have.
     const c = computeAccount(inputs);
     const byCategory = emptyByCategory();
@@ -89,20 +119,9 @@ export async function getReportData(
     for (const inv of c.invoices) {
       const cat = inv.category;
       const m = byCategory[cat];
-      // An advance is a token payment, not a headcount (preserves the old
-      // `filter(i => i.category !== "advance")` student total).
+      // An advance is a token payment, not a headcount.
       m.students += cat === "advance" ? 0 : inv.students;
-      m.billed += inv.billing;
-      m.received += inv.received;
-      m.outstanding += inv.outstanding;
-      m.payable += inv.payable;
-      m.paidToOem += inv.paidToOem;
-      m.outstandingToOem += inv.outstandingToOem;
-      m.netMargin += inv.netMargin;
-      m.netGst += inv.gstDiff;
-      m.tdsReceivable += inv.tdsIn;
-      m.tdsPayable += inv.tdsOut;
-      m.advanceTdsCost += inv.advanceTdsCost;
+      for (const [metric, src] of METRIC_ENTRIES) m[metric] += inv[src] as number;
 
       bills.push({
         category: cat,

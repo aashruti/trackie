@@ -8,6 +8,7 @@ import { ReportTable, type Column } from "./report-table";
 import {
   REPORT_CATEGORIES,
   selectReport,
+  type OemRollup,
   type ReportData,
   type ViewRow,
 } from "@/lib/money/report-view";
@@ -43,7 +44,7 @@ export function ReportsTabs({ data, year }: { data: ReportData; year: string }) 
     { key: "paidToOem", label: "Paid to OEM", money: true, tone: "positive" },
     { key: "outstandingToOem", label: "Outstanding to OEM", money: true, tone: "pending" },
   ];
-  const byOemCols: Column<(typeof view.byOem)[number]>[] = [
+  const byOemCols: Column<OemRollup>[] = [
     { key: "oem", label: "OEM" },
     { key: "billed", label: "Billed", money: true },
     { key: "payable", label: "Payable", money: true, tone: "info" },
