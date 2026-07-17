@@ -4,12 +4,7 @@ import { PRIORITY_META, stageLabel, type TaskRow } from "@/lib/board/constants";
 import type { LeadFollowup } from "@/lib/dal/leads";
 import type { OverdueInvoice } from "@/lib/dal/accounts";
 import { fmtDay, isToday } from "@/lib/dates";
-
-const CATEGORY_LABEL: Record<string, string> = {
-  advance: "Advance bill",
-  old: "Old students",
-  new: "New students",
-};
+import { CATEGORY_LABEL, type ReportCategory } from "@/lib/money/report-view";
 
 /** Daily action panel: the signed-in user's tasks + lead follow-ups due today/overdue. */
 export function TodayPanel({
@@ -98,7 +93,10 @@ export function TodayPanel({
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[13px] font-medium text-text-primary">{inv.accountName}</div>
                 <div className="truncate text-[11px] text-text-muted">
-                  {CATEGORY_LABEL[inv.category] ?? inv.category}
+                  {/* OverdueInvoice.category is DAL-typed as plain string, not the
+                      Category enum, so a value outside CATEGORY_LABEL is possible
+                      in principle — keep the runtime fallback. */}
+                  {CATEGORY_LABEL[inv.category as ReportCategory] ?? inv.category}
                   {inv.semester !== "none" ? ` · ${inv.semester === "1" ? "1st" : "2nd"} sem` : ""}
                 </div>
               </div>

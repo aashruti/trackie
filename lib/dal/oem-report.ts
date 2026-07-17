@@ -8,6 +8,7 @@ import { scopeAccountIds, type SessionUser } from "./authz";
 import { assignedIds } from "./accounts";
 import { loadPaymentLites, loadPaymentLedger } from "./payments";
 import { loadCohortPricing } from "./cohort-pricing";
+import { CATEGORY_LABEL, type ReportCategory } from "@/lib/money/report-view";
 
 export interface OemAccountRow {
   id: number;
@@ -53,13 +54,11 @@ export interface OemReport {
   };
 }
 
-const CATEGORY_LABEL: Record<string, string> = {
-  advance: "Advance bill",
-  old: "Old students",
-  new: "New students",
-};
-function streamLabel(category: string, semester: string) {
-  const base = CATEGORY_LABEL[category] ?? category;
+// category is always Category-typed at every call site below (r.category comes
+// straight off the invoices enum column), so CATEGORY_LABEL (total over the
+// enum) never misses — no fallback needed.
+function streamLabel(category: ReportCategory, semester: string) {
+  const base = CATEGORY_LABEL[category];
   return semester === "none" ? base : `${base} (${semester === "1" ? "1st" : "2nd"} sem)`;
 }
 

@@ -9,6 +9,7 @@ import { InvoiceLadder } from "./invoice-ladder";
 import { InvoiceEditor } from "./invoice-editor";
 import { CohortEditor } from "./cohort-editor";
 import type { InvoiceComputed, Status } from "@/lib/money/types";
+import { CATEGORY_LABEL } from "@/lib/money/report-view";
 
 import type { PaymentEntry } from "@/lib/dal/payments";
 
@@ -21,13 +22,10 @@ type Inv = InvoiceComputed & {
   dueDate: string | null;
 };
 
-const CATEGORY_LABEL: Record<string, string> = {
-  advance: "Advance bill",
-  old: "Old students",
-  new: "New students",
-};
 function label(inv: Inv) {
-  const base = CATEGORY_LABEL[inv.category] ?? inv.category;
+  // inv.category is already typed Category, so CATEGORY_LABEL (total over the
+  // enum) never misses — no fallback needed.
+  const base = CATEGORY_LABEL[inv.category];
   return inv.semester === "none" ? base : `${base} · ${inv.semester === "1" ? "1st" : "2nd"} sem`;
 }
 

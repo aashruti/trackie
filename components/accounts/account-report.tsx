@@ -1,14 +1,12 @@
 "use client";
 
 import type { AccountDetail } from "@/lib/dal/account-detail";
+import { CATEGORY_LABEL, type ReportCategory } from "@/lib/money/report-view";
 
-const CATEGORY_LABEL: Record<string, string> = {
-  advance: "Advance bill",
-  old: "Old students",
-  new: "New students",
-};
-function streamLabel(category: string, semester: string) {
-  const base = CATEGORY_LABEL[category] ?? category;
+// category is always Category-typed at every call site below, so
+// CATEGORY_LABEL (total over the enum) never misses — no fallback needed.
+function streamLabel(category: ReportCategory, semester: string) {
+  const base = CATEGORY_LABEL[category];
   return semester === "none" ? base : `${base} (${semester === "1" ? "1st" : "2nd"} sem)`;
 }
 
