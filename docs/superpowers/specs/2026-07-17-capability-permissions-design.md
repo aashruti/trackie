@@ -45,8 +45,26 @@ toggles that are about *scope* or *danger*, not read-vs-write.
 | `accounts.create` | create brand-new accounts | super-admin-only today — stricter than editing existing ones, so kept a separate grant (user's call) |
 | `year.delete` | delete an academic year | destructive, irreversible, super-admin-only — kept behind a deliberate danger toggle (user's call) |
 
-Team-board access stays **universal** — every authenticated user, including today's "viewer". It is
-the floor, not a toggle.
+### The universal floor — self-service, available to everyone
+
+Some surfaces are **self-service**: a person acting on *their own* records. These are available to
+**every authenticated user**, gated by nothing, because acting on your own data needs no grant:
+
+- the **team board** (`/team`)
+- **apply for / view own leave** (`/me/leave`)
+- **view own payslips** (`/me/payslips`)
+- **mark / view own attendance** (`/me/attendance`)
+
+The HR capabilities gate only the **management** surface (`/hr/*`) — approving others' leave, running
+payroll, seeing everyone's attendance. The split is *self-service vs. management*: **applying for
+leave is universal; approving it needs `hr.manage`.** The same shape applies wherever a `/me/*`
+self-view mirrors an `/hr/*` management view.
+
+**This fixes a current bug.** Today the `proxy.ts` redirect sends `viewer` to `/team` for everything,
+so a viewer **cannot even reach `/me/leave` to apply** — the page has no gate of its own, only the
+blanket redirect blocks it. Under this model the redirect generalises: a user with no area
+capabilities lands on their self-service surface, never a dead end, and can always apply for their own
+leave.
 
 ## 3. Backfill — the highest-stakes part of this whole change
 
@@ -179,11 +197,36 @@ each with View/Manage (Manage auto-checks View), plus the three standalone toggl
 scope & danger" group. Changes save through the existing `updateUser*` action shape and, per §7, take
 effect on the target's next request.
 
+### 10a. Presets (predefined roles)
+
+A row of **preset buttons** sits above the grid. Clicking one **applies** its capability set to the
+tick-boxes; the admin can then adjust individual toggles before saving. **A preset is UI sugar — a
+one-click tick-pattern — not a stored binding.** The backend stores only the resulting capabilities,
+so there is exactly one source of truth (the grid); a preset never competes with it. This is the
+deliberate reason presets do *not* reintroduce the hybrid model's two-concepts problem.
+
+The presets are defined once, as capability sets, and are the same bundles the backfill uses — so a
+preset named "Finance Admin" grants exactly what today's `admin` role does:
+
+| Preset | Capabilities |
+| --- | --- |
+| **Super Admin** | everything (all 15) |
+| **Finance Admin** | `finance.view/manage`, `leads.view/manage`, `groups.view/manage`, `delivery.view` — today's `admin` |
+| **Finance (read-only)** | `finance.view`, `leads.view`, `groups.view`, `delivery.view` — the view-only person the old model couldn't express |
+| **HR Manager** | `hr.view/manage` |
+| **Delivery Manager** | `delivery.view/manage` |
+| **Employee** | *(none — universal floor only: team board + self-service)* — today's `viewer` |
+
+Because presets and the backfill share one definition (`PRESETS` in the capability module), they
+can't drift: the backfill in §3 is literally "apply the preset that matches each legacy role."
+
+**Preset ≠ label.** Applying "HR Manager" then ticking `delivery.view` is fine — the user simply has
+those capabilities; they are not "an HR Manager with an exception". The card shows derived area badges
+(§8), not a preset name, so there is nothing to go stale.
+
 ## 11. Out of scope
 
 - **Dropping the `role` column** — deliberately deferred to the contract PR (§8), tracked.
-- **Capability *presets*** (named bundles an admin can apply in one click). The grid is the MVP; if
-  ticking 8 boxes per finance-admin proves tedious, presets are the obvious follow-up. Not built here.
 - **Per-account capabilities** (e.g. "manage finance for account X only"). Scope stays at the coarse
   `userAccounts` grain; capabilities are global to the user.
 - **A capability audit log.** Grants are `console.info`'d like the other security actions.
