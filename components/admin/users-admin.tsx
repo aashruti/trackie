@@ -298,7 +298,7 @@ function UserCard({ user, accounts, self }: { user: UserRow; accounts: AccountOp
           </div>
           {pwDone && (
             <p className="mt-2 text-xs text-[var(--positive-text)]">
-              Password updated. Send it to {user.name} — they are not signed out, and this is the only time it is shown.
+              Password updated and {user.name} is signed out everywhere. Send them the new password — this is the only time it is shown.
             </p>
           )}
         </div>
