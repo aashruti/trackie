@@ -1,13 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Money } from "@/components/ui/money";
 import { ReportTable, type Column } from "./report-table";
+import { TypeFilter } from "./type-filter";
 import {
   REPORT_CATEGORIES,
   selectReport,
+  toggleCategory,
+  type ReportCategory,
   type OemRollup,
   type ReportData,
   type ViewRow,
@@ -18,8 +21,11 @@ type Tab = (typeof TABS)[number];
 
 export function ReportsTabs({ data, year }: { data: ReportData; year: string }) {
   const [tab, setTab] = useState<Tab>("Margin");
-  const view = selectReport(data, REPORT_CATEGORIES);
+  const [types, setTypes] = useState<ReportCategory[]>([...REPORT_CATEGORIES]);
+  const view = useMemo(() => selectReport(data, types), [data, types]);
   const t = view.totals;
+
+  const exportHref = `/reports/export?year=${encodeURIComponent(year)}&types=${types.join(",")}`;
 
   const marginCols: Column<ViewRow>[] = [
     { key: "name", label: "Account" },
@@ -60,6 +66,16 @@ export function ReportsTabs({ data, year }: { data: ReportData; year: string }) 
 
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <TypeFilter selected={types} onToggle={(c) => setTypes((s) => toggleCategory(s, c))} />
+        <a
+          href={exportHref}
+          className="no-print rounded-md border border-border-strong px-3 py-1.5 text-sm font-medium text-text-secondary hover:bg-surface-hover"
+        >
+          Download report
+        </a>
+      </div>
+
       <div className="inline-flex flex-wrap rounded-lg border border-border bg-surface p-0.5">
         {TABS.map((x) => (
           <button
@@ -87,7 +103,6 @@ export function ReportsTabs({ data, year }: { data: ReportData; year: string }) 
             students: t.students, billed: t.billed, received: t.received,
             outstanding: t.outstanding, netMargin: t.netMargin,
           }}
-          filename={`trackie-margin-${year}.csv`}
         />
       )}
 
@@ -102,7 +117,6 @@ export function ReportsTabs({ data, year }: { data: ReportData; year: string }) 
             netGst: t.netGst, tdsReceivable: t.tdsReceivable,
             tdsPayable: t.tdsPayable, advanceTdsCost: t.advanceTdsCost,
           }}
-          filename={`trackie-gst-tds-${year}.csv`}
         />
       )}
 
@@ -116,7 +130,6 @@ export function ReportsTabs({ data, year }: { data: ReportData; year: string }) 
             label: "Total",
             payable: t.payable, paidToOem: t.paidToOem, outstandingToOem: t.outstandingToOem,
           }}
-          filename={`trackie-oem-settlement-${year}.csv`}
         />
       )}
 
@@ -127,7 +140,6 @@ export function ReportsTabs({ data, year }: { data: ReportData; year: string }) 
             subtitle="net to Datagami"
             columns={byOemCols}
             rows={view.byOem}
-            filename={`trackie-margin-by-oem-${year}.csv`}
           />
           <div className="flex flex-wrap gap-2">
             {view.byOem.map((o) => (

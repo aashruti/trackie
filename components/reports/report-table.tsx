@@ -11,60 +11,22 @@ export interface Column<T> {
   align?: "left" | "right";
 }
 
-function csvCell(v: unknown): string {
-  const s = v == null ? "" : String(v);
-  return `"${s.replace(/"/g, '""')}"`;
-}
-
 export function ReportTable<T extends object>({
   title,
   subtitle,
   columns,
   rows,
   totals,
-  filename,
 }: {
   title: string;
   subtitle?: string;
   columns: Column<T>[];
   rows: T[];
   totals?: Partial<Record<keyof T, number>> & { label?: string };
-  filename: string;
 }) {
-  function exportCsv() {
-    const head = columns.map((c) => c.label);
-    const body = rows.map((r) => columns.map((c) => csvCell(r[c.key])).join(","));
-    const totalLine = totals
-      ? columns
-          .map((c, i) =>
-            i === 0 ? csvCell(totals.label ?? "Total") : csvCell(totals[c.key] ?? ""),
-          )
-          .join(",")
-      : null;
-    const csv = [head.join(","), ...body, ...(totalLine ? [totalLine] : [])].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
   return (
     <Card className="print-card">
-      <CardHeader
-        title={title}
-        subtitle={subtitle}
-        action={
-          <button
-            onClick={exportCsv}
-            className="no-print rounded-md border border-border-strong px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover"
-          >
-            Export CSV
-          </button>
-        }
-      />
+      <CardHeader title={title} subtitle={subtitle} />
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
