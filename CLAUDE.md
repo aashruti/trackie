@@ -3,7 +3,8 @@
 # DB Migrations
 
 - Every schema change goes through a Drizzle migration file in `drizzle/`. Never mutate the DB with ad-hoc scripts.
-- Create the `.sql` file, add its entry to `drizzle/meta/_journal.json`, then run `npx tsx scripts/db-migrate.ts` locally and let `vercel-build` run it on deploy.
+- Create the `.sql` file, add its entry to `drizzle/meta/_journal.json`, then run `npx tsx scripts/db-migrate.ts` to apply it to your **local** DB. `vercel-build` runs it against production on deploy, so you normally never migrate production by hand.
+- **`--prod` migrates the real production database.** It exists for emergencies; prefer letting a deploy do it. Never run it without saying so first — the script prints its target host before acting, so read that line. (Until 2026-07-17 production was the *silent default* of the plain command, which applied a migration nobody asked for.)
 - Never use `CREATE TYPE IF NOT EXISTS` — PostgreSQL does not support it. Use the `DO $$ BEGIN … EXCEPTION WHEN duplicate_object THEN null; END $$` pattern for idempotent enum creation.
 - The `drizzle.__drizzle_migrations` table is the source of truth for what has been applied. Do not pre-seed or bypass it.
 
