@@ -6,6 +6,7 @@ import { Money } from "@/components/ui/money";
 import type { Category, Semester, Status } from "@/lib/money/types";
 import { todayISO } from "@/lib/dates";
 import { createInvoiceAction } from "@/app/(app)/accounts/[id]/actions";
+import { CATEGORY_LABEL, REPORT_CATEGORIES } from "@/lib/money/report-view";
 
 const INVOICE_STATUSES: { value: Status; label: string }[] = [
   { value: "raised", label: "Raised" },
@@ -15,11 +16,7 @@ const INVOICE_STATUSES: { value: Status; label: string }[] = [
   { value: "overdue", label: "Overdue" },
 ];
 
-const CATEGORIES: { value: Category; label: string }[] = [
-  { value: "advance", label: "Advance bill" },
-  { value: "old", label: "Old students" },
-  { value: "new", label: "New students" },
-];
+const CATEGORIES = REPORT_CATEGORIES.map((value) => ({ value, label: CATEGORY_LABEL[value] }));
 const SEMESTERS: { value: Semester; label: string }[] = [
   { value: "none", label: "Yearly (no split)" },
   { value: "1", label: "1st semester" },

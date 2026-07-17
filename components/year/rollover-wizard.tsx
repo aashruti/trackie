@@ -8,14 +8,12 @@ import { computeInvoice } from "@/lib/money/compute";
 import type { Category, Semester } from "@/lib/money/types";
 import { rolloverAction } from "@/app/(app)/new-year/actions";
 import type { RolloverPlanRow } from "@/lib/dal/rollover";
+import { CATEGORY_LABEL, type ReportCategory } from "@/lib/money/report-view";
 
-const CATEGORY_LABEL: Record<string, string> = {
-  advance: "Advance",
-  old: "Old students",
-  new: "New students",
-};
+// RolloverPlanRow.category is DAL-typed as plain string, not the Category enum
+// (see lib/dal/rollover.ts), so keep the runtime fallback.
 function streamLabel(r: RolloverPlanRow) {
-  const base = CATEGORY_LABEL[r.category] ?? r.category;
+  const base = CATEGORY_LABEL[r.category as ReportCategory] ?? r.category;
   return r.semester === "none" ? base : `${base} · ${r.semester === "1" ? "1st" : "2nd"} sem`;
 }
 

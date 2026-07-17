@@ -10,15 +10,12 @@ import type { InvoiceComputed, Status } from "@/lib/money/types";
 import type { Direction, PaymentEntry } from "@/lib/dal/payments";
 import { fmtDay, isOverdue } from "@/lib/dates";
 import { fmt } from "@/lib/money/format";
-
-const CATEGORY_LABEL: Record<string, string> = {
-  advance: "Advance bill",
-  old: "Old students",
-  new: "New students",
-};
+import { CATEGORY_LABEL } from "@/lib/money/report-view";
 
 function title(inv: InvoiceComputed) {
-  const base = CATEGORY_LABEL[inv.category] ?? inv.category;
+  // inv.category is already typed Category, so CATEGORY_LABEL (total over the
+  // enum) never misses — no fallback needed.
+  const base = CATEGORY_LABEL[inv.category];
   return inv.semester === "none" ? base : `${base} · ${inv.semester === "1" ? "1st" : "2nd"} sem`;
 }
 
