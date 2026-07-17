@@ -1,106 +1,81 @@
 import { describe, it, expect } from "vitest";
 import {
-  canEdit,
-  canAccessLeads,
-  assertLeadsAccess,
-  scopeAccountIds,
-  canAccessDelivery,
-  assertDeliveryAccess,
-  canManageDelivery,
-  assertDeliveryManage,
-  canManageGroups,
-  assertGroupsManage,
+  canEdit, canAccessLeads, assertLeadsAccess, scopeAccountIds,
+  canAccessDelivery, assertDeliveryAccess, canManageDelivery, assertDeliveryManage,
+  canManageGroups, assertGroupsManage, canManageHr, assertHrAccess,
   type SessionUser,
 } from "./authz";
 
-const superAdmin: SessionUser = { id: 1, role: "super-admin" };
-const admin: SessionUser = { id: 2, role: "admin" };
-const viewer: SessionUser = { id: 3, role: "viewer" };
-const hr: SessionUser = { id: 4, role: "hr" };
-const delivery: SessionUser = { id: 5, role: "delivery" };
+const u = (...roles: SessionUser["roles"]): SessionUser => ({ id: 1, roles });
+
+const superAdmin = u("super-admin");
+const sales = u("sales");        // ← was "admin"
+const viewer = u("viewer");
+const hr = u("hr");
+const delivery = u("delivery");
+const salesDelivery = u("sales", "delivery"); // cross-functional stack
 
 describe("scopeAccountIds", () => {
-  it("super-admin sees all (null = no filter)", () => {
+  it("super-admin unrestricted; everyone else assigned", () => {
     expect(scopeAccountIds(superAdmin, [10, 20])).toBeNull();
-  });
-  it("admin/viewer are limited to assigned ids", () => {
-    expect(scopeAccountIds(admin, [10, 20])).toEqual([10, 20]);
+    expect(scopeAccountIds(sales, [10, 20])).toEqual([10, 20]);
+    expect(scopeAccountIds(delivery, [10])).toEqual([10]);
     expect(scopeAccountIds(viewer, [])).toEqual([]);
   });
 });
 
-describe("canEdit", () => {
-  it("super-admin edits anything", () => {
+describe("finance edit / leads / groups — sales inherits admin's finance access", () => {
+  it("canEdit: super anything, sales only assigned, others never", () => {
     expect(canEdit(superAdmin, 99, [])).toBe(true);
-  });
-  it("admin edits only assigned accounts", () => {
-    expect(canEdit(admin, 10, [10])).toBe(true);
-    expect(canEdit(admin, 30, [10])).toBe(false);
-  });
-  it("viewer never edits", () => {
+    expect(canEdit(sales, 10, [10])).toBe(true);
+    expect(canEdit(sales, 30, [10])).toBe(false);
+    expect(canEdit(delivery, 10, [10])).toBe(false);
     expect(canEdit(viewer, 10, [10])).toBe(false);
   });
-});
-
-describe("canAccessLeads (Admin / Finance only)", () => {
-  it("super-admin and admin can access leads", () => {
-    expect(canAccessLeads(superAdmin)).toBe(true);
-    expect(canAccessLeads(admin)).toBe(true);
-  });
-  it("viewer (Designer / Employee) is locked out", () => {
-    expect(canAccessLeads(viewer)).toBe(false);
-  });
-  it("assertLeadsAccess throws for viewer, passes for admin", () => {
-    expect(() => assertLeadsAccess(viewer)).toThrow();
-    expect(() => assertLeadsAccess(admin)).not.toThrow();
+  it("leads + groups: super & sales yes; delivery/hr/viewer no", () => {
+    for (const f of [canAccessLeads, canManageGroups]) {
+      expect(f(superAdmin)).toBe(true);
+      expect(f(sales)).toBe(true);
+      expect(f(delivery)).toBe(false);
+      expect(f(hr)).toBe(false);
+      expect(f(viewer)).toBe(false);
+    }
+    expect(() => assertLeadsAccess(delivery)).toThrow();
+    expect(() => assertGroupsManage(sales)).not.toThrow();
   });
 });
 
-describe("canAccessDelivery (delivery team + admin read for the renewal report)", () => {
-  it("super-admin, delivery and admin can access", () => {
+describe("delivery — the ONE intended reduction: sales loses delivery access", () => {
+  it("access: super & delivery yes; sales NO (was yes as admin); hr/viewer no", () => {
     expect(canAccessDelivery(superAdmin)).toBe(true);
     expect(canAccessDelivery(delivery)).toBe(true);
-    expect(canAccessDelivery(admin)).toBe(true);
-  });
-  it("viewer and hr are locked out", () => {
-    expect(canAccessDelivery(viewer)).toBe(false);
+    expect(canAccessDelivery(sales)).toBe(false); // ← the deliberate change
     expect(canAccessDelivery(hr)).toBe(false);
   });
-  it("assertDeliveryAccess throws only for locked-out roles", () => {
-    expect(() => assertDeliveryAccess(viewer)).toThrow();
-    expect(() => assertDeliveryAccess(hr)).toThrow();
-    expect(() => assertDeliveryAccess(admin)).not.toThrow();
-    expect(() => assertDeliveryAccess(delivery)).not.toThrow();
-  });
-});
-
-describe("canManageGroups (account groups are Finance-only)", () => {
-  it("super-admin and admin can manage groups", () => {
-    expect(canManageGroups(superAdmin)).toBe(true);
-    expect(canManageGroups(admin)).toBe(true);
-  });
-  it("viewer, hr and delivery are locked out", () => {
-    expect(canManageGroups(viewer)).toBe(false);
-    expect(canManageGroups(hr)).toBe(false);
-    expect(canManageGroups(delivery)).toBe(false);
-    expect(() => assertGroupsManage(viewer)).toThrow();
-    expect(() => assertGroupsManage(delivery)).toThrow();
-    expect(() => assertGroupsManage(admin)).not.toThrow();
-  });
-});
-
-describe("canManageDelivery (writes are delivery-team only)", () => {
-  it("super-admin and delivery can manage", () => {
+  it("manage: super & delivery yes; sales no", () => {
     expect(canManageDelivery(superAdmin)).toBe(true);
     expect(canManageDelivery(delivery)).toBe(true);
+    expect(canManageDelivery(sales)).toBe(false);
   });
-  it("admin has read-only access — no writes", () => {
-    expect(canManageDelivery(admin)).toBe(false);
-    expect(() => assertDeliveryManage(admin)).toThrow();
+});
+
+describe("hr", () => {
+  it("super & hr manage; others cannot", () => {
+    expect(canManageHr(superAdmin)).toBe(true);
+    expect(canManageHr(hr)).toBe(true);
+    expect(canManageHr(sales)).toBe(false);
+    expect(() => assertHrAccess(delivery)).toThrow();
   });
-  it("viewer and hr cannot manage", () => {
-    expect(canManageDelivery(viewer)).toBe(false);
-    expect(canManageDelivery(hr)).toBe(false);
-    expect(() => assertDeliveryManage(viewer)).toThrow();
+});
+
+describe("stacking — union of permissions", () => {
+  it("{sales, delivery} gets BOTH finance edit and delivery manage", () => {
+    expect(canEdit(salesDelivery, 10, [10])).toBe(true);
+    expect(canAccessDelivery(salesDelivery)).toBe(true);
+    expect(canManageDelivery(salesDelivery)).toBe(true);
+    expect(canAccessLeads(salesDelivery)).toBe(true);
+  });
+  it("super-admin anywhere in the stack wins", () => {
+    expect(scopeAccountIds(u("super-admin", "delivery"), [1])).toBeNull();
   });
 });
