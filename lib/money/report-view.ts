@@ -1,11 +1,12 @@
+import { CATEGORIES } from "@/lib/db/enums";
 import { accountStatus } from "./compute";
-import type { Status } from "./types";
+import type { Category, Status } from "./types";
 
 /**
  * The Reports page filters accounts by bill type. Filtering is a SUBSET SUM:
- * every account-level money field in `computeAccount` is a plain reduce over the
- * account's invoices (compute.ts:120), so bucketing bills by category and adding
- * up the selected buckets is exactly equivalent to recomputing from scratch.
+ * every account money field in `computeAccount` is a plain reduce over that
+ * account's invoices, so bucketing bills by category and adding up the selected
+ * buckets is exactly equivalent to recomputing from scratch.
  *
  * `status` is the one field that does not sum — it is re-derived here via
  * `accountStatus` from the filtered bills.
@@ -15,8 +16,9 @@ import type { Status } from "./types";
  * the download can never disagree with the screen.
  */
 
-export const REPORT_CATEGORIES = ["advance", "old", "new"] as const;
-export type ReportCategory = (typeof REPORT_CATEGORIES)[number];
+/** The three bill types, straight from the DB enum — never re-declared. */
+export const REPORT_CATEGORIES = CATEGORIES;
+export type ReportCategory = Category;
 
 export const CATEGORY_LABEL: Record<ReportCategory, string> = {
   advance: "Advance bill",
@@ -114,7 +116,9 @@ export function toggleCategory(
   cat: ReportCategory,
 ): ReportCategory[] {
   const on = selected.includes(cat);
-  if (on && selected.length === 1) return canonical(selected); // last one — no-op
+  // Guard on the canonical (deduped) selection, not the raw input — otherwise a
+  // repeated type would slip past the check and empty the selection.
+  if (on && canonical(selected).length === 1) return canonical(selected); // last one — no-op
   return canonical(on ? selected.filter((c) => c !== cat) : [...selected, cat]);
 }
 
@@ -159,9 +163,9 @@ export function selectReport(
     agg.payable += m.payable;
     oemAgg.set(r.oem, agg);
 
-    // Aging: preserves the existing status-based mapping from reports.ts:126-131
-    // verbatim, including the fact that nothing ever lands in d61_90. A real
-    // date-based fix is out of scope — see the spec's follow-ups.
+    // Aging mirrors, verbatim, the status-based bucketing the DAL used to do —
+    // including the fact that nothing ever lands in d61_90. A real date-based
+    // fix is out of scope — see the spec's follow-ups.
     for (const b of bills) {
       if (b.outstanding <= 1) continue;
       if (b.status === "overdue") aging.d90plus += b.outstanding;
@@ -174,7 +178,14 @@ export function selectReport(
 
   // Sorting lives here, not in the DAL: a raw row has no single `billed`, only
   // per-type buckets — so row order responds to the filter.
-  rows.sort((x, y) => y.billed - x.billed);
-  const byOem = [...oemAgg.values()].sort((x, y) => y.netMargin - x.netMargin);
+  //
+  // Tie-break on a stable unique key: the accounts query has no ORDER BY, and the
+  // screen and the export are two independent requests. Without this, tied rows
+  // (common when filtering — every account lacking that bill type sits at 0) could
+  // order differently in the workbook than on screen.
+  rows.sort((x, y) => y.billed - x.billed || x.id - y.id);
+  const byOem = [...oemAgg.values()].sort(
+    (x, y) => y.netMargin - x.netMargin || x.oem.localeCompare(y.oem),
+  );
   return { rows, byOem, aging, totals };
 }

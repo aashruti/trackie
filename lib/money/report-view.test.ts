@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   REPORT_CATEGORIES,
+  categoryLabels,
   categorySlug,
   emptyByCategory,
   emptyMetrics,
@@ -132,6 +133,26 @@ describe("selectReport", () => {
     expect(selectReport({ rows: [a, b] }, ["advance"]).rows.map((r) => r.name)).toEqual(["A", "B"]);
     expect(selectReport({ rows: [a, b] }, ["new"]).rows.map((r) => r.name)).toEqual(["B", "A"]);
   });
+
+  it("breaks billed ties on id, so row order ignores input order", () => {
+    const tied = (id: number, name: string) =>
+      row({ id, name, byCategory: { ...emptyByCategory(), new: metrics({ billed: 100 }) } });
+    const a = tied(1, "A");
+    const b = tied(2, "B");
+    // The accounts query has no ORDER BY, so input order is not guaranteed —
+    // both feed orders must land on the same output order.
+    expect(selectReport({ rows: [a, b] }, ["new"]).rows.map((r) => r.id)).toEqual([1, 2]);
+    expect(selectReport({ rows: [b, a] }, ["new"]).rows.map((r) => r.id)).toEqual([1, 2]);
+  });
+
+  it("breaks OEM net-margin ties on name, so byOem order ignores input order", () => {
+    const tied = (id: number, oem: string) =>
+      row({ id, oem, byCategory: { ...emptyByCategory(), new: metrics({ netMargin: 10 }) } });
+    const a = tied(1, "IBM");
+    const b = tied(2, "AAFM");
+    expect(selectReport({ rows: [a, b] }, ["new"]).byOem.map((o) => o.oem)).toEqual(["AAFM", "IBM"]);
+    expect(selectReport({ rows: [b, a] }, ["new"]).byOem.map((o) => o.oem)).toEqual(["AAFM", "IBM"]);
+  });
 });
 
 describe("toggleCategory", () => {
@@ -142,6 +163,20 @@ describe("toggleCategory", () => {
 
   it("refuses to unselect the last remaining type", () => {
     expect(toggleCategory(["new"], "new")).toEqual(["new"]);
+  });
+
+  it("holds the last-one guard even when the input repeats a type", () => {
+    expect(toggleCategory(["new", "new"], "new")).toEqual(["new"]);
+  });
+});
+
+describe("categoryLabels", () => {
+  it("labels a selection in canonical order", () => {
+    expect(categoryLabels(["new", "advance"])).toBe("Advance bill, New students");
+  });
+
+  it("returns an empty string for an empty selection", () => {
+    expect(categoryLabels([])).toBe("");
   });
 });
 
