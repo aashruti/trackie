@@ -5,6 +5,7 @@ import { users, userAccounts } from "@/lib/db/schema";
 import { hashPassword } from "@/lib/auth/password";
 import type { Role } from "@/lib/db/enums";
 import { type SessionUser } from "./authz";
+import { deleteUserSessions } from "./sessions";
 
 function assertSuperAdmin(user: SessionUser) {
   if (user.role !== "super-admin") throw new Error("Only a Super Admin can manage users");
@@ -76,10 +77,9 @@ export async function updateUserRole(actor: SessionUser, userId: number, role: R
  * Set another user's password. The super admin types it and relays it — this is
  * an internal tool and that trade-off was chosen deliberately (see the spec).
  *
- * NOTE: this does NOT sign the target out. Sessions are JWTs
- * (lib/auth/config.ts) and cannot be revoked without a denylist, so an existing
- * session survives the reset. Fixes "forgot my password"; does NOT fix "lock out
- * an intruder".
+ * Signs the target out everywhere: every session row for them is deleted, so
+ * each of their devices is rejected on its next request. This is what makes the
+ * feature usable for a compromised account, not just a forgotten password.
  */
 export async function resetUserPassword(
   actor: SessionUser,
@@ -103,8 +103,8 @@ export async function resetUserPassword(
     .set({ passwordHash: await hashPassword(newPassword) })
     .where(eq(users.id, userId));
 
-  // There is no audit table; this is the honest minimum for a security action.
-  console.info(`[security] password reset by user ${actor.id} for user ${userId}`);
+  const ended = await deleteUserSessions(userId);
+  console.info(`[security] password reset by user ${actor.id} for user ${userId} (${ended} sessions ended)`);
 }
 
 /** Replace a user's account assignments. */

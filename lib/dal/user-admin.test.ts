@@ -5,6 +5,7 @@ import { users } from "@/lib/db/schema";
 import { verifyPassword } from "@/lib/auth/password";
 import { createUser, listUsers, setUserAccounts, deleteUser, resetUserPassword } from "./user-admin";
 import { listAccountsForUser } from "./accounts";
+import { createSession, sessionExists } from "./sessions";
 
 const SUPER = { id: 1, role: "super-admin" as const };
 
@@ -88,6 +89,24 @@ describe("user-admin", () => {
     await expect(
       createUser(SUPER, { name: "x", email: "too-short@datagami.local", password: "short12", role: "viewer" }),
     ).rejects.toThrow(/8 characters/i);
+  });
+
+  it("a password reset ends the target's sessions", async () => {
+    const u = await createUser(SUPER, {
+      name: "Revoke Target",
+      email: "revoke-target@datagami.local",
+      password: "oldpassword1",
+      role: "viewer",
+    });
+    try {
+      const sid = await createSession(u.id);
+      expect(await sessionExists(sid)).toBe(true);
+      await resetUserPassword(SUPER, u.id, "brandnewpass1");
+      // The whole point: the reset locks out anyone already signed in.
+      expect(await sessionExists(sid)).toBe(false);
+    } finally {
+      await deleteUser(SUPER, u.id);
+    }
   });
 
   afterAll(async () => {

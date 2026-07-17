@@ -9,6 +9,7 @@ import { makeVerifyToken } from "@/lib/auth/email-verify";
 import { getUserEmailInfo } from "@/lib/dal/email-verify";
 import { sendVerificationEmail } from "@/lib/email/verify";
 import { appBaseUrl } from "@/lib/http/base-url";
+import { deleteUserSessions } from "@/lib/dal/sessions";
 
 export async function sendVerificationAction(): Promise<
   { ok: true; message: string } | { ok: false; error: string }
@@ -56,6 +57,11 @@ export async function changePasswordAction(
 
   const hash = await hashPassword(newPassword);
   await db.update(users).set({ passwordHash: hash }).where(eq(users.id, userId));
+
+  // Ends every session including this one, so the user lands on /login. Chosen
+  // deliberately: someone who suspects compromise can evict an intruder without
+  // waiting for an admin.
+  await deleteUserSessions(userId);
 
   return { ok: true };
 }
