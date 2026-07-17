@@ -26,6 +26,8 @@ export default function LoginPage() {
             type="email"
             required
             autoComplete="email"
+            defaultValue={state.email}
+            key={state.email ?? ""}
             className="mt-1 w-full rounded-md border border-border-strong bg-surface px-3 py-2 text-text-primary outline-none focus:ring-2 focus:ring-primary"
           />
         </label>
