@@ -11,72 +11,65 @@ export interface Column<T> {
   align?: "left" | "right";
 }
 
-function csvCell(v: unknown): string {
-  const s = v == null ? "" : String(v);
-  return `"${s.replace(/"/g, '""')}"`;
-}
-
 export function ReportTable<T extends object>({
   title,
   subtitle,
   columns,
   rows,
   totals,
-  filename,
+  sort,
+  onSort,
 }: {
   title: string;
   subtitle?: string;
   columns: Column<T>[];
   rows: T[];
   totals?: Partial<Record<keyof T, number>> & { label?: string };
-  filename: string;
+  sort?: { key: keyof T; dir: "asc" | "desc" };
+  onSort?: (k: keyof T) => void;
 }) {
-  function exportCsv() {
-    const head = columns.map((c) => c.label);
-    const body = rows.map((r) => columns.map((c) => csvCell(r[c.key])).join(","));
-    const totalLine = totals
-      ? columns
-          .map((c, i) =>
-            i === 0 ? csvCell(totals.label ?? "Total") : csvCell(totals[c.key] ?? ""),
-          )
-          .join(",")
-      : null;
-    const csv = [head.join(","), ...body, ...(totalLine ? [totalLine] : [])].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
   return (
     <Card className="print-card">
-      <CardHeader
-        title={title}
-        subtitle={subtitle}
-        action={
-          <button
-            onClick={exportCsv}
-            className="no-print rounded-md border border-border-strong px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover"
-          >
-            Export CSV
-          </button>
-        }
-      />
+      <CardHeader title={title} subtitle={subtitle} />
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border-subtle text-xs text-text-muted">
-              {columns.map((c) => (
-                <th
-                  key={String(c.key)}
-                  className={`px-4 py-2.5 font-medium ${c.align === "right" || c.money ? "text-right" : "text-left"}`}
-                >
-                  {c.label}
-                </th>
-              ))}
+              {columns.map((c) => {
+                const right = c.align === "right" || c.money;
+                const active = sort?.key === c.key;
+                const arrow = active ? (sort!.dir === "asc" ? " ↑" : " ↓") : "";
+                // aria-sort only makes sense on a sortable column, and only when a
+                // sort is actually wired up (onSort present) — a table with no
+                // onSort has nothing for a screen reader to announce here.
+                const ariaSort = onSort
+                  ? active
+                    ? sort!.dir === "asc"
+                      ? ("ascending" as const)
+                      : ("descending" as const)
+                    : ("none" as const)
+                  : undefined;
+                return (
+                  <th
+                    key={String(c.key)}
+                    aria-sort={ariaSort}
+                    className={`px-4 py-2.5 font-medium ${right ? "text-right" : "text-left"}`}
+                  >
+                    {onSort ? (
+                      <button
+                        type="button"
+                        onClick={() => onSort(c.key)}
+                        className={`select-none hover:text-text-primary ${active ? "text-text-primary" : ""}`}
+                      >
+                        {c.label}
+                        {arrow}
+                      </button>
+                    ) : (
+                      c.label
+                    )}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
