@@ -1,136 +1,149 @@
-# Session Revocation on Password Change
+# Backend Session Store + Revocation
 
 **Date:** 2026-07-17
-**Status:** Approved for implementation (user confirmed: `passwordChangedAt` + a JWT-callback check;
-the check runs everywhere `auth()` runs; self-change logs out everywhere too)
+**Status:** Approved for implementation (user's design: store sessions in the backend, check validity
+per request, delete them on password change)
 **Depends on:** `resetUserPassword` (PR #16, merged)
+
+> **Supersedes an earlier draft of this file**, which specified a `passwordChangedAt` stamp on
+> `users` instead of a session table. That draft was not the user's design — it was substituted
+> without flagging the divergence, on the mistaken belief that a real session store was blocked here.
+> It isn't (§2). The stamp approach is recorded in §7 as the rejected alternative.
 
 ## 1. Problem
 
-`resetUserPassword` currently carries this comment, and it is accurate:
+`resetUserPassword` carries this note, and it is accurate:
 
 > NOTE: this does NOT sign the target out. Sessions are JWTs and cannot be revoked without a
 > denylist, so an existing session survives the reset.
 
-So the reset fixes **"Farzana forgot her password"** but not **"this account is compromised, lock
-them out"** — the intruder's session keeps working. This closes that.
+A reset therefore recovers a forgotten password but does **not** lock out an intruder. There is also
+no way to see who is signed in, and no way to sign anyone out without changing their password.
 
-## 2. Why not database sessions — the blocker, recorded
+## 2. What Auth.js does and does not block — the distinction that was blurred
 
-The user's first choice was `session: { strategy: "database" }`. **Auth.js refuses it.**
-`node_modules/@auth/core/lib/utils/assert.js:114`:
+Auth.js refuses `session: { strategy: "database" }` for credentials-only providers
+(`@auth/core/lib/utils/assert.js:114`) — Trackie has exactly one provider, `Credentials`, so setting
+it throws `UnsupportedStrategy` at startup and **nobody can log in**. That much is real and verified.
 
-```js
-if (hasCredentials) {
-  const dbStrategy = options.session?.strategy === "database";
-  const onlyCredentials = !options.providers.some((p) => p.type !== "credentials");
-  if (dbStrategy && onlyCredentials) {
-    return new UnsupportedStrategy("Signing in with credentials only supported if JWT strategy is enabled");
-  }
-}
-```
+**But that only blocks Auth.js's *own*, adapter-managed session store.** It does not stop us keeping
+our own table and checking it ourselves. Auth.js goes on issuing JWTs (which it insists on for
+Credentials); the JWT simply carries a session id we control, and we own the row. Both hooks needed
+are present and verified:
 
-Trackie has exactly one provider — `Credentials` (`lib/auth/config.ts:12`) — so `onlyCredentials` is
-true and setting `"database"` throws at startup: **nobody could log in at all**. This is not a version
-quirk and no adapter fixes it. The reason is structural: Credentials users are authenticated against
-our own `users` table rather than created through an adapter, so Auth.js has no adapter-managed row
-to hang a session off.
+- the `jwt` callback is async and returns `Awaitable<JWT | null>` (`@auth/core/index.d.ts:331`);
+  returning `null` makes Auth.js clear the cookie (`@auth/core/lib/actions/session.js:54`)
+- `events.signOut` receives `{ token }` under the JWT strategy (`@auth/core/index.d.ts:362`), so a
+  clean logout can delete its row
 
-Adding a second provider would dodge the `onlyCredentials` condition, but Credentials users still
-would not get database sessions — it does not actually solve it.
+This is a **hybrid**, not a replacement: Auth.js keeps sign-in, cookies, and JWT expiry; we own
+revocation.
 
-## 3. The mechanism — and the login-loop trap it avoids
+## 3. Design
 
-Auth.js supports invalidation: the `jwt` callback returns `Awaitable<JWT | null>`
-(`@auth/core/index.d.ts:331`), and returning `null` makes it clear the session cookie —
-`@auth/core/lib/actions/session.js:54`:
+**`auth_sessions`** — one row per sign-in:
 
-```js
-if (token !== null) { /* re-sign and refresh the cookie */ }
-else { response.cookies?.push(...sessionStore.clean()); }
-```
+| column | |
+| --- | --- |
+| `id` | text PK — an unguessable `crypto.randomUUID()`, carried in the JWT as `sid` |
+| `user_id` | integer NOT NULL → `users.id` **ON DELETE CASCADE** (deleting a user drops their sessions) |
+| `created_at` | timestamp NOT NULL default now — for listing "signed in since" |
 
-**The obvious implementation is broken.** The textbook version compares `passwordChangedAt` against
-the token's `iat`. JWT `iat` is in **seconds** (floored); the stamp is in **milliseconds**. Reset at
-`10:00:00.700`, user signs in at `10:00:00.900` → the fresh token's `iat` is `10:00:00.000`, which is
-*earlier* than the stamp → the brand-new token invalidates itself on its first request. The user logs
-in, gets bounced, logs in, gets bounced. Forever.
+Indexed on `user_id`, because every revocation is `WHERE user_id = ?`.
 
-**So we never compare clocks.** The stamp *is* the version:
+**Flow:**
+- **sign-in** (`jwt` callback with `user` present): mint a `sid`, insert the row, put `sid` on the token.
+- **every later request** (`jwt` callback, no `user`): `SELECT 1 FROM auth_sessions WHERE id = sid`.
+  Missing → `return null` → Auth.js clears the cookie. This is the one indexed read per `auth()` call.
+- **sign-out** (`events.signOut`): delete the row for that `sid`.
+- **password change** (admin reset *or* profile self-change): `DELETE … WHERE user_id = ?` — every
+  session for that user dies on its next request.
 
-- `authorize()` already SELECTs the whole user row (`config.ts:18`), so it returns `pwc` — the stamp
-  in ms, or `0` when null — at **no extra query cost**.
-- The `jwt` callback stores `token.pwc` at sign-in (`user` is present only then).
-- On later requests it reads the *current* stamp and compares for **equality**. Mismatch → `null`.
+**No `expires_at` column, deliberately.** Auth.js verifies the JWT's own `exp` **before** the `jwt`
+callback runs, so an expired token never reaches our check — the row cannot resurrect it. Storing an
+expiry would only duplicate that, and keeping it accurate under Auth.js's *rolling* refresh would
+cost a write per request. The row exists solely to enable revocation.
 
-No clock arithmetic, no granularity window, no loop: a fresh token always carries the current stamp
-and always matches.
+## 4. Known limitation: rows leak
 
-## 4. The cost, stated plainly
+A session abandoned without signing out (browser closed) leaves an orphan row forever. It is
+**unusable** — its JWT expires independently — but it is never collected.
+
+At 18 users this is a few hundred rows a year: trivial for Postgres, and lookups are by primary key.
+A sweep is a **follow-up**, not part of this change. It is stated here rather than discovered later.
+`vercel.json` already runs a `/api/ping` cron every 4 minutes that could host one — but both that
+file and `app/api/ping/` are currently the user's *uncommitted* work, so this design must not depend
+on them.
+
+## 5. The cost
 
 The `jwt` callback runs on **every** `auth()` call — `proxy.ts` middleware and every Server
-Component. Checking the stamp means one indexed lookup per call, so **the JWT stops being
-stateless**. That is the price of revocation on a JWT, accepted deliberately: at 18 users, on pages
-already issuing 4+ queries, it is noise.
+Component — so this adds one primary-key lookup per call and **the JWT stops being stateless**. That
+is the price of revocation, accepted deliberately: at 18 users, on pages already issuing 4+ queries,
+it is noise.
 
-The user chose this over a middleware-only check, which would have halved the queries but left a real
-hole — a revoked session could still complete work in a Server Action or route handler that
-middleware does not cover.
+The user chose this over a middleware-only check, which would halve the queries but leave a real hole
+— a revoked session could still act in a Server Action or route handler middleware does not cover.
 
-## 5. Modules
+## 6. Self-change signs you out everywhere too
 
-**Migration `0012_password_changed_at.sql`** — one **nullable** timestamp on `users`. Nullable is
-load-bearing: every existing user has no stamp, so **nobody is logged out on deploy**. Follows the
-house idempotent style (`ADD COLUMN IF NOT EXISTS`, cf. `0011_account_groups.sql`), plus its
-`drizzle/meta/_journal.json` entry per the project's migration rules.
+Per the user's earlier answer. Someone who suspects compromise can then evict an intruder **without
+waiting for an admin** — the main reason people change passwords urgently. Cost: they land on
+`/login` right after changing their own password. Simple, safe, and what most apps do.
 
-**`lib/db/schema.ts`** — `passwordChangedAt: timestamp("password_changed_at")`.
+## 7. Rejected alternative: `passwordChangedAt` stamp
 
-**`lib/auth/config.ts`** — the only change to how anyone signs in:
-- `authorize` returns `pwc: String(u.passwordChangedAt?.getTime() ?? 0)`
-- `jwt` callback: on sign-in (`user` present) store `token.pwc`; otherwise read the current stamp for
-  `token.uid` and return `null` on mismatch.
+A nullable timestamp on `users`, baked into the JWT at sign-in and compared for equality each
+request. Smaller — no table, no insert, no sign-out hook, no leak.
 
-**`lib/dal/user-admin.ts`** — `resetUserPassword` sets `passwordChangedAt: new Date()` alongside the
-hash, and its "does NOT sign the target out" comment is **deleted**, because it no longer will.
+**Rejected** because it costs *exactly the same* one indexed read per request while delivering
+strictly less: revocation is all-or-nothing per user, so no per-device sign-out, no "signed in on 3
+devices", and no admin sign-out-everywhere without also changing the password. The only advantage was
+size, which does not outweigh the capability gap.
 
-**`app/(app)/profile/actions.ts`** — the self-change sets it too (§6).
+Recorded because its one genuine insight must not be lost if anyone revisits it: **never compare the
+stamp against the JWT's `iat`.** `iat` is floored to seconds and the stamp is milliseconds, so a
+token minted in the same second as a reset looks older than the stamp and invalidates itself —
+sign in, bounce, sign in, bounce, forever.
 
-## 6. Self-change logs out everywhere too
+## 8. Modules
 
-Per the user's answer. A user who suspects compromise can then evict an intruder **without needing an
-admin** — which is the main reason people change passwords urgently. The cost: they are bounced to
-`/login` right after changing their own password and must sign in again. Simple, safe, and the
-behaviour most apps have.
+**Migration `0013_auth_sessions.sql`** — the table, FK and index, idempotent per house style
+(`0011_account_groups.sql`), plus its `drizzle/meta/_journal.json` entry. *(0012 is unused — the
+superseded draft never shipped one.)*
 
-## 7. What this does NOT do
+**`lib/db/schema.ts`** — `authSessions`.
 
-- **No per-device logout.** The stamp is per user, so revocation is all-or-nothing. Distinguishing
-  sessions needs a real session table, which §2 shows Auth.js will not give us here.
-- **No admin "sign out everywhere" button.** Revocation is a side effect of changing the password.
-- The window is one request: a revoked token works until its next `auth()` call, which is immediate
-  in practice.
+**`lib/dal/sessions.ts`** *(new, `server-only`)* — the only module that touches the table:
+`createSession(userId)`, `sessionExists(id)`, `deleteSession(id)`, `deleteUserSessions(userId)`.
 
-## 8. Testing
+**`lib/auth/config.ts`** — the `jwt` callback (mint/insert on sign-in; check-or-`null` after) and an
+`events.signOut` that deletes the row. Sign-in itself is otherwise untouched.
 
-The stamping is DAL behaviour and testable (`lib/dal/user-admin.test.ts`, real local Postgres):
-- `resetUserPassword` sets `passwordChangedAt`, and it moves forward on a second reset
-- self-change via profile sets it too
+**`lib/dal/user-admin.ts`** — `resetUserPassword` calls `deleteUserSessions`; its "does NOT sign the
+target out" note is **deleted**, because it no longer will.
 
-The `jwt` callback is Auth.js-internal and has no test harness here (no session mocking). Its two
-behaviours are verified **in the browser**, which is the only honest way:
-- **the revocation:** sign in as A in one context, reset A's password as an admin, confirm A's next
-  request bounces to `/login`
-- **the loop that isn't:** immediately sign in as A with the new password and navigate — a fresh
-  token must survive, proving the equality check avoids the `iat` trap that would otherwise make
-  login unusable
+**`app/(app)/profile/actions.ts`** — the self-change calls `deleteUserSessions` too.
 
-The second is the one that matters: an `iat`-based implementation passes the first test and fails the
-second, and failing it means **nobody can log in**.
+## 9. Testing
 
-## 9. Out of scope
+`lib/dal/sessions.test.ts` (real local Postgres): create → exists; delete → gone; `deleteUserSessions`
+kills all of one user's and **leaves another user's alone** (the assertion that catches a missing
+`WHERE user_id`); deleting a user cascades.
 
-- Database sessions (§2 — blocked by Auth.js).
-- Hand-rolled sessions outside Auth.js.
-- Per-device logout / session listing.
-- An audit table (`resetUserPassword` still `console.info`s each reset).
+`lib/dal/user-admin.test.ts`: after `resetUserPassword`, that user has zero sessions.
+
+The `jwt` callback is Auth.js-internal with no test harness here, so it is verified **in the browser**
+— the only honest way:
+1. **Revocation:** sign in as A; reset A's password as an admin; A's next request bounces to `/login`.
+2. **Sign-in still works** immediately afterward, and survives several navigations — proving the
+   check does not eat fresh sessions.
+3. **B is unaffected** while A is revoked — proving the `WHERE user_id` scoping holds live, not just
+   in tests.
+
+## 10. Out of scope
+
+- Sweeping orphan rows (§4).
+- An admin "sign out everywhere" button, and a session list UI. The table makes both easy later;
+  neither is built here.
+- Auth.js-managed database sessions (§2 — genuinely blocked).
