@@ -188,6 +188,22 @@ export const userAccounts = pgTable(
   (t) => [primaryKey({ columns: [t.userId, t.accountId] })],
 );
 
+/**
+ * A user's role SET — they hold one or more. Effective access is the union.
+ * users.role (scalar) is kept as a rollback seed during the transition; this
+ * table is the source of truth for authz.
+ */
+export const userRoles = pgTable(
+  "user_roles",
+  {
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: roleEnum("role").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.role] }), index("user_roles_user_id_idx").on(t.userId)],
+);
+
 /* =============================================================================
    WORKSPACE — Team board (internal delivery / issue tracking)
    Tasks link to a real account (null → Internal) and a real user as assignee
