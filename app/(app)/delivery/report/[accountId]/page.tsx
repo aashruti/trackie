@@ -27,7 +27,7 @@ export default async function DeliveryReportPage({
   const session = await auth();
   const user = session!.user;
   const { currentYear: YEAR, years } = await getYearContext();
-  const actor = { id: Number(user.id), role: user.role };
+  const actor = { id: Number(user.id), roles: user.roles };
   const { accountId: accountParam } = await params;
   const accountId = Number(accountParam);
   if (!Number.isFinite(accountId)) notFound();

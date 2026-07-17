@@ -9,6 +9,7 @@ import {
   leaveRequests,
   leaveTypes,
   users,
+  userRoles,
   attendanceRecords,
 } from "@/lib/db/schema";
 import { assertHrAccess, canManageHr, type SessionUser } from "@/lib/dal/authz";
@@ -649,12 +650,19 @@ const ALWAYS_CC = ["dhaval@datagami.in"];
  * Deduplicated, lowercased.
  */
 export async function hrRecipientEmails(): Promise<string[]> {
-  const [rows, settings] = await Promise.all([
-    db.select({ email: users.email, role: users.role, verified: users.emailVerifiedAt }).from(users),
+  const [rows, roleRows, settings] = await Promise.all([
+    db.select({ id: users.id, email: users.email, verified: users.emailVerifiedAt }).from(users),
+    db.select({ userId: userRoles.userId, role: userRoles.role }).from(userRoles),
     db.select({ email: hrSettings.notificationEmail }).from(hrSettings).limit(1),
   ]);
+  const rolesByUser = new Map<number, typeof roleRows[number]["role"][]>();
+  for (const r of roleRows) {
+    const list = rolesByUser.get(r.userId) ?? [];
+    list.push(r.role);
+    rolesByUser.set(r.userId, list);
+  }
   const verified = rows
-    .filter((r) => canManageHr({ id: 0, role: r.role }) && r.verified != null)
+    .filter((r) => canManageHr({ id: r.id, roles: rolesByUser.get(r.id) ?? [] }) && r.verified != null)
     .map((r) => r.email);
   const shared = settings[0]?.email?.trim();
   const all = [...verified, ...ALWAYS_CC];

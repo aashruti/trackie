@@ -28,7 +28,7 @@ export async function GET(req: Request) {
 
   const types = parseCategories(url.searchParams.get("types"));
   const sort = parseSort(url.searchParams.get("sort"), url.searchParams.get("dir"));
-  const data = await getReportData({ id: Number(user.id), role: user.role }, year);
+  const data = await getReportData({ id: Number(user.id), roles: user.roles }, year);
   const v = selectReport(data, types, sort);
   const labels = categoryLabels(types);
 

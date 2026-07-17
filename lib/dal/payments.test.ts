@@ -3,7 +3,7 @@ import { addPayment, deletePayment } from "./payments";
 import { getAccountDetail } from "./account-detail";
 import { listAccountsForUser } from "./accounts";
 
-const SUPER = { id: 1, role: "super-admin" as const };
+const SUPER = { id: 1, roles: ["super-admin" as const] };
 const YEAR = "FY26–27";
 
 async function pillai() {
@@ -53,7 +53,7 @@ describe("payment ledger", () => {
   it("rejects a viewer", async () => {
     const { invoiceId } = await pillai();
     await expect(
-      addPayment({ id: 999, role: "viewer" }, invoiceId, {
+      addPayment({ id: 999, roles: ["viewer"] }, invoiceId, {
         direction: "receipt",
         amount: 1,
         paidOn: "2026-05-01",

@@ -11,7 +11,7 @@ export default async function NewAccountPage() {
   const YEAR = await getCurrentYear();
   const years = (await listYears()).map((y) => y.label);
 
-  if (user.role !== "super-admin") {
+  if (!user.roles.includes("super-admin")) {
     return (
       <>
         <Topbar section="Universities" title="New account" user={user} years={years} currentYear={YEAR} />

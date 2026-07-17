@@ -11,7 +11,7 @@ export default async function ProfilePage() {
   const info = await getUserEmailInfo(Number(user.id));
   return (
     <>
-      <Topbar section="ACCOUNT" title="My profile" user={user as { name?: string | null; email?: string | null; role?: Role }} />
+      <Topbar section="ACCOUNT" title="My profile" user={user as { name?: string | null; email?: string | null; roles?: Role[] }} />
       <div className="mx-auto max-w-md space-y-5 px-6 py-10">
         {info && <VerifyEmailCard email={info.email} verified={!!info.emailVerifiedAt} />}
         <div className="rounded-xl border border-border bg-surface p-6 shadow-sm">

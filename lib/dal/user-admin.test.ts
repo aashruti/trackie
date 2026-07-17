@@ -14,7 +14,7 @@ import {
 import { listAccountsForUser } from "./accounts";
 import { createSession, sessionExists } from "./sessions";
 
-const SUPER = { id: 1, role: "super-admin" as const };
+const SUPER = { id: 1, roles: ["super-admin" as const] };
 
 describe("user-admin", () => {
   let userId: number | null = null;
@@ -27,7 +27,7 @@ describe("user-admin", () => {
       name: "Test Manager",
       email: "test-manager@datagami.local",
       password: "secret123",
-      role: "admin",
+      role: "sales",
     });
     userId = u.id;
 
@@ -35,20 +35,22 @@ describe("user-admin", () => {
 
     const users = await listUsers(SUPER);
     const created = users.find((x) => x.id === u.id)!;
-    expect(created.role).toBe("admin");
+    expect(created.role).toBe("sales");
     expect(created.assignedAccountIds.sort()).toEqual([...pick].sort());
 
-    // The new admin now sees exactly those accounts.
-    const scoped = await listAccountsForUser({ id: u.id, role: "admin" }, "FY26–27");
+    // The new sales user now sees exactly those accounts. (createUser is
+    // Task 6's job to also seed user_roles; here the actor is constructed
+    // directly, independent of that gap.)
+    const scoped = await listAccountsForUser({ id: u.id, roles: ["sales"] }, "FY26–27");
     expect(scoped.map((a) => a.id).sort()).toEqual([...pick].sort());
   });
 
   it("rejects a non-super-admin", async () => {
     await expect(
-      listUsers({ id: 2, role: "admin" }),
+      listUsers({ id: 2, roles: ["sales"] }),
     ).rejects.toThrow();
     await expect(
-      createUser({ id: 2, role: "admin" }, { name: "x", email: "x@y.z", password: "secret123", role: "viewer" }),
+      createUser({ id: 2, roles: ["sales"] }, { name: "x", email: "x@y.z", password: "secret123", role: "viewer" }),
     ).rejects.toThrow();
   });
 
@@ -73,9 +75,9 @@ describe("user-admin", () => {
   });
 
   it("refuses a non-super-admin actor for every other role", async () => {
-    for (const role of ["admin", "hr", "delivery", "viewer"] as const) {
+    for (const role of ["sales", "hr", "delivery", "viewer"] as const) {
       await expect(
-        resetUserPassword({ id: 2, role }, 3, "brandnewpass1"),
+        resetUserPassword({ id: 2, roles: [role] }, 3, "brandnewpass1"),
       ).rejects.toThrow(/Super Admin/i);
     }
   });
@@ -120,8 +122,8 @@ describe("user-admin", () => {
   });
 
   it("only a super admin can sign someone out everywhere", async () => {
-    for (const role of ["admin", "hr", "delivery", "viewer"] as const) {
-      await expect(signOutUserEverywhere({ id: 2, role }, 3)).rejects.toThrow(/Super Admin/i);
+    for (const role of ["sales", "hr", "delivery", "viewer"] as const) {
+      await expect(signOutUserEverywhere({ id: 2, roles: [role] }, 3)).rejects.toThrow(/Super Admin/i);
     }
   });
 

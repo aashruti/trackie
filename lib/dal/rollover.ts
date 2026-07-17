@@ -58,7 +58,7 @@ export async function getRolloverPlan(
     return { fromYear: fromYearLabel, suggestedToYear: nextFyLabel(fromYearLabel), rows: [] };
   }
 
-  const assigned = user.role === "super-admin" ? [] : await assignedIds(user.id);
+  const assigned = user.roles.includes("super-admin") ? [] : await assignedIds(user.id);
   const accRows = await db
     .select({ id: accounts.id, name: accounts.name })
     .from(accounts);
@@ -157,7 +157,7 @@ export async function rolloverYear(
   }
 
   // Accounts the user can edit.
-  const assigned = user.role === "super-admin" ? [] : await assignedIds(user.id);
+  const assigned = user.roles.includes("super-admin") ? [] : await assignedIds(user.id);
   const allAccounts = await db.select({ id: accounts.id }).from(accounts);
   const editable = allAccounts
     .map((a) => a.id)
@@ -254,7 +254,7 @@ export async function deleteYear(
   user: SessionUser,
   yearLabel: string,
 ): Promise<void> {
-  if (user.role !== "super-admin") throw new Error("Only super-admin can delete a year");
+  if (!user.roles.includes("super-admin")) throw new Error("Only super-admin can delete a year");
   const [year] = await db
     .select()
     .from(academicYears)

@@ -44,7 +44,7 @@ export async function updateInvoice(
     .limit(1);
   if (!inv) throw new Error("Invoice not found");
 
-  const assigned = user.role === "super-admin" ? [] : await assignedIds(user.id);
+  const assigned = user.roles.includes("super-admin") ? [] : await assignedIds(user.id);
   if (!canEdit(user, inv.accountId, assigned)) {
     throw new Error("Not authorized to edit this account");
   }
@@ -94,7 +94,7 @@ export async function setCohorts(
     .where(eq(invoices.id, invoiceId))
     .limit(1);
   if (!inv) throw new Error("Invoice not found");
-  const assigned = user.role === "super-admin" ? [] : await assignedIds(user.id);
+  const assigned = user.roles.includes("super-admin") ? [] : await assignedIds(user.id);
   if (!canEdit(user, inv.accountId, assigned)) throw new Error("Not authorized");
 
   const price = (v: number | null | undefined) =>

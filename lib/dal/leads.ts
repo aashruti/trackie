@@ -43,7 +43,7 @@ export async function myFollowupsToday(user: SessionUser): Promise<LeadFollowup[
         lte(leadFollowups.dueDate, today),
         ne(leads.stage, "won"),
         ne(leads.stage, "lost"),
-        user.role === "super-admin" ? undefined : eq(leads.createdByUserId, user.id),
+        user.roles.includes("super-admin") ? undefined : eq(leads.createdByUserId, user.id),
       ),
     )
     .orderBy(asc(leadFollowups.dueDate));
@@ -278,7 +278,7 @@ export function canConvertLead(
   user: SessionUser,
   lead: { stage: LeadStage; createdByUserId: number | null },
 ): boolean {
-  if (user.role === "super-admin") return true;
+  if (user.roles.includes("super-admin")) return true;
   return lead.stage === "won" && lead.createdByUserId === user.id;
 }
 
@@ -316,7 +316,7 @@ export async function convertLeadToAccount(
 
   // Assign a non-super-admin converter to the new account so they can manage it
   // (and so createInvoice's canEdit check passes for them).
-  if (user.role !== "super-admin") {
+  if (!user.roles.includes("super-admin")) {
     await db.insert(userAccounts).values({ userId: user.id, accountId }).onConflictDoNothing();
   }
 

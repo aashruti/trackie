@@ -10,7 +10,7 @@ export default async function DeliveryProgramsPage() {
   const session = await auth();
   const user = session!.user;
   const { currentYear: YEAR, years } = await getYearContext();
-  const actor = { id: Number(user.id), role: user.role };
+  const actor = { id: Number(user.id), roles: user.roles };
 
   if (!canAccessDelivery(actor)) {
     return (

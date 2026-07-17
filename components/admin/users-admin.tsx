@@ -14,10 +14,13 @@ import {
 import type { Role } from "@/lib/db/enums";
 import type { UserRow } from "@/lib/dal/user-admin";
 
-const ROLES: Role[] = ["super-admin", "admin", "hr", "delivery", "viewer"];
+// TODO(Task 6): this UI still edits the single scalar `users.role` via
+// updateUserRoleAction, not the `user_roles` set — a stackable multi-select
+// is Task 6's job. Kept minimal here just to compile against the renamed enum.
+const ROLES: Role[] = ["super-admin", "sales", "hr", "delivery", "viewer"];
 const ROLE_TONE: Record<Role, string> = {
   "super-admin": "info",
-  admin: "pending",
+  sales: "pending",
   hr: "positive",
   delivery: "info",
   viewer: "neutral",
@@ -56,7 +59,7 @@ function CreateUser() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<Role>("admin");
+  const [role, setRole] = useState<Role>("sales");
   const [pending, startTransition] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

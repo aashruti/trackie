@@ -11,7 +11,7 @@ export default async function AccountsPage() {
   const user = session!.user;
   const { currentYear: YEAR, years } = await getYearContext();
   const rows = await listAccountsForUser(
-    { id: Number(user.id), role: user.role },
+    { id: Number(user.id), roles: user.roles },
     YEAR,
   );
 
@@ -23,7 +23,7 @@ export default async function AccountsPage() {
           <p className="text-xs text-text-muted">
             {rows.length} accounts · {YEAR}
           </p>
-          {canManageGroups({ id: Number(user.id), role: user.role }) && (
+          {canManageGroups({ id: Number(user.id), roles: user.roles }) && (
             <Link
               href="/accounts/groups"
               className="rounded-md border border-border-strong px-3 py-1.5 text-sm font-medium text-text-secondary hover:bg-surface-hover"
@@ -33,7 +33,7 @@ export default async function AccountsPage() {
           )}
         </div>
         <AccountsExplorer
-          canCreate={user.role === "super-admin"}
+          canCreate={user.roles.includes("super-admin")}
           rows={rows.map((r) => ({
             id: r.id,
             name: r.name,

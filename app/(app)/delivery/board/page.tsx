@@ -13,7 +13,7 @@ export default async function DeliveryBoardPage({
 }) {
   const session = await auth();
   const user = session!.user;
-  const actor = { id: Number(user.id), role: user.role };
+  const actor = { id: Number(user.id), roles: user.roles };
   const sp = await searchParams;
 
   if (!canAccessDelivery(actor)) {

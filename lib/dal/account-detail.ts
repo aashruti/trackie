@@ -63,7 +63,7 @@ export async function getAccountDetail(
   yearLabel: string,
 ): Promise<AccountDetail | null> {
   // Scope check: admin/viewer may only see assigned accounts.
-  if (user.role !== "super-admin") {
+  if (!user.roles.includes("super-admin")) {
     const allowed = await assignedIds(user.id);
     if (!allowed.includes(accountId)) return null;
   }

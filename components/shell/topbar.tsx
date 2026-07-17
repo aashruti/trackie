@@ -13,7 +13,7 @@ export function Topbar({
 }: {
   title: string;
   section?: string;
-  user: { name?: string | null; email?: string | null; role?: Role };
+  user: { name?: string | null; email?: string | null; roles?: Role[] };
   years?: string[];
   currentYear?: string;
 }) {
@@ -53,7 +53,7 @@ export function Topbar({
         )}
         <ThemeToggle />
         <UserMenu
-          user={{ name: user.name, email: user.email, role: user.role }}
+          user={{ name: user.name, email: user.email, roles: user.roles }}
           signOutAction={signOutAction}
         />
       </div>

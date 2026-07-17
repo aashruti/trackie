@@ -10,7 +10,7 @@ export default async function UsersAdminPage() {
   const user = session!.user;
   const { currentYear: YEAR, years } = await getYearContext();
 
-  if (user.role !== "super-admin") {
+  if (!user.roles.includes("super-admin")) {
     return (
       <>
         <Topbar section="Admin" title="Users" user={user} years={years} currentYear={YEAR} />
@@ -21,7 +21,7 @@ export default async function UsersAdminPage() {
     );
   }
 
-  const actor = { id: Number(user.id), role: user.role };
+  const actor = { id: Number(user.id), roles: user.roles };
   const usersList = await listUsers(actor);
   // All accounts (any year) for the assignment picker — accounts persist across years.
   const accountRows = await listAccountsForUser(actor, YEAR);

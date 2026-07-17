@@ -9,7 +9,7 @@ export default async function MyPayslipsPage() {
   const session = await auth();
   const user = session!.user;
   const { currentYear: YEAR, years } = await getYearContext();
-  const actor = { id: Number(user.id), role: user.role };
+  const actor = { id: Number(user.id), roles: user.roles };
 
   const { isEmployee, slips } = await getMyPayslips(actor);
   if (!isEmployee) redirect("/dashboard");

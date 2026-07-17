@@ -33,7 +33,7 @@ export default async function OemReportPage({
   const YEAR = await getCurrentYear();
   const years = (await listYears()).map((y) => y.label);
 
-  const report = await getOemReport({ id: Number(user.id), role: user.role }, oemName, YEAR);
+  const report = await getOemReport({ id: Number(user.id), roles: user.roles }, oemName, YEAR);
   if (!report) notFound();
   const t = report.totals;
 

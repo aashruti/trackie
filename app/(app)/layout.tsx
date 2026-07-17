@@ -19,8 +19,8 @@ export default async function AppLayout({
   return (
     <div className="flex min-h-dvh bg-background">
       <Sidebar
-        role={user.role}
-        user={{ name: user.name, role: user.role }}
+        roles={user.roles}
+        user={{ name: user.name, roles: user.roles }}
         version={pkg.version}
         isEmployee={employee}
       />

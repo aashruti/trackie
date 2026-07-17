@@ -37,12 +37,12 @@ export default async function AccountDetailPage({
   const { currentYear: YEAR, years } = await getYearContext();
 
   const detail = await getAccountDetail(
-    { id: Number(user.id), role: user.role },
+    { id: Number(user.id), roles: user.roles },
     Number(id),
     YEAR,
   );
   if (!detail) notFound();
-  const canAccessGroups = canManageGroups({ id: Number(user.id), role: user.role });
+  const canAccessGroups = canManageGroups({ id: Number(user.id), roles: user.roles });
 
   return (
     <>
@@ -58,10 +58,10 @@ export default async function AccountDetailPage({
             </h2>
             <StatusBadge status={detail.status} />
             <div className="ml-auto flex gap-2">
-              {user.role === "super-admin" && (
+              {user.roles.includes("super-admin") && (
                 <DeleteAccountButton accountId={detail.id} accountName={detail.name} />
               )}
-              {canAccessDelivery({ id: Number(user.id), role: user.role }) && (
+              {canAccessDelivery({ id: Number(user.id), roles: user.roles }) && (
                 <Link
                   href={`/delivery/report/${detail.id}`}
                   className="no-print rounded-md border border-border-strong px-3 py-1.5 text-sm font-medium text-text-secondary hover:bg-surface-hover"
@@ -101,7 +101,10 @@ export default async function AccountDetailPage({
 
         <ReservesStrip reserves={detail.reserves} />
 
-        {user.role !== "viewer" && (
+        {/* "Not just viewer" — a stacked {viewer, sales} user still gets the
+            edit affordances; the actual mutation is separately authorized
+            per-account by canEdit() in the DAL. */}
+        {user.roles.some((r) => r !== "viewer") && (
           <AddInvoice accountId={detail.id} yearLabel={YEAR} selfSupplied={detail.selfSupplied} />
         )}
 
@@ -109,7 +112,7 @@ export default async function AccountDetailPage({
           <Card className="p-8 text-center">
             <p className="text-sm text-text-secondary">
               No invoices for {YEAR} yet.
-              {user.role !== "viewer" ? " Use “Add invoice” above to create the first one." : ""}
+              {user.roles.some((r) => r !== "viewer") ? " Use “Add invoice” above to create the first one." : ""}
             </p>
           </Card>
         ) : (
@@ -118,7 +121,7 @@ export default async function AccountDetailPage({
             oem={detail.oem}
             accountId={detail.id}
             currentYear={YEAR}
-            canEdit={user.role !== "viewer"}
+            canEdit={user.roles.some((r) => r !== "viewer")}
           />
         )}
       </main>

@@ -2,7 +2,7 @@ import { describe, it, expect, afterAll } from "vitest";
 import { createAccount, createInvoice, listOems } from "./account-admin";
 import { getAccountDetail } from "./account-detail";
 
-const SUPER = { id: 1, role: "super-admin" as const };
+const SUPER = { id: 1, roles: ["super-admin" as const] };
 const YEAR = "FY26–27";
 
 describe("account-admin", () => {
@@ -38,7 +38,7 @@ describe("account-admin", () => {
 
   it("rejects a non-super-admin creating an account", async () => {
     await expect(
-      createAccount({ id: 2, role: "admin" }, { name: "X", type: "university", oemId: 1 }),
+      createAccount({ id: 2, roles: ["sales"] }, { name: "X", type: "university", oemId: 1 }),
     ).rejects.toThrow();
   });
 

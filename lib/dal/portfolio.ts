@@ -69,7 +69,7 @@ export async function getPortfolioForUser(
   if (!year) return empty;
 
   const assigned =
-    assignedOverride ?? (user.role === "super-admin" ? [] : await assignedIds(user.id));
+    assignedOverride ?? (user.roles.includes("super-admin") ? [] : await assignedIds(user.id));
   const scope = scopeAccountIds(user, assigned);
 
   const accRows = await db

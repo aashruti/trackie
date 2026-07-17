@@ -3,7 +3,7 @@ import { updateInvoice, setCohorts } from "./mutations";
 import { getAccountDetail } from "./account-detail";
 import { listAccountsForUser } from "./accounts";
 
-const SUPER = { id: 1, role: "super-admin" as const };
+const SUPER = { id: 1, roles: ["super-admin" as const] };
 const YEAR = "FY26–27";
 
 async function pillaiNewInvoiceId() {
@@ -36,10 +36,10 @@ describe("updateInvoice", () => {
   it("rejects a viewer / unassigned editor", async () => {
     const { id } = await pillaiNewInvoiceId();
     await expect(
-      updateInvoice({ id: 999, role: "viewer" }, id, { students: 5 }),
+      updateInvoice({ id: 999, roles: ["viewer"] }, id, { students: 5 }),
     ).rejects.toThrow();
     await expect(
-      updateInvoice({ id: 999, role: "admin" }, id, { students: 5 }),
+      updateInvoice({ id: 999, roles: ["sales"] }, id, { students: 5 }),
     ).rejects.toThrow();
   });
 
@@ -74,7 +74,7 @@ describe("setCohorts", () => {
 
   it("rejects a viewer", async () => {
     await expect(
-      setCohorts({ id: 999, role: "viewer" }, original!.id, []),
+      setCohorts({ id: 999, roles: ["viewer"] }, original!.id, []),
     ).rejects.toThrow();
   });
 

@@ -18,7 +18,7 @@ async function requireUserCode() {
 async function assertDeliveryBoardWrite() {
   const session = await auth();
   if (!session?.user) throw new Error("Not authenticated");
-  const actor = { id: Number(session.user.id), role: session.user.role };
+  const actor = { id: Number(session.user.id), roles: session.user.roles };
   if (!canAccessDelivery(actor)) {
     throw new Error("The delivery board is available to the Delivery team / Admin / Super Admin only");
   }

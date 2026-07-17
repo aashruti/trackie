@@ -8,7 +8,7 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 export async function GET(req: Request) {
   const session = await auth();
   const user = session?.user;
-  const actor = user ? { id: Number(user.id), role: user.role } : null;
+  const actor = user ? { id: Number(user.id), roles: user.roles } : null;
   if (!actor || !canManageHr(actor)) return new Response("Forbidden", { status: 403 });
 
   const url = new URL(req.url);

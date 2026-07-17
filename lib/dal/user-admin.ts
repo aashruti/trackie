@@ -1,14 +1,14 @@
 import "server-only";
 import { asc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { users, userAccounts } from "@/lib/db/schema";
+import { users, userAccounts, userRoles } from "@/lib/db/schema";
 import { hashPassword } from "@/lib/auth/password";
 import type { Role } from "@/lib/db/enums";
 import { type SessionUser } from "./authz";
 import { deleteUserSessions } from "./sessions";
 
 function assertSuperAdmin(user: SessionUser) {
-  if (user.role !== "super-admin") throw new Error("Only a Super Admin can manage users");
+  if (!user.roles.includes("super-admin")) throw new Error("Only a Super Admin can manage users");
 }
 
 /**
@@ -154,11 +154,16 @@ export async function deleteUser(actor: SessionUser, userId: number): Promise<vo
   await db.delete(users).where(eq(users.id, userId));
 }
 
-/** Count of super-admins — used to prevent removing the last one (future guard). */
+/**
+ * Count of super-admins — used to prevent removing the last one (future guard).
+ * Reads user_roles (the set, source of truth for authz), NOT users.role — the
+ * scalar is a stale rollback seed that won't reflect roles granted/revoked
+ * after the initial backfill.
+ */
 export async function superAdminCount(): Promise<number> {
   const [row] = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(users)
-    .where(eq(users.role, "super-admin"));
+    .select({ n: sql<number>`count(distinct ${userRoles.userId})::int` })
+    .from(userRoles)
+    .where(eq(userRoles.role, "super-admin"));
   return row?.n ?? 0;
 }

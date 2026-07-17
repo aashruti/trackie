@@ -14,12 +14,12 @@ export async function rolloverAction(
   if (!session?.user) throw new Error("Not authenticated");
   // Allow-list, not a deny-list: rollover creates GLOBAL academic-year rows, so
   // it is finance-only (hr/delivery roles must not reach it either).
-  if (session.user.role !== "super-admin" && session.user.role !== "admin") {
-    throw new Error("Only Admin / Super Admin can roll over years");
+  if (!session.user.roles.includes("super-admin") && !session.user.roles.includes("sales")) {
+    throw new Error("Only Sales / Super Admin can roll over years");
   }
 
   const result = await rolloverYear(
-    { id: Number(session.user.id), role: session.user.role },
+    { id: Number(session.user.id), roles: session.user.roles },
     fromYearLabel,
     toYearLabel,
     countOverrides,

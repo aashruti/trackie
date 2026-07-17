@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { roleShort, roleLabel } from "@/lib/auth/role-label";
+import { rolesShort, rolesLabel } from "@/lib/auth/role-label";
 import type { Role } from "@/lib/db/enums";
 
 function initials(name: string) {
@@ -19,7 +19,7 @@ export function UserMenu({
   user,
   signOutAction,
 }: {
-  user: { name?: string | null; email?: string | null; role?: Role };
+  user: { name?: string | null; email?: string | null; roles?: Role[] };
   signOutAction: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -54,9 +54,9 @@ export function UserMenu({
         <span className="grid h-7 w-7 place-items-center rounded-full bg-[var(--primary-subtle)] text-[11px] font-bold text-[var(--primary-text)]">
           {initials(name)}
         </span>
-        {user.role && (
+        {user.roles && user.roles.length > 0 && (
           <span className="rounded-full border border-[var(--primary-border)] bg-[var(--primary-subtle)] px-2 py-0.5 text-[11px] font-semibold text-[var(--primary-text)]">
-            {roleShort(user.role)}
+            {rolesShort(user.roles)}
           </span>
         )}
         <ChevronIcon open={open} />
@@ -70,8 +70,8 @@ export function UserMenu({
           <div className="px-3 py-2">
             <div className="truncate text-sm font-semibold text-text-primary">{name}</div>
             {user.email && <div className="truncate text-xs text-text-muted">{user.email}</div>}
-            {user.role && (
-              <div className="mt-0.5 text-[11px] text-text-muted">{roleLabel(user.role)}</div>
+            {user.roles && user.roles.length > 0 && (
+              <div className="mt-0.5 text-[11px] text-text-muted">{rolesLabel(user.roles)}</div>
             )}
           </div>
           <div className="my-1 border-t border-border-subtle" />

@@ -19,7 +19,7 @@ import type { DeliveryEventStatus, ProgramStatus } from "@/lib/db/enums";
 async function session() {
   const s = await auth();
   if (!s?.user) throw new Error("Not authenticated");
-  return { actor: { id: Number(s.user.id), role: s.user.role }, name: s.user.name ?? "Unknown" };
+  return { actor: { id: Number(s.user.id), roles: s.user.roles }, name: s.user.name ?? "Unknown" };
 }
 
 export type ActionResult = { ok: true } | { ok: false; error: string };

@@ -9,7 +9,7 @@ export default async function ReportsPage() {
   const user = session!.user;
   const { currentYear: YEAR, years } = await getYearContext();
 
-  const data = await getReportData({ id: Number(user.id), role: user.role }, YEAR);
+  const data = await getReportData({ id: Number(user.id), roles: user.roles }, YEAR);
 
   return (
     <>

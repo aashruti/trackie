@@ -7,7 +7,7 @@ import { assignedIds } from "./accounts";
 import type { Category, Semester, Status } from "@/lib/money/types";
 
 function assertSuperAdmin(user: SessionUser) {
-  if (user.role !== "super-admin") throw new Error("Only a Super Admin can do this");
+  if (!user.roles.includes("super-admin")) throw new Error("Only a Super Admin can do this");
 }
 
 export interface OemRow {
@@ -100,7 +100,7 @@ export async function createInvoice(
   yearLabel: string,
   input: NewInvoice,
 ): Promise<{ id: number }> {
-  const assigned = user.role === "super-admin" ? [] : await assignedIds(user.id);
+  const assigned = user.roles.includes("super-admin") ? [] : await assignedIds(user.id);
   if (!canEdit(user, accountId, assigned)) throw new Error("Not authorized for this account");
 
   let [year] = await db
@@ -143,7 +143,7 @@ export async function deleteDraftInvoice(
   accountId: number,
   invoiceId: number,
 ): Promise<void> {
-  const assigned = user.role === "super-admin" ? [] : await assignedIds(user.id);
+  const assigned = user.roles.includes("super-admin") ? [] : await assignedIds(user.id);
   if (!canEdit(user, accountId, assigned)) throw new Error("Not authorized for this account");
 
   const [row] = await db

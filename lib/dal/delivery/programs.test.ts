@@ -13,11 +13,13 @@ import {
 import { addActivity, createEvent, deleteActivity, deleteEvent, setEventStatus } from "./events";
 import { getAccountDeliveryReport } from "./report";
 
-const SUPER = { id: 1, role: "super-admin" as const };
-const ADMIN = { id: 997, role: "admin" as const };
-const VIEWER = { id: 999, role: "viewer" as const };
+const SUPER = { id: 1, roles: ["super-admin" as const] };
+// Sales lost delivery read/write in the admin→sales split (the ONE intended
+// reduction from stackable roles — see lib/dal/authz.test.ts).
+const SALES = { id: 997, roles: ["sales" as const] };
+const VIEWER = { id: 999, roles: ["viewer" as const] };
 // Real users row (created in beforeAll) — activity attribution has a users FK.
-const DELIVERY = { id: 0, role: "delivery" as const };
+const DELIVERY = { id: 0, roles: ["delivery" as const] };
 
 // Unique names so reruns against a dirty local DB never collide.
 const RUN = String(Date.now()).slice(-6);
@@ -168,13 +170,15 @@ describe("programs — CRUD, rollups, budget math", () => {
       name: `Datagami T3 ${RUN}`,
     });
     cleanup.programIds.push(second);
-    const report = (await getAccountDeliveryReport(ADMIN, fixtures.accountId))!; // admin can READ
+    const report = (await getAccountDeliveryReport(SUPER, fixtures.accountId))!;
     expect(report.account.name).toBe(`TestUni-${RUN}`);
     expect(report.totals).toMatchObject({ programs: 2, events: 1, activities: 2, allocated: 50000, spent: 30000 });
     const withEvents = report.programs.find((p) => p.events.length)!;
     // Chronological narrative: venue booking (Jul 05) before day-1 sessions (Jul 10).
     expect(withEvents.events[0].activities.map((a) => a.title)).toEqual(["Venue booking", "Day 1 sessions"]);
     expect(await getAccountDeliveryReport(SUPER, 99999999)).toBeNull();
+    // Sales lost delivery read access in the admin→sales split.
+    await expect(getAccountDeliveryReport(SALES, fixtures.accountId)).rejects.toThrow();
   });
 
   it("update + validation + role gates", async () => {
@@ -196,9 +200,10 @@ describe("programs — CRUD, rollups, budget math", () => {
       createEvent(SUPER, { programId, title: "Negative", startDate: "2026-07-01", budget: -5 }),
     ).rejects.toThrow(/positive/i);
 
-    // Admin reads, never writes; viewer does neither.
-    await expect(listPrograms(ADMIN)).resolves.toBeInstanceOf(Array);
-    await expect(createEvent(ADMIN, { programId, title: "Nope", startDate: "2026-07-01" })).rejects.toThrow();
+    // Sales has no delivery access at all now (lost it in the admin→sales
+    // split); viewer never had it either.
+    await expect(listPrograms(SALES)).rejects.toThrow();
+    await expect(createEvent(SALES, { programId, title: "Nope", startDate: "2026-07-01" })).rejects.toThrow();
     await expect(listPrograms(VIEWER)).rejects.toThrow();
     await expect(getProgramDetail(VIEWER, programId)).rejects.toThrow();
   });
