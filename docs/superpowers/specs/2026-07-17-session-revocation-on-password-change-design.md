@@ -121,9 +121,30 @@ superseded draft never shipped one.)*
 `events.signOut` that deletes the row. Sign-in itself is otherwise untouched.
 
 **`lib/dal/user-admin.ts`** — `resetUserPassword` calls `deleteUserSessions`; its "does NOT sign the
-target out" note is **deleted**, because it no longer will.
+target out" note is **deleted**, because it no longer will. Plus `signOutUserEverywhere(actor,
+userId)` behind the same `assertSuperAdmin` gate (§8a).
 
-**`app/(app)/profile/actions.ts`** — the self-change calls `deleteUserSessions` too.
+**`app/(app)/admin/users/actions.ts`** + **`components/admin/users-admin.tsx`** — a per-row **Sign out
+everywhere** control (§8a).
+
+**`app/(app)/profile/actions.ts`** — the self-change calls `deleteUserSessions` too. Per the user's
+choice this kills **every** session including the current one, so changing your own password bounces
+you to `/login`. The table would allow sparing the current `sid`; the simpler all-or-nothing was
+chosen deliberately.
+
+### 8a. Admin "Sign out everywhere"
+
+Evicts a user **without changing their password** — the case §7's rejected stamp approach could not
+serve at all, and the main reason the table earns its keep.
+
+- `signOutUserEverywhere(actor, userId)` — `assertSuperAdmin` first (before any DB read, matching
+  `resetUserPassword`), then `deleteUserSessions(userId)`. Returns the number of sessions ended so
+  the UI can say something true. `console.info`s the actor and target, like `resetUserPassword` —
+  there is still no audit table.
+- **Self is allowed here**, unlike password reset: signing yourself out of everywhere is a normal,
+  recoverable act (you just sign in again), not a lockout risk. It ends the current session too.
+- Action returns `{ ok, error }`; the UI control sits beside "Reset password" on the user row and
+  confirms first, since it is disruptive and cannot be undone.
 
 ## 9. Testing
 
@@ -144,6 +165,7 @@ The `jwt` callback is Auth.js-internal with no test harness here, so it is verif
 ## 10. Out of scope
 
 - Sweeping orphan rows (§4).
-- An admin "sign out everywhere" button, and a session list UI. The table makes both easy later;
-  neither is built here.
+- A session list UI ("signed in on 3 devices, since…"). `created_at` is stored for it, but nothing
+  reads it yet.
+- Sparing the current session on self-change (§8) — possible with this table, not chosen.
 - Auth.js-managed database sessions (§2 — genuinely blocked).
