@@ -13,6 +13,7 @@ import {
   time,
   jsonb,
   unique,
+  index,
 } from "drizzle-orm/pg-core";
 import {
   ROLES,
@@ -156,6 +157,23 @@ export const users = pgTable("users", {
   emailVerifiedAt: timestamp("email_verified_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+/**
+ * One row per signed-in session. The JWT carries this row's id as `sid`; the
+ * auth jwt callback checks it every request, so deleting a row revokes that
+ * session on its next request.
+ */
+export const authSessions = pgTable(
+  "auth_sessions",
+  {
+    id: text("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("auth_sessions_user_id_idx").on(t.userId)],
+);
 
 export const userAccounts = pgTable(
   "user_accounts",
