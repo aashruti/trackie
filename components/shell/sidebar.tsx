@@ -132,12 +132,10 @@ export function Sidebar({
   roles = [],
   user,
   version,
-  isEmployee,
 }: {
   roles?: Role[];
   user?: { name?: string | null; roles?: Role[] };
   version?: string;
-  isEmployee?: boolean;
 }) {
   const pathname = usePathname();
   const isSuper = roles.includes("super-admin");
@@ -185,7 +183,10 @@ export function Sidebar({
             pathname={pathname}
           />
         )}
-        {isEmployee && <Group title="Me" items={ME} pathname={pathname} />}
+        {/* Self-service is for everyone: the /me/* pages provision a profile on
+            first visit (leave-for-everyone), so gating this link on a pre-existing
+            profile would strand exactly the users the feature is meant to serve. */}
+        <Group title="Me" items={ME} pathname={pathname} />
         <Group title="Workspace" items={WORKSPACE} pathname={pathname} />
       </nav>
 
