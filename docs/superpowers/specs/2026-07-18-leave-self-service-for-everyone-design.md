@@ -31,8 +31,10 @@ provisioning is lazy and idempotent.
   (`status` → `active`, salary/deductions → 0/₹200 PT, `altCodes` → `[]`, off-days → defaults). The
   `U`-prefixed code is collision-free (`userId` is unique) and visibly distinct from HR's roster codes
   (`DG008`, `TH095`). Race-safe via `onConflictDoNothing()` on the unique `user_id`, then re-read.
-- **Balances degrade gracefully:** a profile with no `leave_balances` rows inherits each leave type's
-  default `annualEntitlement`, so balances show sensible numbers immediately.
+- **Balances degrade gracefully:** the leave view lists every active leave type; a fresh profile with
+  no `leave_balances` rows shows the type's `annualEntitlement` as the total, with **0 accrued/
+  remaining** until the monthly accrual runs — which is correct for a just-provisioned employee, not a
+  gap. They can still submit requests (the apply form is fully functional; HR approves).
 
 ## Wiring
 

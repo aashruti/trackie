@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth/config";
 import { Topbar } from "@/components/shell/topbar";
 import { getYearContext } from "@/lib/dal/years";
 import {
-  getEmployeeForUser,
+  getOrCreateEmployeeForUser,
   listLeaveTypesPublic,
   listMyRequests,
   listMyBalances,
@@ -16,7 +16,9 @@ export default async function MyLeavePage() {
   const { currentYear: YEAR, years } = await getYearContext();
   const actor = { id: Number(user.id), roles: user.roles };
 
-  const me = await getEmployeeForUser(actor.id);
+  // Provisions a minimal profile on first access so anyone can apply for leave;
+  // returns null only for a deactivated (inactive) employee, who is redirected.
+  const me = await getOrCreateEmployeeForUser(actor.id);
   if (!me) redirect("/dashboard");
 
   const calYear = new Date().getFullYear();

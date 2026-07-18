@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth/config";
 import { Topbar } from "@/components/shell/topbar";
 import { getYearContext } from "@/lib/dal/years";
 import { getMyPayslips } from "@/lib/dal/hr/payroll";
+import { getOrCreateEmployeeForUser } from "@/lib/dal/hr/leave";
 import { MyPayslipsView } from "@/components/hr/my-payslips";
 
 export default async function MyPayslipsPage() {
@@ -11,6 +12,7 @@ export default async function MyPayslipsPage() {
   const { currentYear: YEAR, years } = await getYearContext();
   const actor = { id: Number(user.id), roles: user.roles };
 
+  await getOrCreateEmployeeForUser(actor.id);
   const { isEmployee, slips } = await getMyPayslips(actor);
   if (!isEmployee) redirect("/dashboard");
 

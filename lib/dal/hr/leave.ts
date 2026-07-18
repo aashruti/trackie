@@ -521,6 +521,44 @@ export async function getEmployeeForUser(userId: number): Promise<SelfEmployee |
   };
 }
 
+/**
+ * Self-service leave/attendance/payslips need an employee_profiles row. Rather
+ * than gate on HR having pre-registered the person, provision a minimal profile
+ * on first access so ANY user can apply for and check their own leave.
+ *
+ *  - active profile exists → return it.
+ *  - INACTIVE profile exists (a deactivated employee who left) → return null;
+ *    do NOT reactivate them by provisioning. The page's redirect still fires.
+ *  - no profile at all → create a minimal active one and return it.
+ *
+ * Minimal insert: only employee_code lacks a default. `U<userId>` is unique
+ * (userId is unique) and visibly distinct from HR's roster codes (DG008/TH095).
+ * status defaults to 'active', salary/deductions to 0/₹200, so a fresh profile
+ * is immediately leave-eligible and inherits each leave type's default
+ * entitlement (it has no leave_balances rows yet).
+ */
+export async function getOrCreateEmployeeForUser(userId: number): Promise<SelfEmployee | null> {
+  const active = await getEmployeeForUser(userId);
+  if (active) return active;
+
+  // No ACTIVE profile — is there an inactive one? If so, they're a deactivated
+  // employee; leave self-service stays closed to them (the redirect fires).
+  const [existing] = await db
+    .select({ id: employeeProfiles.id })
+    .from(employeeProfiles)
+    .where(eq(employeeProfiles.userId, userId))
+    .limit(1);
+  if (existing) return null;
+
+  // Provision. onConflictDoNothing makes concurrent first-accesses race-safe
+  // (user_id is unique); re-read either the row we made or the winner's.
+  await db
+    .insert(employeeProfiles)
+    .values({ userId, employeeCode: `U${userId}` })
+    .onConflictDoNothing();
+  return getEmployeeForUser(userId);
+}
+
 /** Count leave days: half-day → 0.5, else inclusive span minus Sundays. */
 export function countLeaveDays(start: string, end: string, isHalfDay: boolean): number {
   if (isHalfDay) return 0.5;
