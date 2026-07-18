@@ -22,6 +22,21 @@ export function canEdit(user: SessionUser, accountId: number, assigned: number[]
   return false;
 }
 
+/**
+ * VIEW the finance surfaces (accounts, reports, OEM report, portfolio). Sales &
+ * super only. Load-bearing now that delivery is account-scoped: delivery/hr may
+ * hold `userAccounts` rows (for delivery SCOPING), and finance reads scope by
+ * those same rows — so without this gate a delivery user reaching /reports would
+ * see finance for their assigned universities. Membership in a finance role, not
+ * merely having account assignments, is what grants finance visibility.
+ */
+export function canViewFinance(user: SessionUser): boolean {
+  return isSuper(user) || has(user, "sales");
+}
+export function assertFinanceAccess(user: SessionUser): void {
+  if (!canViewFinance(user)) throw new UserError("Finance is available to Sales / Super Admin only");
+}
+
 export function canAccessLeads(user: SessionUser): boolean {
   return isSuper(user) || has(user, "sales");
 }

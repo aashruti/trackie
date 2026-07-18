@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
 import { auth } from "@/lib/auth/config";
+import { canViewFinance } from "@/lib/dal/authz";
 import { getReportData } from "@/lib/dal/reports";
 import {
   categoryLabels,
@@ -21,6 +22,10 @@ export async function GET(req: Request) {
   const user = session?.user;
   // proxy.ts already redirects the unauthenticated; this is defence in depth.
   if (!user) return new Response("Unauthorized", { status: 401 });
+  // Finance-only — a delivery/hr user must not export finance even via the URL.
+  if (!canViewFinance({ id: Number(user.id), roles: user.roles })) {
+    return new Response("Forbidden", { status: 403 });
+  }
 
   const url = new URL(req.url);
   const year = url.searchParams.get("year");

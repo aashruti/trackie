@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  canEdit, canAccessLeads, assertLeadsAccess, scopeAccountIds,
+  canEdit, canViewFinance, assertFinanceAccess, canAccessLeads, assertLeadsAccess, scopeAccountIds,
   canAccessDelivery, canManageDelivery,
   canManageGroups, assertGroupsManage, canManageHr, assertHrAccess,
   type SessionUser,
@@ -21,6 +21,21 @@ describe("scopeAccountIds", () => {
     expect(scopeAccountIds(sales, [10, 20])).toEqual([10, 20]);
     expect(scopeAccountIds(delivery, [10])).toEqual([10]);
     expect(scopeAccountIds(viewer, [])).toEqual([]);
+  });
+});
+
+describe("canViewFinance — delivery/hr can't see finance even with account assignments", () => {
+  it("super & sales yes; delivery, hr, viewer no", () => {
+    expect(canViewFinance(superAdmin)).toBe(true);
+    expect(canViewFinance(sales)).toBe(true);
+    expect(canViewFinance(delivery)).toBe(false); // ← the bypass this guards
+    expect(canViewFinance(hr)).toBe(false);
+    expect(canViewFinance(viewer)).toBe(false);
+    expect(() => assertFinanceAccess(delivery)).toThrow();
+    expect(() => assertFinanceAccess(sales)).not.toThrow();
+  });
+  it("a {sales, delivery} stack sees finance (via sales)", () => {
+    expect(canViewFinance(salesDelivery)).toBe(true);
   });
 });
 
