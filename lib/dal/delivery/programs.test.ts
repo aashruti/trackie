@@ -8,9 +8,10 @@ import {
   getProgramCalendar,
   getProgramDetail,
   listPrograms,
+  setProgramStatus,
   updateProgram,
 } from "./programs";
-import { addActivity, createEvent, deleteActivity, deleteEvent, setEventStatus } from "./events";
+import { addActivity, createEvent, deleteActivity, deleteEvent, setEventStatus, updateEvent } from "./events";
 import { getAccountDeliveryReport } from "./report";
 import { getDeliveryDashboard } from "./dashboard";
 import type { SessionUser } from "@/lib/dal/authz";
@@ -42,6 +43,9 @@ beforeAll(async () => {
     .values({ name: `TestUni-${RUN}`, type: "university", city: "Pune", oemId: oem.id })
     .returning({ id: accounts.id });
   fixtures.accountId = acc.id;
+  // Delivery is account-scoped now: assign the tester to this account so its
+  // write paths (create/update/delete program/event) are in scope.
+  await db.insert(userAccounts).values({ userId: u.id, accountId: acc.id });
   const [method] = await db
     .insert(deliveryMethods)
     .values({ name: `Style-${RUN}`, code: `S${RUN}` })
@@ -400,5 +404,58 @@ describe("account scoping — delivery reads are filtered to assigned universiti
     expect(dashAll.recent.some((r) => r.title === "Spend A")).toBe(true);
     expect(dashAll.recent.some((r) => r.title === "Spend B")).toBe(true);
     expect(dashAll.upcomingCount).toBe(2);
+  });
+
+  // WRITES must be scoped too, not just reads. A scoped user seeing only A but
+  // able to mutate B by guessing its id is an IDOR — read-hiding without
+  // write-scoping is a false sense of isolation.
+  it("write paths reject a scoped user acting on an out-of-scope account (B), allow in-scope (A)", async () => {
+    // --- program writes on B: all rejected ---
+    await expect(
+      updateProgram(DELIVERY_A, ids.programB, {
+        accountId: scope.accountBId, oemId: fixtures.oemId, deliveryMethodId: fixtures.methodId, name: "hijack",
+      }),
+    ).rejects.toThrow(/assigned universities/i);
+    await expect(setProgramStatus(DELIVERY_A, ids.programB, "completed")).rejects.toThrow(/assigned universities/i);
+    await expect(deleteProgram(DELIVERY_A, ids.programB)).rejects.toThrow(/assigned universities/i);
+    // can't create a program under an account they can't reach
+    await expect(
+      createProgram(DELIVERY_A, {
+        accountId: scope.accountBId, oemId: fixtures.oemId, deliveryMethodId: fixtures.methodId, name: "sneak",
+      }),
+    ).rejects.toThrow(/assigned universities/i);
+    // and can't move an in-scope program (A) INTO an out-of-scope account (B)
+    await expect(
+      updateProgram(DELIVERY_A, ids.programA, {
+        accountId: scope.accountBId, oemId: fixtures.oemId, deliveryMethodId: fixtures.methodId, name: "move-out",
+      }),
+    ).rejects.toThrow(/assigned universities/i);
+
+    // program B is untouched by the rejected delete
+    expect((await listPrograms(SUPER, { accountId: scope.accountBId })).some((p) => p.id === ids.programB)).toBe(true);
+
+    // --- event/activity writes on B: rejected ---
+    const evB = await createEvent(SUPER, { programId: ids.programB, title: "WriteScopeB", startDate: "2026-07-15" });
+    await expect(
+      createEvent(DELIVERY_A, { programId: ids.programB, title: "nope", startDate: "2026-07-15" }),
+    ).rejects.toThrow(/assigned universities/i);
+    await expect(updateEvent(DELIVERY_A, evB.id, { title: "hijack", startDate: "2026-07-15" })).rejects.toThrow(/assigned universities/i);
+    await expect(setEventStatus(DELIVERY_A, evB.id, "cancelled")).rejects.toThrow(/assigned universities/i);
+    await expect(deleteEvent(DELIVERY_A, evB.id)).rejects.toThrow(/assigned universities/i);
+    await expect(
+      addActivity(DELIVERY_A, "x", { eventId: evB.id, type: "note", title: "nope", activityDate: "2026-07-15" }),
+    ).rejects.toThrow(/assigned universities/i);
+    const actB = await addActivity(SUPER, "x", { eventId: evB.id, type: "note", title: "b", activityDate: "2026-07-15" });
+    await expect(deleteActivity(DELIVERY_A, actB.id)).rejects.toThrow(/assigned universities/i);
+
+    // --- in-scope (A) writes: allowed ---
+    await expect(setProgramStatus(DELIVERY_A, ids.programA, "active")).resolves.toBeUndefined();
+    const evA = await createEvent(DELIVERY_A, { programId: ids.programA, title: "WriteScopeA", startDate: "2026-07-15" });
+    expect(evA.id).toBeGreaterThan(0);
+    await expect(deleteEvent(DELIVERY_A, evA.id)).resolves.toBeUndefined();
+
+    // super-admin bypasses scope on B
+    await expect(setProgramStatus(SUPER, ids.programB, "active")).resolves.toBeUndefined();
+    // evB + actB are under program B, which afterAll deletes (cascading them).
   });
 });

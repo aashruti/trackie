@@ -18,6 +18,7 @@ import {
   type SessionUser,
 } from "@/lib/dal/authz";
 import { assignedIds } from "@/lib/dal/accounts";
+import { assertAccountInScope, assertProgramInScope } from "./scope";
 import { UserError } from "@/lib/dal/errors";
 import { PROGRAM_STATUSES, type DeliveryActivityType, type DeliveryEventStatus, type ProgramStatus } from "@/lib/db/enums";
 import { assertDateOrder, assertIsoDate, buildCalendarCells, monthDays, toMoney, type CalendarCell } from "./util";
@@ -307,6 +308,7 @@ async function assertRefsExist(
 export async function createProgram(user: SessionUser, input: NewProgram): Promise<{ id: number }> {
   assertDeliveryManage(user);
   const values = cleanProgramInput(input);
+  await assertAccountInScope(user, values.accountId); // can't create under an account you can't reach
   await assertRefsExist(values.accountId, values.oemId, values.deliveryMethodId);
   const [row] = await db.insert(programs).values(values).returning({ id: programs.id });
   return { id: row.id };
@@ -315,6 +317,8 @@ export async function createProgram(user: SessionUser, input: NewProgram): Promi
 export async function updateProgram(user: SessionUser, id: number, input: NewProgram): Promise<void> {
   assertDeliveryManage(user);
   const values = cleanProgramInput(input);
+  await assertProgramInScope(user, id); // can't edit a program you can't see
+  await assertAccountInScope(user, values.accountId); // can't move it to an account you can't reach
   const [current] = await db
     .select({ deliveryMethodId: programs.deliveryMethodId })
     .from(programs)
@@ -330,6 +334,7 @@ export async function updateProgram(user: SessionUser, id: number, input: NewPro
 /** Status-only change (the detail header's status pill picker). */
 export async function setProgramStatus(user: SessionUser, id: number, status: ProgramStatus): Promise<void> {
   assertDeliveryManage(user);
+  await assertProgramInScope(user, id);
   if (!PROGRAM_STATUSES.includes(status)) throw new UserError("Unknown program status.");
   const updated = await db.update(programs).set({ status }).where(eq(programs.id, id)).returning({ id: programs.id });
   if (!updated.length) throw new UserError("Program not found.");
@@ -338,6 +343,7 @@ export async function setProgramStatus(user: SessionUser, id: number, status: Pr
 /** Hard delete — events/activities cascade; board tasks keep the account but lose the program link. */
 export async function deleteProgram(user: SessionUser, id: number): Promise<void> {
   assertDeliveryManage(user);
+  await assertProgramInScope(user, id);
   const deleted = await db.delete(programs).where(eq(programs.id, id)).returning({ id: programs.id });
   if (!deleted.length) throw new UserError("Program not found.");
 }
