@@ -1,7 +1,7 @@
 import "server-only";
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { accounts, oems, invoices, academicYears } from "@/lib/db/schema";
+import { accounts, oems, invoices, academicYears, cohorts, payments } from "@/lib/db/schema";
 import { canEdit, type SessionUser } from "./authz";
 import { assignedIds } from "./accounts";
 import { stampedDelete, stampedDeleteWhere } from "./audit";
@@ -173,6 +173,11 @@ export async function deleteDraftInvoice(
   if (!row) throw new Error("Invoice not found");
   if (row.status !== "draft") throw new Error("Only draft invoices can be deleted");
 
+  // Pre-stamp cascade children so their DELETE audit rows carry the
+  // deleter (spec §4 Cascades; mirrors deleteYear). addPayment has no
+  // draft-status guard, so a draft invoice can carry payments too.
+  await db.update(cohorts).set({ updatedBy: user.id }).where(eq(cohorts.invoiceId, invoiceId));
+  await db.update(payments).set({ updatedBy: user.id }).where(eq(payments.invoiceId, invoiceId));
   // Payments and cohorts cascade from the invoice row.
   await stampedDelete(invoices, invoiceId, user.id);
 }

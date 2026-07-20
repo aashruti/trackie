@@ -1,7 +1,15 @@
 import { describe, it, expect, afterAll, vi } from "vitest";
-import { count, eq } from "drizzle-orm";
+import { and, count, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { users, authSessions, userRoles } from "@/lib/db/schema";
+import {
+  users,
+  authSessions,
+  userRoles,
+  auditLog,
+  employeeProfiles,
+  leaveRequests,
+  leaveTypes,
+} from "@/lib/db/schema";
 import { verifyPassword } from "@/lib/auth/password";
 import {
   createUser,
@@ -15,6 +23,7 @@ import {
 } from "./user-admin";
 import { listAccountsForUser } from "./accounts";
 import { createSession, sessionExists } from "./sessions";
+import { getOrCreateEmployeeForUser, applyForLeave } from "./hr/leave";
 
 const SUPER = { id: 1, roles: ["super-admin" as const] };
 
@@ -365,6 +374,98 @@ describe("deleteUser — cascade audit regression", () => {
       // No-op if the assertions above already confirm deletion — deleteUser
       // on an already-gone user is a harmless silent 0-row no-op.
       await deleteUser(SUPER, u.id);
+    }
+  });
+
+  it("succeeds for a user with a self-stamped employee profile AND a self-filed leave request", async () => {
+    // The shape that aborted deleteUser while audit_log.actor_id still had an
+    // FK to users.id. employee_profiles.user_id is ON DELETE CASCADE and
+    // getOrCreateEmployeeForUser provisions the profile with
+    // created_by/updated_by = the user themselves; applying for leave does the
+    // same on leave_requests. Deleting the user cascades users →
+    // employee_profiles → leave_requests, and EACH cascaded row's DELETE audit
+    // trigger reads its own updated_by (this user, already removed in the same
+    // statement) as the actor. With the FK in place that INSERT is a dangling
+    // reference and the whole delete rolls back.
+    //
+    // Pre-stamping the subtree is not a fix — it's whack-a-mole: stamping
+    // employee_profiles alone still aborts on leave_requests, and the cascade
+    // reaches leave_balances / attendance_records / payslips too. The fix is
+    // that audit_log.actor_id has no FK at all, so an audit row can outlive
+    // the actor it names.
+    const u = await createUser(SUPER, {
+      name: "Cascading Employee",
+      email: "cascading-employee@datagami.local",
+      password: "secret123",
+      roles: ["viewer"],
+    });
+    const self = { id: u.id, roles: ["viewer" as const] };
+    let employeeId: number | null = null;
+    let requestId: number | null = null;
+    try {
+      // Self-stamped profile: created_by = updated_by = u.id.
+      const me = await getOrCreateEmployeeForUser(u.id);
+      expect(me).not.toBeNull();
+      employeeId = me!.employeeId;
+      const [profile] = await db
+        .select()
+        .from(employeeProfiles)
+        .where(eq(employeeProfiles.id, employeeId))
+        .limit(1);
+      expect(profile.updatedBy).toBe(u.id); // the self-reference that used to break the delete
+
+      // Self-filed leave request: also created_by = updated_by = u.id, and it
+      // hangs off the profile, so it is a SECOND cascade level.
+      const [type] = await db.select({ id: leaveTypes.id }).from(leaveTypes).limit(1);
+      const applied = await applyForLeave(self, {
+        leaveTypeId: type.id,
+        startDate: "2026-08-03",
+        endDate: "2026-08-03",
+        isHalfDay: false,
+        reason: "cascade regression fixture",
+      });
+      requestId = applied.requestId;
+
+      await deleteUser(SUPER, u.id);
+
+      // The user and both cascade levels are gone — no mid-cascade abort.
+      expect(await db.select().from(users).where(eq(users.id, u.id))).toHaveLength(0);
+      expect(
+        await db.select().from(employeeProfiles).where(eq(employeeProfiles.id, employeeId)),
+      ).toHaveLength(0);
+      expect(
+        await db.select().from(leaveRequests).where(eq(leaveRequests.id, requestId)),
+      ).toHaveLength(0);
+
+      // And the audit trail survived the actor it names — the other half of
+      // dropping the FK. Under ON DELETE SET NULL this attribution would have
+      // been retroactively NULLed the moment the user was deleted.
+      const profileDelete = await db
+        .select()
+        .from(auditLog)
+        .where(
+          and(
+            eq(auditLog.tableName, "employee_profiles"),
+            eq(auditLog.rowId, String(employeeId)),
+            eq(auditLog.op, "DELETE"),
+          ),
+        );
+      expect(profileDelete).toHaveLength(1);
+      expect(profileDelete[0].actorId).toBe(u.id);
+    } finally {
+      await deleteUser(SUPER, u.id); // no-op if already deleted
+      // Purge this test's audit_log rows so repeated local runs don't accumulate.
+      const scopes: Array<[string, number | null]> = [
+        ["users", u.id],
+        ["employee_profiles", employeeId],
+        ["leave_requests", requestId],
+      ];
+      for (const [tableName, rowId] of scopes) {
+        if (rowId === null) continue;
+        await db
+          .delete(auditLog)
+          .where(and(eq(auditLog.tableName, tableName), eq(auditLog.rowId, String(rowId))));
+      }
     }
   });
 });

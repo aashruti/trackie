@@ -690,7 +690,13 @@ export const auditLog = pgTable(
     tableName: text("table_name").notNull(),
     op: text("op").notNull(), // INSERT | UPDATE | DELETE
     rowId: text("row_id"), // text so it survives the row's deletion; null for composite-PK tables
-    actorId: integer("actor_id").references(() => users.id, { onDelete: "set null" }),
+    // Deliberately NO .references(users.id). An audit log must outlive the data
+    // it audits, and an FK breaks that two ways: ON DELETE SET NULL retroactively
+    // strips attribution from a departed user's whole audit history, and the FK
+    // aborts cascade deletes mid-flight when a cascaded row's updated_by is the
+    // user being deleted. Readers LEFT JOIN users to resolve names, which works
+    // fine against a plain integer.
+    actorId: integer("actor_id"),
     before: jsonb("before"),
     after: jsonb("after"),
   },

@@ -9,7 +9,17 @@ CREATE TABLE IF NOT EXISTS "audit_log" (
   "table_name" text NOT NULL,
   "op" text NOT NULL,
   "row_id" text,
-  "actor_id" integer REFERENCES "users"("id") ON DELETE SET NULL,
+  -- actor_id deliberately has NO foreign key to users(id). An audit log must
+  -- outlive the data it audits, and an FK breaks that two ways:
+  --  (a) ON DELETE SET NULL retroactively strips attribution from a departed
+  --      user's entire audit history — the log silently rewrites itself.
+  --  (b) it aborts cascade deletes mid-flight: when a cascaded child row's
+  --      updated_by is the very user being deleted, that row's DELETE trigger
+  --      INSERTs an audit row referencing a users row already removed in the
+  --      same statement, and the whole delete rolls back.
+  -- Readers resolve actor names with a LEFT JOIN, which works fine against a
+  -- plain integer (and correctly yields NULL for a since-deleted actor).
+  "actor_id" integer,
   "before" jsonb,
   "after" jsonb
 );--> statement-breakpoint
@@ -205,8 +215,19 @@ BEGIN
   RETURN NEW;
 END; $$ LANGUAGE plpgsql SET search_path = public;--> statement-breakpoint
 -- audit_row notes:
---  (a) password_hash is redacted from the before/after images (jsonb "-" is a
---      no-op on tables without that key, so the function stays generic).
+--  (a) Three keys are stripped from the before/after images:
+--        password_hash — a credential; an append-only log must never hold one.
+--        aadhar, pan   — regulated identifiers (Aadhaar numbers are governed
+--                        storage under the Aadhaar Act). audit_log is
+--                        append-only with no retention policy, so every
+--                        historical value would otherwise live forever in a
+--                        second, uncontrolled copy outside employee_profiles.
+--      Redaction hides only the VALUES: the mutation itself is still fully
+--      audited (table, op, row_id, actor, timestamp, and every other column's
+--      before/after), so "who changed this employee's record and when" stays
+--      answerable — only the regulated fields' contents are omitted.
+--      The jsonb "-" operator is a no-op on tables lacking these keys, so the
+--      function stays generic across all audited tables.
 --  (b) ON DELETE SET NULL referential actions DO fire these triggers — such
 --      audit rows have actor NULL (accepted; the row's original updated_by is
 --      still visible in the before image).
@@ -214,22 +235,22 @@ CREATE OR REPLACE FUNCTION audit_row() RETURNS trigger AS $$
 DECLARE v_actor int; v_row text; j_old jsonb; j_new jsonb;
 BEGIN
   IF (TG_OP = 'DELETE') THEN
-    j_old := to_jsonb(OLD) - 'password_hash';
+    j_old := to_jsonb(OLD) - 'password_hash' - 'aadhar' - 'pan';
     v_actor := (j_old ->> 'updated_by')::int;
     v_row := j_old ->> 'id';
     INSERT INTO audit_log(table_name, op, row_id, actor_id, before, after)
       VALUES (TG_TABLE_NAME, TG_OP, v_row, v_actor, j_old, NULL);
     RETURN OLD;
   ELSIF (TG_OP = 'UPDATE') THEN
-    j_old := to_jsonb(OLD) - 'password_hash';
-    j_new := to_jsonb(NEW) - 'password_hash';
+    j_old := to_jsonb(OLD) - 'password_hash' - 'aadhar' - 'pan';
+    j_new := to_jsonb(NEW) - 'password_hash' - 'aadhar' - 'pan';
     v_actor := (j_new ->> 'updated_by')::int;
     v_row := j_new ->> 'id';
     INSERT INTO audit_log(table_name, op, row_id, actor_id, before, after)
       VALUES (TG_TABLE_NAME, TG_OP, v_row, v_actor, j_old, j_new);
     RETURN NEW;
   ELSE
-    j_new := to_jsonb(NEW) - 'password_hash';
+    j_new := to_jsonb(NEW) - 'password_hash' - 'aadhar' - 'pan';
     v_actor := (j_new ->> 'updated_by')::int;
     v_row := j_new ->> 'id';
     INSERT INTO audit_log(table_name, op, row_id, actor_id, before, after)
