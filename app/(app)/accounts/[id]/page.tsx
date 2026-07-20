@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { auth } from "@/lib/auth/config";
 import { Topbar } from "@/components/shell/topbar";
 import { Card } from "@/components/ui/card";
@@ -13,7 +13,7 @@ import { PrintButton } from "@/components/reports/print-button";
 import { DeleteAccountButton } from "@/components/accounts/delete-account-button";
 import { getAccountDetail } from "@/lib/dal/account-detail";
 import { getYearContext } from "@/lib/dal/years";
-import { canAccessDelivery, canManageGroups } from "@/lib/dal/authz";
+import { canAccessDelivery, canManageGroups, canViewFinance } from "@/lib/dal/authz";
 
 function Kpi({ label, value, tone }: { label: string; value: number; tone?: "default" | "positive" | "negative" | "pending" | "info" }) {
   return (
@@ -34,6 +34,12 @@ export default async function AccountDetailPage({
   const { id } = await params;
   const session = await auth();
   const user = session!.user;
+  // Finance detail is Sales / Super Admin only — same gate as the /accounts list
+  // and /reports. Load-bearing: delivery/hr users may hold user_accounts rows
+  // (for delivery SCOPING), and getAccountDetail authorizes by assignment, so
+  // without this a delivery user assigned an account would read its full
+  // financials (billing, margin, TDS, ledger). See canViewFinance in authz.ts.
+  if (!canViewFinance({ id: Number(user.id), roles: user.roles })) redirect("/dashboard");
   const { currentYear: YEAR, years } = await getYearContext();
 
   const detail = await getAccountDetail(
