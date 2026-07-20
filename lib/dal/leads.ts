@@ -305,9 +305,9 @@ export async function convertLeadToAccount(
 
   const oemName = (lead.oem ?? "").trim();
   if (!oemName) throw new Error("Set the lead's OEM before converting.");
-  const oem = await ensureOem(oemName); // match by name or create — convert is already authorized
+  const oem = await ensureOem(user.id, oemName); // match by name or create — convert is already authorized
 
-  const { id: accountId } = await insertAccount({
+  const { id: accountId } = await insertAccount(user.id, {
     name: lead.prospect,
     type: "university",
     city: lead.city,

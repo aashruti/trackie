@@ -4,6 +4,7 @@ import { db } from "@/lib/db/client";
 import { accounts, oems, invoices, academicYears } from "@/lib/db/schema";
 import { canEdit, type SessionUser } from "./authz";
 import { assignedIds } from "./accounts";
+import { stampedDelete, stampedDeleteWhere } from "./audit";
 import type { Category, Semester, Status } from "@/lib/money/types";
 
 function assertSuperAdmin(user: SessionUser) {
@@ -21,12 +22,15 @@ export async function listOems(): Promise<OemRow[]> {
 }
 
 /** Find an OEM by name, or create it. No authorization — internal helper. */
-export async function ensureOem(name: string, isSelf = false): Promise<OemRow> {
+export async function ensureOem(actorId: number, name: string, isSelf = false): Promise<OemRow> {
   const clean = name.trim();
   if (!clean) throw new Error("OEM name is required");
   const existing = await db.select().from(oems).where(eq(oems.name, clean)).limit(1);
   if (existing.length) return existing[0];
-  const [row] = await db.insert(oems).values({ name: clean, isSelf }).returning();
+  const [row] = await db
+    .insert(oems)
+    .values({ name: clean, isSelf, createdBy: actorId, updatedBy: actorId })
+    .returning();
   return row;
 }
 
@@ -36,21 +40,31 @@ export async function createOem(
   isSelf = false,
 ): Promise<OemRow> {
   assertSuperAdmin(user);
-  return ensureOem(name, isSelf);
+  return ensureOem(user.id, name, isSelf);
 }
 
 /** Raw account insert. No authorization — callers must authorize first. */
-export async function insertAccount(input: {
-  name: string;
-  type: "university" | "programme";
-  city?: string | null;
-  oemId: number;
-}): Promise<{ id: number }> {
+export async function insertAccount(
+  actorId: number,
+  input: {
+    name: string;
+    type: "university" | "programme";
+    city?: string | null;
+    oemId: number;
+  },
+): Promise<{ id: number }> {
   const name = input.name.trim();
   if (!name) throw new Error("Account name is required");
   const [row] = await db
     .insert(accounts)
-    .values({ name, type: input.type, city: input.city ?? null, oemId: input.oemId })
+    .values({
+      name,
+      type: input.type,
+      city: input.city ?? null,
+      oemId: input.oemId,
+      createdBy: actorId,
+      updatedBy: actorId,
+    })
     .returning();
   return { id: row.id };
 }
@@ -73,11 +87,11 @@ export async function createAccount(
   let oemId = input.oemId;
   if (!oemId) {
     if (!input.newOemName?.trim()) throw new Error("Pick an OEM or add a new one");
-    const oem = await ensureOem(input.newOemName, input.newOemIsSelf ?? false);
+    const oem = await ensureOem(user.id, input.newOemName, input.newOemIsSelf ?? false);
     oemId = oem.id;
   }
 
-  return insertAccount({ name: input.name, type: input.type, city: input.city, oemId });
+  return insertAccount(user.id, { name: input.name, type: input.type, city: input.city, oemId });
 }
 
 export interface NewInvoice {
@@ -109,7 +123,10 @@ export async function createInvoice(
     .where(eq(academicYears.label, yearLabel))
     .limit(1);
   if (!year) {
-    [year] = await db.insert(academicYears).values({ label: yearLabel }).returning();
+    [year] = await db
+      .insert(academicYears)
+      .values({ label: yearLabel, createdBy: user.id, updatedBy: user.id })
+      .returning();
   }
 
   const [row] = await db
@@ -128,6 +145,8 @@ export async function createInvoice(
       invoiceDate: input.invoiceDate ?? null,
       dueDate: input.dueDate ?? null,
       status: input.status ?? "draft",
+      createdBy: user.id,
+      updatedBy: user.id,
     })
     .returning();
   return { id: row.id };
@@ -155,7 +174,7 @@ export async function deleteDraftInvoice(
   if (row.status !== "draft") throw new Error("Only draft invoices can be deleted");
 
   // Payments and cohorts cascade from the invoice row.
-  await db.delete(invoices).where(eq(invoices.id, invoiceId));
+  await stampedDelete(invoices, invoiceId, user.id);
 }
 
 /**
@@ -172,7 +191,11 @@ export async function deleteAccount(
 ): Promise<void> {
   assertSuperAdmin(user);
   // Delete invoices first — payments and cohorts cascade from invoice deletion.
-  await db.delete(invoices).where(eq(invoices.accountId, accountId));
+  // Non-atomic on neon-http (no transactions): if a new invoice is created for
+  // this account between the two calls below, the account delete fails with an
+  // FK violation. Pre-existing race window, benign — nothing is lost, and the
+  // caller can just retry.
+  await stampedDeleteWhere(invoices, eq(invoices.accountId, accountId), user.id);
   // Delete the account — userAccounts cascades; tasks.accountId set null.
-  await db.delete(accounts).where(eq(accounts.id, accountId));
+  await stampedDelete(accounts, accountId, user.id);
 }

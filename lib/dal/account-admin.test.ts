@@ -19,7 +19,7 @@ describe("account-admin", () => {
     });
     accountId = acc.id;
 
-    await createInvoice(SUPER, acc.id, YEAR, {
+    const invoice = await createInvoice(SUPER, acc.id, YEAR, {
       category: "new",
       semester: "none",
       students: 100,
@@ -34,6 +34,22 @@ describe("account-admin", () => {
     expect(detail!.name).toMatch(/Test University/);
     expect(detail!.invoices.length).toBe(1);
     expect(detail!.totals.netMargin).toBe(100 * (20000 - 17000)); // 300000
+
+    // The audit trigger reads updated_by off the row to attribute the audit_log
+    // entry — assert the app actually stamped both columns on insert.
+    const { db } = await import("@/lib/db/client");
+    const t = await import("@/lib/db/schema");
+    const { eq } = await import("drizzle-orm");
+    const [accountRow] = await db.select().from(t.accounts).where(eq(t.accounts.id, acc.id)).limit(1);
+    expect(accountRow.createdBy).toBe(SUPER.id);
+    expect(accountRow.updatedBy).toBe(SUPER.id);
+    const [invoiceRow] = await db
+      .select()
+      .from(t.invoices)
+      .where(eq(t.invoices.id, invoice.id))
+      .limit(1);
+    expect(invoiceRow.createdBy).toBe(SUPER.id);
+    expect(invoiceRow.updatedBy).toBe(SUPER.id);
   });
 
   it("rejects a non-super-admin creating an account", async () => {
