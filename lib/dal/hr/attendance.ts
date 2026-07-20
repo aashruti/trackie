@@ -179,6 +179,8 @@ export async function commitAttendance(
       matchedCount: preview.matched.reduce((n, e) => n + e.records.length, 0),
       unmatchedCount: preview.unmatched.reduce((n, u) => n + u.days, 0),
       status: "committed",
+      createdBy: user.id,
+      updatedBy: user.id,
     })
     .returning({ id: attendanceUploads.id });
 
@@ -198,6 +200,8 @@ export async function commitAttendance(
       lopDays: String(r.lopDays),
       source: "scanner" as const,
       uploadId: upload.id,
+      createdBy: user.id,
+      updatedBy: user.id,
     })),
   );
   // Upsert in chunks; preserve any day already sourced from an approved leave.
@@ -220,7 +224,7 @@ export async function commitAttendance(
           lopDays: sql`excluded.lop_days`,
           source: sql`excluded.source`,
           uploadId: sql`excluded.upload_id`,
-          updatedAt: sql`now()`,
+          updatedBy: user.id,
         },
         setWhere: sql`${attendanceRecords.source} <> 'leave'`,
       });
@@ -335,10 +339,20 @@ export async function overrideAttendanceDay(
   const cleared = { isLate: false, lateMinutes: 0, isEarlyLeave: false, earlyMinutes: 0 };
   await db
     .insert(attendanceRecords)
-    .values({ employeeId, date, dayType, source: "manual", overriddenByUserId: user.id, lopDays: lop, ...cleared })
+    .values({
+      employeeId,
+      date,
+      dayType,
+      source: "manual",
+      overriddenByUserId: user.id,
+      lopDays: lop,
+      ...cleared,
+      createdBy: user.id,
+      updatedBy: user.id,
+    })
     .onConflictDoUpdate({
       target: [attendanceRecords.employeeId, attendanceRecords.date],
-      set: { dayType, lopDays: lop, source: "manual", overriddenByUserId: user.id, updatedAt: sql`now()`, ...cleared },
+      set: { dayType, lopDays: lop, source: "manual", overriddenByUserId: user.id, updatedBy: user.id, ...cleared },
     });
 }
 
@@ -348,11 +362,24 @@ export async function setAttendanceLate(user: SessionUser, employeeId: number, d
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new UserError("Invalid date.");
   await db
     .insert(attendanceRecords)
-    .values({ employeeId, date, dayType: "office", source: "manual", overriddenByUserId: user.id, lopDays: "0", isLate, lateMinutes: 0, isEarlyLeave: false, earlyMinutes: 0 })
+    .values({
+      employeeId,
+      date,
+      dayType: "office",
+      source: "manual",
+      overriddenByUserId: user.id,
+      lopDays: "0",
+      isLate,
+      lateMinutes: 0,
+      isEarlyLeave: false,
+      earlyMinutes: 0,
+      createdBy: user.id,
+      updatedBy: user.id,
+    })
     .onConflictDoUpdate({
       target: [attendanceRecords.employeeId, attendanceRecords.date],
       // Preserve day_type/source; only flip the late flag (zero minutes when clearing).
-      set: { isLate, lateMinutes: isLate ? sql`${attendanceRecords.lateMinutes}` : 0, overriddenByUserId: user.id, updatedAt: sql`now()` },
+      set: { isLate, lateMinutes: isLate ? sql`${attendanceRecords.lateMinutes}` : 0, overriddenByUserId: user.id, updatedBy: user.id },
     });
 }
 
