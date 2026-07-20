@@ -13,7 +13,18 @@ import {
   type BillDeletionPreview,
   type NewInvoice,
 } from "@/lib/dal/account-admin";
+import { isUserError } from "@/lib/dal/errors";
 import type { Role } from "@/lib/db/enums";
+
+// The repo's server-action convention (see accounts/groups, delivery/programs,
+// hr/*): never let a raw throw reach the client — Next masks uncaught Server
+// Action errors in production builds, so the caller would get an opaque digest
+// instead of the message. A UserError's message is safe to show; anything else
+// becomes a generic string and is logged server-side.
+export type ActionResult = { ok: true } | { ok: false; error: string };
+export type BillPreviewResult =
+  | { ok: true; preview: BillDeletionPreview }
+  | { ok: false; error: string };
 
 function sessionUser(session: { user: { id: string; roles: Role[] } }) {
   return { id: Number(session.user.id), roles: session.user.roles };
@@ -86,18 +97,43 @@ export async function deletePaymentAction(accountId: number, paymentId: number) 
 export async function billDeletionPreviewAction(
   accountId: number,
   invoiceId: number,
-): Promise<BillDeletionPreview> {
-  const session = await auth();
-  if (!session?.user) throw new Error("Not authenticated");
-  return getBillDeletionPreview(sessionUser(session), accountId, invoiceId);
+): Promise<BillPreviewResult> {
+  try {
+    const session = await auth();
+    if (!session?.user) throw new Error("Not authenticated");
+    const preview = await getBillDeletionPreview(sessionUser(session), accountId, invoiceId);
+    return { ok: true, preview };
+  } catch (e) {
+    console.error("[bills:deletion-preview]", e);
+    return {
+      ok: false,
+      error: isUserError(e)
+        ? e.message
+        : "Could not work out what deleting this bill would remove.",
+    };
+  }
 }
 
-export async function deleteBillAction(accountId: number, invoiceId: number) {
-  const session = await auth();
-  if (!session?.user) throw new Error("Not authenticated");
-  await deleteBill(sessionUser(session), accountId, invoiceId);
-  revalidatePath(`/accounts/${accountId}`);
-  return { ok: true };
+/**
+ * `expectedPaymentIds` is the ids of the payments the confirmation dialog
+ * itemised — the delete is refused if the bill's payments no longer match it,
+ * so the user can never destroy more than they were shown.
+ */
+export async function deleteBillAction(
+  accountId: number,
+  invoiceId: number,
+  expectedPaymentIds: number[],
+): Promise<ActionResult> {
+  try {
+    const session = await auth();
+    if (!session?.user) throw new Error("Not authenticated");
+    await deleteBill(sessionUser(session), accountId, invoiceId, expectedPaymentIds);
+    revalidatePath(`/accounts/${accountId}`);
+    return { ok: true };
+  } catch (e) {
+    console.error("[bills:delete]", e);
+    return { ok: false, error: isUserError(e) ? e.message : "Could not delete this bill." };
+  }
 }
 
 export async function deleteAccountAction(accountId: number) {

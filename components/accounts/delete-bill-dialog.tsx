@@ -45,20 +45,25 @@ export function DeleteBillDialog({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose, deleting]);
 
+  const payments = preview?.payments ?? [];
+
   function confirm() {
     setError(null);
     startDelete(async () => {
       try {
-        await deleteBillAction(accountId, invoiceId);
-        onClose();
-      } catch (e) {
+        // Confirm against exactly the payments listed below: the DAL refuses if
+        // the bill has gained or lost one since the preview, so the user can
+        // never destroy more than this dialog showed them.
+        const res = await deleteBillAction(accountId, invoiceId, payments.map((p) => p.id));
         // Stay open on failure — silently closing would read as success.
+        if (res.ok) onClose();
+        else setError(res.error);
+      } catch (e) {
+        // Transport-level failure (the action itself never throws).
         setError(e instanceof Error ? e.message : "Could not delete this bill.");
       }
     });
   }
-
-  const payments = preview?.payments ?? [];
 
   return (
     <div
@@ -74,15 +79,30 @@ export function DeleteBillDialog({
         onClick={(e) => e.stopPropagation()}
         className="mt-[6vh] flex max-h-[84vh] w-full max-w-[520px] flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-xl outline-none"
       >
-        <div className="flex items-center justify-between border-b border-border-subtle px-5 py-4">
-          <h2 id="delete-bill-title" className="text-base font-bold tracking-tight text-text-primary">
-            Delete {billLabel}?
-          </h2>
+        <div className="flex items-start justify-between border-b border-border-subtle px-5 py-4">
+          <div>
+            <h2 id="delete-bill-title" className="text-base font-bold tracking-tight text-text-primary">
+              Delete {billLabel}?
+            </h2>
+            {/* The label is only category + semester, and nothing stops an
+                account from having two bills that share it — so name the
+                invoice's own amount and date, which do tell them apart. */}
+            {preview && (
+              <p className="mt-0.5 flex items-center gap-1.5 text-xs text-text-muted">
+                <span>Billed</span>
+                <Money value={preview.billedAmount} className="font-semibold text-text-secondary" />
+                <span>·</span>
+                <span>
+                  {preview.invoiceDate ? `raised ${fmtDay(preview.invoiceDate)}` : "no invoice date"}
+                </span>
+              </p>
+            )}
+          </div>
           <button
             onClick={onClose}
             disabled={deleting}
             aria-label="Close"
-            className="grid h-[30px] w-[30px] place-items-center rounded-lg text-text-muted hover:bg-surface-hover disabled:opacity-50"
+            className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-lg text-text-muted hover:bg-surface-hover disabled:opacity-50"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="18" y1="6" x2="6" y2="18" />

@@ -14,11 +14,25 @@ import {
 import { canEdit, type SessionUser } from "./authz";
 import { assignedIds } from "./accounts";
 import { stampedDelete, stampedDeleteWhere } from "./audit";
+import { UserError } from "./errors";
 import type { PaymentEntry } from "./payments";
 import type { Category, Semester, Status } from "@/lib/money/types";
 
 function assertSuperAdmin(user: SessionUser) {
   if (!user.roles.includes("super-admin")) throw new Error("Only a Super Admin can do this");
+}
+
+/**
+ * Bill-deletion's own super-admin gate: same rule and wording as
+ * {@link assertSuperAdmin}, but raised as a {@link UserError} so the bill
+ * actions can surface the message instead of a generic string (lib/dal/errors).
+ *
+ * assertSuperAdmin is deliberately left alone — it is shared with account/OEM
+ * creation and account deletion, whose callers' error handling is out of scope
+ * for this change.
+ */
+function assertBillSuperAdmin(user: SessionUser) {
+  if (!user.roles.includes("super-admin")) throw new UserError("Only a Super Admin can do this");
 }
 
 export interface OemRow {
@@ -168,6 +182,20 @@ export async function createInvoice(
  */
 export interface BillDeletionPreview {
   invoiceId: number;
+  /**
+   * The invoice's own billed amount in rupees — net taxable (students ×
+   * priceToUni, less any advance adjustment) plus GST, i.e. `billing` from
+   * {@link computeInvoice} computed off the invoice row alone.
+   *
+   * Present purely to identify the bill: there is no unique constraint on
+   * (account_id, year_id, category, semester), so two bills can share the
+   * "Old · 1st sem" label the dialog shows and nothing else would tell them
+   * apart. Per-cohort price overrides are NOT applied (that would need the
+   * cohort rows) — this is the invoice's own figure, not the ladder's total.
+   */
+  billedAmount: number;
+  /** The invoice's own date (YYYY-MM-DD), or null if it was never set. */
+  invoiceDate: string | null;
   /** Every payment that will be cascade-deleted, oldest first. */
   payments: PaymentEntry[];
   /** Σ of `direction: "receipt"` — money the university paid in. */
@@ -202,14 +230,23 @@ export async function getBillDeletionPreview(
   accountId: number,
   invoiceId: number,
 ): Promise<BillDeletionPreview> {
-  assertSuperAdmin(user);
+  assertBillSuperAdmin(user);
 
   // LEFT JOIN so an invoice with zero cohorts still returns a row (count 0) —
   // an inner join would make "no cohorts" indistinguishable from "not found".
+  //
+  // The identifying columns (amount inputs + date) ride along on this same
+  // query — no extra round trip. They are functionally dependent on
+  // invoices.id, which is in the GROUP BY, so Postgres accepts them ungrouped.
   const [inv] = await db
     .select({
       id: invoices.id,
       accountId: invoices.accountId,
+      students: invoices.students,
+      priceToUni: invoices.priceToUni,
+      gstRate: invoices.gstRate,
+      advanceAdj: invoices.advanceAdj,
+      invoiceDate: invoices.invoiceDate,
       cohortCount: count(cohorts.id),
     })
     .from(invoices)
@@ -217,7 +254,12 @@ export async function getBillDeletionPreview(
     .where(eq(invoices.id, invoiceId))
     .groupBy(invoices.id, invoices.accountId)
     .limit(1);
-  if (!inv || inv.accountId !== accountId) throw new Error("Invoice not found");
+  if (!inv || inv.accountId !== accountId) throw new UserError("Invoice not found");
+
+  // Mirrors computeInvoice's billedTaxableIn → billing, so the figure the
+  // dialog shows matches the ladder's "Billing" line for this invoice.
+  const billedTaxableIn = Number(inv.students) * Number(inv.priceToUni) - Number(inv.advanceAdj);
+  const billedAmount = billedTaxableIn + billedTaxableIn * Number(inv.gstRate);
 
   const rows = await db.select().from(payments).where(eq(payments.invoiceId, invoiceId));
   const entries: PaymentEntry[] = rows
@@ -234,6 +276,8 @@ export async function getBillDeletionPreview(
 
   return {
     invoiceId,
+    billedAmount,
+    invoiceDate: inv.invoiceDate,
     payments: entries,
     receiptsTotal: sumRupees(entries.filter((p) => p.direction === "receipt").map((p) => p.amount)),
     oemPaymentsTotal: sumRupees(
@@ -256,20 +300,47 @@ export async function getBillDeletionPreview(
  * function authorized against the caller-supplied accountId but resolved the
  * invoice by id alone, so a caller scoped to account A could delete account B's
  * invoice by passing A's id. Both halves must agree.
+ *
+ * `expectedPaymentIds` is the confirmation contract with the dialog — see the
+ * check below.
  */
 export async function deleteBill(
   user: SessionUser,
   accountId: number,
   invoiceId: number,
+  expectedPaymentIds: number[],
 ): Promise<void> {
-  assertSuperAdmin(user);
+  assertBillSuperAdmin(user);
 
   const [row] = await db
     .select({ accountId: invoices.accountId })
     .from(invoices)
     .where(eq(invoices.id, invoiceId))
     .limit(1);
-  if (!row || row.accountId !== accountId) throw new Error("Invoice not found");
+  if (!row || row.accountId !== accountId) throw new UserError("Invoice not found");
+
+  // The confirmation dialog itemises exactly which payments this delete would
+  // destroy, and that itemised list is the entire safety argument for having
+  // dropped the old draft-only gate — a fully-paid bill is deletable *because*
+  // the user was shown the money first. So the delete has to keep the promise
+  // the dialog made: if a payment was added (or removed) between the preview
+  // and the confirm, the list the user approved is no longer what would be
+  // destroyed, and we refuse rather than quietly destroy strictly more.
+  //
+  // Compared as a SET — the preview sorts by date for display, but ordering
+  // carries no meaning here and must not decide whether a delete is allowed.
+  // Payment ids are unique, so equal length + full containment is set equality.
+  const currentIds = (
+    await db.select({ id: payments.id }).from(payments).where(eq(payments.invoiceId, invoiceId))
+  ).map((r) => r.id);
+  const expected = new Set(expectedPaymentIds);
+  const matchesPreview =
+    currentIds.length === expected.size && currentIds.every((id) => expected.has(id));
+  if (!matchesPreview) {
+    throw new UserError(
+      "This bill changed since you opened this dialog — reopen it to see what would be deleted.",
+    );
+  }
 
   // Pre-stamp cascade children so their DELETE audit rows carry the deleter
   // rather than whoever last edited them (spec §4 Cascades; mirrors deleteYear

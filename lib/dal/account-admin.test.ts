@@ -450,7 +450,9 @@ describe("deleteBill / getBillDeletionPreview", () => {
     await expect(getBillDeletionPreview(SALES, fx.accountId, cleanup.invoiceId)).rejects.toThrow(
       /Super Admin/,
     );
-    await expect(deleteBill(SALES, fx.accountId, cleanup.invoiceId)).rejects.toThrow(/Super Admin/);
+    await expect(
+      deleteBill(SALES, fx.accountId, cleanup.invoiceId, cleanup.paymentIds),
+    ).rejects.toThrow(/Super Admin/);
 
     // Nothing was destroyed on the way to the rejection.
     const still = await db.select().from(invoices).where(eq(invoices.id, cleanup.invoiceId));
@@ -465,7 +467,7 @@ describe("deleteBill / getBillDeletionPreview", () => {
     await expect(
       getBillDeletionPreview(DELETER, fx.accountId, cleanup.otherInvoiceId),
     ).rejects.toThrow(/not found/i);
-    await expect(deleteBill(DELETER, fx.accountId, cleanup.otherInvoiceId)).rejects.toThrow(
+    await expect(deleteBill(DELETER, fx.accountId, cleanup.otherInvoiceId, [])).rejects.toThrow(
       /not found/i,
     );
 
@@ -523,7 +525,7 @@ describe("deleteBill / getBillDeletionPreview", () => {
     const [before] = await db.select().from(invoices).where(eq(invoices.id, cleanup.invoiceId));
     expect(before.status).toBe("paid"); // the retired function would have refused here
 
-    await deleteBill(DELETER, fx.accountId, cleanup.invoiceId);
+    await deleteBill(DELETER, fx.accountId, cleanup.invoiceId, previewedPaymentIds);
 
     expect(await db.select().from(invoices).where(eq(invoices.id, cleanup.invoiceId))).toHaveLength(0);
     expect(await db.select().from(payments).where(eq(payments.invoiceId, cleanup.invoiceId))).toHaveLength(0);
@@ -555,5 +557,173 @@ describe("deleteBill / getBillDeletionPreview", () => {
       expect(await deleteActor("cohorts", cohortId)).toBe(DELETER.id);
       expect(await deleteActor("cohorts", cohortId)).not.toBe(SUPER.id);
     }
+  });
+});
+
+describe("deleteBill — the confirm must assert on what the dialog previewed", () => {
+  const RUN = String(Date.now()).slice(-9);
+  const fx = { oemId: 0, accountId: 0, deleterId: 0 };
+  // A: stale-vs-correct ids. B: order-independence. C: preview payload only.
+  const cleanup = {
+    invoiceIds: [] as number[],
+    // Every payment ever created here, including the interloper — the afterAll
+    // audit sweep must cover rows the tests delete themselves.
+    paymentIds: [] as number[],
+  };
+  const inv = { a: 0, b: 0, c: 0 };
+  const pay = { a: [] as number[], b: [] as number[] };
+  let DELETER = { id: 0, roles: ["super-admin" as const] };
+
+  async function addPayments(invoiceId: number, refs: string[]) {
+    const rows = await db
+      .insert(payments)
+      .values(
+        refs.map((ref, i) => ({
+          invoiceId,
+          direction: "receipt" as const,
+          paidOn: `2026-0${i + 1}-05`,
+          amount: "500",
+          mode: "NEFT" as const,
+          ref: `${ref}-${RUN}`,
+          createdBy: SUPER.id,
+          updatedBy: SUPER.id,
+        })),
+      )
+      .returning({ id: payments.id });
+    const ids = rows.map((r) => r.id);
+    cleanup.paymentIds.push(...ids);
+    return ids;
+  }
+
+  beforeAll(async () => {
+    const [deleter] = await db
+      .insert(users)
+      .values({
+        name: `Stale Deleter ${RUN}`,
+        email: `stale-deleter-${RUN}@test.local`,
+        passwordHash: "x",
+        role: "super-admin",
+      })
+      .returning({ id: users.id });
+    fx.deleterId = deleter.id;
+    DELETER = { id: deleter.id, roles: ["super-admin" as const] };
+
+    const [oem] = await db
+      .insert(oems)
+      .values({ name: `StaleBillOEM-${RUN}`, createdBy: SUPER.id, updatedBy: SUPER.id })
+      .returning({ id: oems.id });
+    fx.oemId = oem.id;
+
+    const [acc] = await db
+      .insert(accounts)
+      .values({ name: `StaleBillUni-${RUN}`, oemId: oem.id, createdBy: SUPER.id, updatedBy: SUPER.id })
+      .returning({ id: accounts.id });
+    fx.accountId = acc.id;
+
+    // Three bills that deliberately share a label ("Old", no semester) — the
+    // exact collision FIX 3's billed amount + invoice date exist to resolve.
+    const mk = async (students: number, priceToUni: number, advanceAdj: number, date: string) => {
+      const { id } = await createInvoice(SUPER, fx.accountId, YEAR, {
+        category: "old",
+        semester: "none",
+        students,
+        priceToUni,
+        priceToDatagami: 800,
+        gstRate: 0.18,
+        tdsRate: 0.1,
+        advanceAdj,
+        invoiceDate: date,
+        status: "paid",
+      });
+      cleanup.invoiceIds.push(id);
+      return id;
+    };
+    inv.a = await mk(4, 2500, 0, "2026-02-01");
+    inv.b = await mk(4, 2500, 0, "2026-02-02");
+    inv.c = await mk(6, 1000, 1000, "2026-03-09");
+
+    pay.a = await addPayments(inv.a, ["StaleA1", "StaleA2"]);
+    pay.b = await addPayments(inv.b, ["StaleB1", "StaleB2"]);
+  });
+
+  afterAll(async () => {
+    for (const id of cleanup.invoiceIds) await db.delete(invoices).where(eq(invoices.id, id));
+    if (fx.accountId) await db.delete(accounts).where(eq(accounts.id, fx.accountId));
+    if (fx.oemId) await db.delete(oems).where(eq(oems.id, fx.oemId));
+    if (fx.deleterId) await db.delete(users).where(eq(users.id, fx.deleterId));
+
+    const scopes: Array<[string, number]> = [
+      ["accounts", fx.accountId],
+      ["oems", fx.oemId],
+      ["users", fx.deleterId],
+      ...cleanup.invoiceIds.map((id) => ["invoices", id] as [string, number]),
+      ...cleanup.paymentIds.map((id) => ["payments", id] as [string, number]),
+    ];
+    for (const [tableName, rowId] of scopes) {
+      if (!rowId) continue;
+      await db.delete(auditLog).where(and(eq(auditLog.tableName, tableName), eq(auditLog.rowId, String(rowId))));
+    }
+  });
+
+  it("REFUSES to delete when a payment was added after the preview, and destroys nothing", async () => {
+    // The user opens the dialog: it itemises the two payments below, and that
+    // list is the whole reason a paid bill is deletable at all.
+    const preview = await getBillDeletionPreview(DELETER, fx.accountId, inv.a);
+    const previewedIds = preview.payments.map((p) => p.id);
+    expect(previewedIds).toHaveLength(2);
+
+    // …and while the dialog sits open, a third payment lands on the bill.
+    const [interloper] = await addPayments(inv.a, ["StaleA3-late"]);
+
+    // Confirming now would destroy strictly MORE money than the dialog showed.
+    await expect(
+      deleteBill(DELETER, fx.accountId, inv.a, previewedIds),
+    ).rejects.toThrow(/changed since you opened this dialog/i);
+
+    // Nothing at all was destroyed — not the bill, not any payment, including
+    // the two the user *did* approve.
+    expect(await db.select().from(invoices).where(eq(invoices.id, inv.a))).toHaveLength(1);
+    const survivors = await db.select({ id: payments.id }).from(payments).where(eq(payments.invoiceId, inv.a));
+    expect(survivors.map((p) => p.id).sort((x, y) => x - y)).toEqual(
+      [...previewedIds, interloper].sort((x, y) => x - y),
+    );
+  });
+
+  it("deletes once the ids match the bill again — a re-opened dialog succeeds", async () => {
+    // Exactly what the user would do next: reopen the dialog, see all three
+    // payments, and confirm against that fresh list.
+    const preview = await getBillDeletionPreview(DELETER, fx.accountId, inv.a);
+    const previewedIds = preview.payments.map((p) => p.id);
+    expect(previewedIds).toHaveLength(3);
+
+    await deleteBill(DELETER, fx.accountId, inv.a, previewedIds);
+
+    expect(await db.select().from(invoices).where(eq(invoices.id, inv.a))).toHaveLength(0);
+    expect(await db.select().from(payments).where(eq(payments.invoiceId, inv.a))).toHaveLength(0);
+  });
+
+  it("compares the ids as a SET — the same payments in a different order still delete", async () => {
+    const preview = await getBillDeletionPreview(DELETER, fx.accountId, inv.b);
+    const shuffled = [...preview.payments.map((p) => p.id)].reverse();
+    expect(shuffled).toHaveLength(2);
+    // Guard the guard: a reversal only proves order-independence if the order
+    // actually differs.
+    expect(shuffled).not.toEqual(preview.payments.map((p) => p.id));
+
+    await deleteBill(DELETER, fx.accountId, inv.b, shuffled);
+
+    expect(await db.select().from(invoices).where(eq(invoices.id, inv.b))).toHaveLength(0);
+    expect(await db.select().from(payments).where(eq(payments.invoiceId, inv.b))).toHaveLength(0);
+  });
+
+  it("preview carries the invoice's own billed amount and date, so a shared label is still unambiguous", async () => {
+    const preview = await getBillDeletionPreview(DELETER, fx.accountId, inv.c);
+
+    // 6 × 1000 = 6000 taxable, less the 1000 advance = 5000 net, +18% GST.
+    expect(preview.billedAmount).toBe(5900);
+    expect(preview.invoiceDate).toBe("2026-03-09");
+
+    // C carries no payments — the identifying fields must not depend on them.
+    expect(preview.payments).toHaveLength(0);
   });
 });

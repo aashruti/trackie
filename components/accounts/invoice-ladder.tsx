@@ -103,8 +103,11 @@ export function InvoiceLadder({
     setPreview(null);
     setPreviewError(null);
     try {
-      setPreview(await billDeletionPreviewAction(accountId, inv.id));
+      const res = await billDeletionPreviewAction(accountId, inv.id);
+      if (res.ok) setPreview(res.preview);
+      else setPreviewError(res.error);
     } catch (e) {
+      // Transport-level failure (the action itself never throws).
       setPreviewError(
         e instanceof Error ? e.message : "Could not work out what deleting this bill would remove.",
       );
