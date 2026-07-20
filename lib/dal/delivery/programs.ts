@@ -9,6 +9,7 @@ import {
   deliveryMethods,
   oems,
   programs,
+  tasks,
   users,
 } from "@/lib/db/schema";
 import {
@@ -19,6 +20,7 @@ import {
 } from "@/lib/dal/authz";
 import { assignedIds } from "@/lib/dal/accounts";
 import { assertAccountInScope, assertProgramInScope } from "./scope";
+import { stampedDelete } from "../audit";
 import { UserError } from "@/lib/dal/errors";
 import { PROGRAM_STATUSES, type DeliveryActivityType, type DeliveryEventStatus, type ProgramStatus } from "@/lib/db/enums";
 import { assertDateOrder, assertIsoDate, buildCalendarCells, monthDays, toMoney, type CalendarCell } from "./util";
@@ -310,7 +312,10 @@ export async function createProgram(user: SessionUser, input: NewProgram): Promi
   const values = cleanProgramInput(input);
   await assertAccountInScope(user, values.accountId); // can't create under an account you can't reach
   await assertRefsExist(values.accountId, values.oemId, values.deliveryMethodId);
-  const [row] = await db.insert(programs).values(values).returning({ id: programs.id });
+  const [row] = await db
+    .insert(programs)
+    .values({ ...values, createdBy: user.id, updatedBy: user.id })
+    .returning({ id: programs.id });
   return { id: row.id };
 }
 
@@ -328,7 +333,7 @@ export async function updateProgram(user: SessionUser, id: number, input: NewPro
   await assertRefsExist(values.accountId, values.oemId, values.deliveryMethodId, {
     allowInactiveMethodId: current.deliveryMethodId,
   });
-  await db.update(programs).set(values).where(eq(programs.id, id));
+  await db.update(programs).set({ ...values, updatedBy: user.id }).where(eq(programs.id, id));
 }
 
 /** Status-only change (the detail header's status pill picker). */
@@ -336,7 +341,11 @@ export async function setProgramStatus(user: SessionUser, id: number, status: Pr
   assertDeliveryManage(user);
   await assertProgramInScope(user, id);
   if (!PROGRAM_STATUSES.includes(status)) throw new UserError("Unknown program status.");
-  const updated = await db.update(programs).set({ status }).where(eq(programs.id, id)).returning({ id: programs.id });
+  const updated = await db
+    .update(programs)
+    .set({ status, updatedBy: user.id })
+    .where(eq(programs.id, id))
+    .returning({ id: programs.id });
   if (!updated.length) throw new UserError("Program not found.");
 }
 
@@ -344,8 +353,21 @@ export async function setProgramStatus(user: SessionUser, id: number, status: Pr
 export async function deleteProgram(user: SessionUser, id: number): Promise<void> {
   assertDeliveryManage(user);
   await assertProgramInScope(user, id);
-  const deleted = await db.delete(programs).where(eq(programs.id, id)).returning({ id: programs.id });
-  if (!deleted.length) throw new UserError("Program not found.");
+  // Pre-stamp both cascades so the deleter, not a stale editor, ends up as the
+  // actor on the rows the DB cascade will touch (mirrors deleteGroup):
+  //  - events/activities CASCADE-delete with the program — stamp updated_by
+  //    first so their DELETE audit rows carry the deleter (activities before
+  //    events, while the eventId subquery still matches).
+  //  - board tasks SET NULL their program link — stamp so the unlink's
+  //    UPDATE audit row carries the deleter too.
+  await db
+    .update(deliveryActivities)
+    .set({ updatedBy: user.id })
+    .where(inArray(deliveryActivities.eventId, db.select({ id: deliveryEvents.id }).from(deliveryEvents).where(eq(deliveryEvents.programId, id))));
+  await db.update(deliveryEvents).set({ updatedBy: user.id }).where(eq(deliveryEvents.programId, id));
+  await db.update(tasks).set({ updatedBy: user.id }).where(eq(tasks.programId, id));
+  const n = await stampedDelete(programs, id, user.id);
+  if (!n) throw new UserError("Program not found.");
 }
 
 /** Account picker options — module-gated (delivery has no user_accounts scoping). */
