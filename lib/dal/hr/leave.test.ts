@@ -1,5 +1,8 @@
-import { describe, it, expect } from "vitest";
-import { monthsAccruedToDate } from "./leave";
+import { describe, it, expect, afterAll } from "vitest";
+import { eq } from "drizzle-orm";
+import { db } from "@/lib/db/client";
+import { users, employeeProfiles } from "@/lib/db/schema";
+import { getOrCreateEmployeeForUser, monthsAccruedToDate } from "./leave";
 
 /** Pro-rata accrual months for Earned leave (1.5/mo), given date-of-joining. */
 describe("monthsAccruedToDate — pro-rata for mid-year joiners", () => {
@@ -27,5 +30,54 @@ describe("monthsAccruedToDate — pro-rata for mid-year joiners", () => {
   it("caps at 12 months", () => {
     expect(monthsAccruedToDate("2020-01-01", 2026, 12)).toBe(12);
     expect(monthsAccruedToDate(null, 2026, 12)).toBe(12);
+  });
+});
+
+describe("getOrCreateEmployeeForUser — everyone can reach leave self-service", () => {
+  const RUN = String(Date.now()).slice(-7);
+  const created: number[] = [];
+
+  async function throwawayUser(suffix: string): Promise<number> {
+    const [u] = await db
+      .insert(users)
+      .values({ name: `Leave Test ${suffix}`, email: `leave-${suffix}-${RUN}@test.local`, passwordHash: "x", role: "viewer" })
+      .returning({ id: users.id });
+    created.push(u.id);
+    return u.id;
+  }
+
+  it("provisions a minimal active profile for a user who has none, and is idempotent", async () => {
+    const uid = await throwawayUser("none");
+    const first = await getOrCreateEmployeeForUser(uid);
+    expect(first).not.toBeNull();
+    expect(first!.employeeCode).toBe(`U${uid}`);
+
+    // Idempotent: a second call returns the same profile, never a duplicate.
+    const second = await getOrCreateEmployeeForUser(uid);
+    expect(second!.employeeId).toBe(first!.employeeId);
+    const rows = await db.select({ id: employeeProfiles.id }).from(employeeProfiles).where(eq(employeeProfiles.userId, uid));
+    expect(rows.length).toBe(1);
+  });
+
+  it("returns null and provisions NOTHING for a deactivated (inactive) employee", async () => {
+    const uid = await throwawayUser("inactive");
+    await db.insert(employeeProfiles).values({ userId: uid, employeeCode: `X${uid}`, status: "inactive" });
+    const res = await getOrCreateEmployeeForUser(uid);
+    expect(res).toBeNull(); // deactivated employees stay out — the redirect fires
+    const rows = await db.select({ id: employeeProfiles.id }).from(employeeProfiles).where(eq(employeeProfiles.userId, uid));
+    expect(rows.length).toBe(1); // no second profile created
+  });
+
+  it("returns an existing active profile unchanged", async () => {
+    const uid = await throwawayUser("active");
+    const [p] = await db.insert(employeeProfiles).values({ userId: uid, employeeCode: `A${uid}` }).returning({ id: employeeProfiles.id });
+    const res = await getOrCreateEmployeeForUser(uid);
+    expect(res!.employeeId).toBe(p.id);
+    expect(res!.employeeCode).toBe(`A${uid}`); // not overwritten with U<id>
+  });
+
+  afterAll(async () => {
+    // employee_profiles cascade on user delete.
+    for (const id of created) await db.delete(users).where(eq(users.id, id));
   });
 });
