@@ -57,6 +57,12 @@ describe("getOrCreateEmployeeForUser — everyone can reach leave self-service",
     expect(second!.employeeId).toBe(first!.employeeId);
     const rows = await db.select({ id: employeeProfiles.id }).from(employeeProfiles).where(eq(employeeProfiles.userId, uid));
     expect(rows.length).toBe(1);
+
+    // Self-service provisioning: the audit trigger reads created_by/updated_by
+    // off the row — the requesting user is their own actor here.
+    const [profile] = await db.select().from(employeeProfiles).where(eq(employeeProfiles.userId, uid));
+    expect(profile.createdBy).toBe(uid);
+    expect(profile.updatedBy).toBe(uid);
   });
 
   it("returns null and provisions NOTHING for a deactivated (inactive) employee", async () => {
@@ -77,7 +83,13 @@ describe("getOrCreateEmployeeForUser — everyone can reach leave self-service",
   });
 
   afterAll(async () => {
-    // employee_profiles cascade on user delete.
+    // Delete each throwaway's employee_profiles row FIRST, while the user still
+    // exists: self-provisioned profiles now stamp updated_by = the user's own
+    // id, and the DELETE audit trigger needs that actor row present to satisfy
+    // audit_log's actor_id FK. Deleting the user first would cascade-delete the
+    // profile in the same statement the actor row disappears in, and the FK
+    // check (which sees the transaction's own uncommitted delete) would fail.
+    for (const id of created) await db.delete(employeeProfiles).where(eq(employeeProfiles.userId, id));
     for (const id of created) await db.delete(users).where(eq(users.id, id));
   });
 });

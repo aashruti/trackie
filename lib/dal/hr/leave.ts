@@ -252,10 +252,10 @@ export async function setLeaveBalance(
   };
   await db
     .insert(leaveBalances)
-    .values({ employeeId, leaveTypeId, year, ...set })
+    .values({ employeeId, leaveTypeId, year, ...set, createdBy: user.id, updatedBy: user.id })
     .onConflictDoUpdate({
       target: [leaveBalances.employeeId, leaveBalances.leaveTypeId, leaveBalances.year],
-      set,
+      set: { ...set, updatedBy: user.id },
     });
 }
 
@@ -310,7 +310,14 @@ export async function accrueAllToDate(user: SessionUser, year: number): Promise<
   const rows = types.flatMap((t) =>
     emps.map((e) => {
       const ent = override.get(`${e.id}:${t.id}`) ?? n(t.annualEntitlement);
-      return { employeeId: e.id, leaveTypeId: t.id, year, accrued: String(proRataAccrued(e.doj ?? null, year, ent)) };
+      return {
+        employeeId: e.id,
+        leaveTypeId: t.id,
+        year,
+        accrued: String(proRataAccrued(e.doj ?? null, year, ent)),
+        createdBy: user.id,
+        updatedBy: user.id,
+      };
     }),
   );
   if (rows.length) {
@@ -318,7 +325,10 @@ export async function accrueAllToDate(user: SessionUser, year: number): Promise<
     await db
       .insert(leaveBalances)
       .values(rows)
-      .onConflictDoUpdate({ target: [leaveBalances.employeeId, leaveBalances.leaveTypeId, leaveBalances.year], set: { accrued: sql`excluded.accrued` } });
+      .onConflictDoUpdate({
+        target: [leaveBalances.employeeId, leaveBalances.leaveTypeId, leaveBalances.year],
+        set: { accrued: sql`excluded.accrued`, updatedBy: user.id },
+      });
   }
   return { employees: emps.length };
 }
@@ -377,7 +387,7 @@ export async function reviewLeaveRequest(
   // compensating revert below instead of a wrapping tx.)
   const claimed = await db
     .update(leaveRequests)
-    .set({ status: decision, reviewedByUserId: user.id, reviewedAt: new Date(), reviewNote: note })
+    .set({ status: decision, reviewedByUserId: user.id, reviewedAt: new Date(), reviewNote: note, updatedBy: user.id })
     .where(and(eq(leaveRequests.id, requestId), eq(leaveRequests.status, "pending")))
     .returning({ id: leaveRequests.id });
   if (!claimed.length) throw new UserError("This request has already been reviewed");
@@ -405,25 +415,67 @@ export async function reviewLeaveRequest(
 
     const EPS = 1e-9;
     let paidDays = 0;
-    let rows: { employeeId: number; date: string; dayType: AttendanceDayType; source: "leave"; lopDays: string }[] = [];
+    let rows: {
+      employeeId: number;
+      date: string;
+      dayType: AttendanceDayType;
+      source: "leave";
+      lopDays: string;
+      createdBy: number;
+      updatedBy: number;
+    }[] = [];
     if (isHalf) {
       const paid = available >= days - EPS; // half-day is paid iff fully covered
       paidDays = paid ? days : 0;
-      rows = [{ employeeId, date: dates[0], dayType: paid ? "paid-leave" : "unpaid-leave", source: "leave", lopDays: paid ? "0" : "0.5" }];
+      rows = [
+        {
+          employeeId,
+          date: dates[0],
+          dayType: paid ? "paid-leave" : "unpaid-leave",
+          source: "leave",
+          lopDays: paid ? "0" : "0.5",
+          createdBy: user.id,
+          updatedBy: user.id,
+        },
+      ];
     } else {
       let budget = Math.min(days, available);
       rows = dates.map((d) => {
         if (budget >= 1 - EPS) {
           budget -= 1;
           paidDays += 1;
-          return { employeeId, date: d, dayType: "paid-leave" as AttendanceDayType, source: "leave" as const, lopDays: "0" };
+          return {
+            employeeId,
+            date: d,
+            dayType: "paid-leave" as AttendanceDayType,
+            source: "leave" as const,
+            lopDays: "0",
+            createdBy: user.id,
+            updatedBy: user.id,
+          };
         }
         if (budget >= 0.5 - EPS) {
           budget -= 0.5;
           paidDays += 0.5;
-          return { employeeId, date: d, dayType: "half-day" as AttendanceDayType, source: "leave" as const, lopDays: "0.5" };
+          return {
+            employeeId,
+            date: d,
+            dayType: "half-day" as AttendanceDayType,
+            source: "leave" as const,
+            lopDays: "0.5",
+            createdBy: user.id,
+            updatedBy: user.id,
+          };
         }
-        return { employeeId, date: d, dayType: "unpaid-leave" as AttendanceDayType, source: "leave" as const, lopDays: "1" };
+        return {
+          employeeId,
+          date: d,
+          dayType: "unpaid-leave" as AttendanceDayType,
+          source: "leave" as const,
+          lopDays: "1",
+          createdBy: user.id,
+          updatedBy: user.id,
+        };
       });
     }
     paidDays = round2(paidDays);
@@ -435,10 +487,22 @@ export async function reviewLeaveRequest(
       if (paidDays > 0 || unpaidDays > 0) {
         await db
           .insert(leaveBalances)
-          .values({ employeeId, leaveTypeId, year, used: String(paidDays), unpaidTaken: String(unpaidDays) })
+          .values({
+            employeeId,
+            leaveTypeId,
+            year,
+            used: String(paidDays),
+            unpaidTaken: String(unpaidDays),
+            createdBy: user.id,
+            updatedBy: user.id,
+          })
           .onConflictDoUpdate({
             target: [leaveBalances.employeeId, leaveBalances.leaveTypeId, leaveBalances.year],
-            set: { used: sql`${leaveBalances.used} + ${paidDays}`, unpaidTaken: sql`${leaveBalances.unpaidTaken} + ${unpaidDays}` },
+            set: {
+              used: sql`${leaveBalances.used} + ${paidDays}`,
+              unpaidTaken: sql`${leaveBalances.unpaidTaken} + ${unpaidDays}`,
+              updatedBy: user.id,
+            },
           });
         balanceApplied = true;
       }
@@ -452,7 +516,12 @@ export async function reviewLeaveRequest(
           .values(rows)
           .onConflictDoUpdate({
             target: [attendanceRecords.employeeId, attendanceRecords.date],
-            set: { dayType: sql`excluded.day_type`, lopDays: sql`excluded.lop_days`, source: sql`excluded.source` },
+            set: {
+              dayType: sql`excluded.day_type`,
+              lopDays: sql`excluded.lop_days`,
+              source: sql`excluded.source`,
+              updatedBy: user.id,
+            },
             setWhere: sql`${attendanceRecords.source} in ('scanner', 'leave')`,
           });
       }
@@ -462,12 +531,16 @@ export async function reviewLeaveRequest(
       if (balanceApplied) {
         await db
           .update(leaveBalances)
-          .set({ used: sql`${leaveBalances.used} - ${paidDays}`, unpaidTaken: sql`${leaveBalances.unpaidTaken} - ${unpaidDays}` })
+          .set({
+            used: sql`${leaveBalances.used} - ${paidDays}`,
+            unpaidTaken: sql`${leaveBalances.unpaidTaken} - ${unpaidDays}`,
+            updatedBy: user.id,
+          })
           .where(and(eq(leaveBalances.employeeId, employeeId), eq(leaveBalances.leaveTypeId, leaveTypeId), eq(leaveBalances.year, year)));
       }
       await db
         .update(leaveRequests)
-        .set({ status: "pending", reviewedByUserId: null, reviewedAt: null, reviewNote: null })
+        .set({ status: "pending", reviewedByUserId: null, reviewedAt: null, reviewNote: null, updatedBy: user.id })
         .where(and(eq(leaveRequests.id, requestId), eq(leaveRequests.status, "approved")));
       throw e;
     }
@@ -554,7 +627,7 @@ export async function getOrCreateEmployeeForUser(userId: number): Promise<SelfEm
   // (user_id is unique); re-read either the row we made or the winner's.
   await db
     .insert(employeeProfiles)
-    .values({ userId, employeeCode: `U${userId}` })
+    .values({ userId, employeeCode: `U${userId}`, createdBy: userId, updatedBy: userId })
     .onConflictDoNothing();
   return getEmployeeForUser(userId);
 }
@@ -611,6 +684,8 @@ export async function applyForLeave(
       isHalfDay: input.isHalfDay,
       days: String(days),
       reason: input.reason.trim(),
+      createdBy: user.id,
+      updatedBy: user.id,
     })
     .returning({ id: leaveRequests.id });
 
