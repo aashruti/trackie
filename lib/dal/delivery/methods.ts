@@ -72,7 +72,10 @@ export async function createMethod(user: SessionUser, input: MethodInput): Promi
   assertDeliveryManage(user);
   const values = cleanInput(input);
   try {
-    const [row] = await db.insert(deliveryMethods).values(values).returning({ id: deliveryMethods.id });
+    const [row] = await db
+      .insert(deliveryMethods)
+      .values({ ...values, createdBy: user.id, updatedBy: user.id })
+      .returning({ id: deliveryMethods.id });
     return { id: row.id };
   } catch (e) {
     if (isUniqueViolation(e)) {
@@ -88,7 +91,7 @@ export async function updateMethod(user: SessionUser, id: number, input: MethodI
   try {
     const updated = await db
       .update(deliveryMethods)
-      .set(values)
+      .set({ ...values, updatedBy: user.id })
       .where(eq(deliveryMethods.id, id))
       .returning({ id: deliveryMethods.id });
     if (!updated.length) throw new UserError("Teaching style not found.");
@@ -105,7 +108,7 @@ export async function setMethodActive(user: SessionUser, id: number, active: boo
   assertDeliveryManage(user);
   const updated = await db
     .update(deliveryMethods)
-    .set({ active })
+    .set({ active, updatedBy: user.id })
     .where(eq(deliveryMethods.id, id))
     .returning({ id: deliveryMethods.id });
   if (!updated.length) throw new UserError("Teaching style not found.");

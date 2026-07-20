@@ -1,18 +1,32 @@
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { listMethods, createMethod, updateMethod, setMethodActive } from "./methods";
 import { db } from "@/lib/db/client";
-import { deliveryMethods } from "@/lib/db/schema";
-import { inArray } from "drizzle-orm";
+import { deliveryMethods, users } from "@/lib/db/schema";
+import { eq, inArray } from "drizzle-orm";
 
 const SUPER = { id: 1, roles: ["super-admin" as const] };
-const DELIVERY = { id: 998, roles: ["delivery" as const] };
+// Real users row (created in beforeAll) — createdBy/updatedBy now has a users
+// FK, so the acting user must exist. Mirrors lib/dal/delivery/programs.test.ts.
+const DELIVERY = { id: 0, roles: ["delivery" as const] };
 // Sales lost delivery read/write in the admin→sales split (the ONE intended
-// reduction from stackable roles — see lib/dal/authz.test.ts).
+// reduction from stackable roles — see lib/dal/authz.test.ts). Never reaches
+// a DB write (rejected by authz first), so a non-existent id is fine here.
 const SALES = { id: 997, roles: ["sales" as const] };
 const VIEWER = { id: 999, roles: ["viewer" as const] };
 
 // Unique per-run code so reruns against a dirty local DB never collide.
-const CODE = `TX${String(Date.now()).slice(-6)}`;
+const RUN = String(Date.now()).slice(-6);
+const CODE = `TX${RUN}`;
+const fixtures = { deliveryUserId: 0 };
+
+beforeAll(async () => {
+  const [u] = await db
+    .insert(users)
+    .values({ name: `Methods Tester ${RUN}`, email: `methods-test-${RUN}@test.local`, passwordHash: "x", role: "delivery" })
+    .returning({ id: users.id });
+  fixtures.deliveryUserId = u.id;
+  DELIVERY.id = u.id;
+});
 
 describe("delivery methods catalogue", () => {
   const created: number[] = [];
@@ -27,6 +41,9 @@ describe("delivery methods catalogue", () => {
     expect(mine.description).toBe("x");
     expect(mine.active).toBe(true);
     expect(mine.programCount).toBe(0);
+    const [row] = await db.select().from(deliveryMethods).where(eq(deliveryMethods.id, id));
+    expect(row.createdBy).toBe(DELIVERY.id);
+    expect(row.updatedBy).toBe(DELIVERY.id);
   });
 
   it("duplicate code is a user-safe error", async () => {
@@ -42,6 +59,11 @@ describe("delivery methods catalogue", () => {
     expect(all.find((r) => r.id === id)!.active).toBe(false);
     const activeOnly = await listMethods(SUPER, { includeInactive: false });
     expect(activeOnly.find((r) => r.id === id)).toBeUndefined();
+    // updateMethod + setMethodActive both stamp updatedBy with the acting user,
+    // while createdBy attribution from the original create is left untouched.
+    const [row] = await db.select().from(deliveryMethods).where(eq(deliveryMethods.id, id));
+    expect(row.updatedBy).toBe(SUPER.id);
+    expect(row.createdBy).toBe(DELIVERY.id);
   });
 
   it("sales has no delivery access at all (lost it in the admin→sales split); viewer neither", async () => {
@@ -59,4 +81,8 @@ describe("delivery methods catalogue", () => {
   afterAll(async () => {
     if (created.length) await db.delete(deliveryMethods).where(inArray(deliveryMethods.id, created));
   });
+});
+
+afterAll(async () => {
+  await db.delete(users).where(eq(users.id, fixtures.deliveryUserId));
 });
