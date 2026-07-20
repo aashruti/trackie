@@ -4,6 +4,7 @@ import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { attendanceRecords, employeeProfiles, leaveBalances, leaveTypes, payrollRuns, payslips, users } from "@/lib/db/schema";
 import { assertHrAccess, type SessionUser } from "@/lib/dal/authz";
+import { stampedDeleteWhere } from "@/lib/dal/audit";
 import { UserError } from "@/lib/dal/errors";
 import { getEmployeeForUser } from "./leave";
 import type { AttendanceDayType } from "@/lib/db/enums";
@@ -468,10 +469,10 @@ export async function generatePayrollRun(user: SessionUser, year: number, month:
   // slips are fully derived and idempotent per (year, month).
   let runId = existing?.id;
   if (runId) {
-    await db.update(payrollRuns).set({ status: "draft", generatedByUserId: user.id }).where(eq(payrollRuns.id, runId));
-    await db.delete(payslips).where(eq(payslips.runId, runId));
+    await db.update(payrollRuns).set({ status: "draft", generatedByUserId: user.id, updatedBy: user.id }).where(eq(payrollRuns.id, runId));
+    await stampedDeleteWhere(payslips, eq(payslips.runId, runId), user.id);
   } else {
-    const [ins] = await db.insert(payrollRuns).values({ month, year, status: "draft", generatedByUserId: user.id }).returning({ id: payrollRuns.id });
+    const [ins] = await db.insert(payrollRuns).values({ month, year, status: "draft", generatedByUserId: user.id, createdBy: user.id, updatedBy: user.id }).returning({ id: payrollRuns.id });
     runId = ins.id;
   }
 
@@ -498,6 +499,8 @@ export async function generatePayrollRun(user: SessionUser, year: number, month:
         additions: String(l.additions),
         netPay: String(l.netPay),
         breakdown: l.breakdown,
+        createdBy: user.id,
+        updatedBy: user.id,
       })),
     );
   }
@@ -509,7 +512,7 @@ export async function finalizePayrollRun(user: SessionUser, runId: number): Prom
   assertHrAccess(user);
   const res = await db
     .update(payrollRuns)
-    .set({ status: "finalized", finalizedAt: sql`now()` })
+    .set({ status: "finalized", finalizedAt: sql`now()`, updatedBy: user.id })
     .where(and(eq(payrollRuns.id, runId), eq(payrollRuns.status, "draft")))
     .returning({ id: payrollRuns.id });
   if (!res.length) throw new UserError("Run not found or already finalized.");

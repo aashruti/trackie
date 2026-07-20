@@ -1,5 +1,18 @@
-import { describe, it, expect } from "vitest";
-import { computePay, runningMonthLop, absenceUnits, lateLopDays, cycleRange, SALARY_SPLIT, DAYS_IN_MONTH } from "./payroll";
+import { describe, it, expect, afterAll } from "vitest";
+import { and, eq } from "drizzle-orm";
+import { db } from "@/lib/db/client";
+import { users, employeeProfiles, payrollRuns, payslips, auditLog } from "@/lib/db/schema";
+import {
+  computePay,
+  runningMonthLop,
+  absenceUnits,
+  lateLopDays,
+  cycleRange,
+  SALARY_SPLIT,
+  DAYS_IN_MONTH,
+  generatePayrollRun,
+  finalizePayrollRun,
+} from "./payroll";
 
 const M = (o: Record<number, number>) => new Map(Object.entries(o).map(([k, v]) => [Number(k), v]));
 
@@ -157,5 +170,94 @@ describe("cycleRange — calendar month vs 26→25 cycle", () => {
     const c = cycleRange(2026, 1, 26);
     expect(c.start).toBe("2025-12-26");
     expect(c.end).toBe("2026-01-25");
+  });
+});
+
+describe("generatePayrollRun / finalizePayrollRun — actor stamping (Task B13)", () => {
+  const RUN = String(Date.now()).slice(-7);
+  const YEAR = 2099; // far-future cycle — never collides with a real payroll run
+  const MONTH = 1;
+  const ACTOR_A = { id: 1, roles: ["super-admin" as const] };
+  const ACTOR_B = { id: 3, roles: ["super-admin" as const] };
+
+  let userId: number;
+  let runId: number;
+  let firstSlipIds: number[] = [];
+
+  it("creating a draft run stamps payroll_runs + payslips with the actor", async () => {
+    const [u] = await db
+      .insert(users)
+      .values({ name: `Payroll Audit Test ${RUN}`, email: `payroll-audit-${RUN}@test.local`, passwordHash: "x", role: "viewer" })
+      .returning({ id: users.id });
+    userId = u.id;
+    await db.insert(employeeProfiles).values({ userId, employeeCode: `PRT${RUN}`, status: "active", createdBy: ACTOR_A.id, updatedBy: ACTOR_A.id });
+
+    const res = await generatePayrollRun(ACTOR_A, YEAR, MONTH);
+    runId = res.runId;
+    expect(res.employees).toBeGreaterThan(0);
+
+    const [run] = await db.select().from(payrollRuns).where(eq(payrollRuns.id, runId));
+    expect(run.createdBy).toBe(ACTOR_A.id);
+    expect(run.updatedBy).toBe(ACTOR_A.id);
+
+    const slips = await db.select().from(payslips).where(eq(payslips.runId, runId));
+    expect(slips.length).toBe(res.employees);
+    for (const s of slips) {
+      expect(s.createdBy).toBe(ACTOR_A.id);
+      expect(s.updatedBy).toBe(ACTOR_A.id);
+    }
+    firstSlipIds = slips.map((s) => s.id);
+  });
+
+  it("regenerating an existing draft re-stamps payroll_runs.updated_by and the new payslips with the new actor, and the DELETE audit rows for the replaced payslips carry the actor", async () => {
+    const res = await generatePayrollRun(ACTOR_B, YEAR, MONTH);
+    expect(res.runId).toBe(runId);
+
+    const [run] = await db.select().from(payrollRuns).where(eq(payrollRuns.id, runId));
+    expect(run.updatedBy).toBe(ACTOR_B.id); // updated_by moves to the regenerating actor
+    expect(run.createdBy).toBe(ACTOR_A.id); // created_by never changes on update
+
+    const newSlips = await db.select().from(payslips).where(eq(payslips.runId, runId));
+    for (const s of newSlips) {
+      expect(s.createdBy).toBe(ACTOR_B.id);
+      expect(s.updatedBy).toBe(ACTOR_B.id);
+    }
+
+    // The old payslip rows were deleted via stampedDeleteWhere — their DELETE
+    // audit rows must show the regenerating actor (B), not the original creator (A).
+    for (const id of firstSlipIds) {
+      const rows = await db
+        .select()
+        .from(auditLog)
+        .where(and(eq(auditLog.tableName, "payslips"), eq(auditLog.rowId, String(id)), eq(auditLog.op, "DELETE")));
+      expect(rows.length).toBe(1);
+      expect(rows[0].actorId).toBe(ACTOR_B.id);
+    }
+  });
+
+  it("finalizing a draft stamps payroll_runs.updated_by with the finalizing actor", async () => {
+    await finalizePayrollRun(ACTOR_A, runId);
+    const [run] = await db.select().from(payrollRuns).where(eq(payrollRuns.id, runId));
+    expect(run.status).toBe("finalized");
+    expect(run.updatedBy).toBe(ACTOR_A.id);
+  });
+
+  afterAll(async () => {
+    if (runId) {
+      const finalSlips = await db.select({ id: payslips.id }).from(payslips).where(eq(payslips.runId, runId));
+      await db.delete(payslips).where(eq(payslips.runId, runId));
+      for (const s of finalSlips) {
+        await db.delete(auditLog).where(and(eq(auditLog.tableName, "payslips"), eq(auditLog.rowId, String(s.id))));
+      }
+      await db.delete(auditLog).where(and(eq(auditLog.tableName, "payroll_runs"), eq(auditLog.rowId, String(runId))));
+      for (const id of firstSlipIds) {
+        await db.delete(auditLog).where(and(eq(auditLog.tableName, "payslips"), eq(auditLog.rowId, String(id))));
+      }
+      await db.delete(payrollRuns).where(eq(payrollRuns.id, runId));
+    }
+    if (userId) {
+      await db.delete(employeeProfiles).where(eq(employeeProfiles.userId, userId));
+      await db.delete(users).where(eq(users.id, userId));
+    }
   });
 });
