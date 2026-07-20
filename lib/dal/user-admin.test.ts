@@ -1,14 +1,16 @@
-import { describe, it, expect, afterAll, vi } from "vitest";
-import { and, count, eq } from "drizzle-orm";
+import { describe, it, expect, afterAll, beforeAll, vi } from "vitest";
+import { and, count, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
   users,
   authSessions,
+  userAccounts,
   userRoles,
   auditLog,
   employeeProfiles,
   leaveRequests,
   leaveTypes,
+  tasks,
 } from "@/lib/db/schema";
 import { verifyPassword } from "@/lib/auth/password";
 import {
@@ -398,11 +400,13 @@ describe("deleteUser — cascade audit regression", () => {
     // statement) as the actor. With the FK in place that INSERT is a dangling
     // reference and the whole delete rolls back.
     //
-    // Pre-stamping the subtree is not a fix — it's whack-a-mole: stamping
-    // employee_profiles alone still aborts on leave_requests, and the cascade
-    // reaches leave_balances / attendance_records / payslips too. The fix is
-    // that audit_log.actor_id has no FK at all, so an audit row can outlive
-    // the actor it names.
+    // Pre-stamping alone was never enough to make the delete SUCCEED —
+    // stamping employee_profiles but not leave_requests still aborted, and the
+    // cascade reaches leave_balances / attendance_records / payslips too. What
+    // makes it succeed is that audit_log.actor_id has no FK at all, so an audit
+    // row can outlive the actor it names. Pre-stamping the whole subtree
+    // (deleteUser does that now) is the separate, complementary fix: it decides
+    // WHO those surviving rows name.
     const u = await createUser(SUPER, {
       name: "Cascading Employee",
       email: "cascading-employee@datagami.local",
@@ -449,19 +453,24 @@ describe("deleteUser — cascade audit regression", () => {
 
       // And the audit trail survived the actor it names — the other half of
       // dropping the FK. Under ON DELETE SET NULL this attribution would have
-      // been retroactively NULLed the moment the user was deleted.
-      const profileDelete = await db
+      // been retroactively NULLed the moment the user was deleted. The INSERT
+      // row is the one that names the now-deleted user: they provisioned their
+      // own profile, so its actor is them, and it is still readable afterwards.
+      const profileRows = await db
         .select()
         .from(auditLog)
-        .where(
-          and(
-            eq(auditLog.tableName, "employee_profiles"),
-            eq(auditLog.rowId, String(employeeId)),
-            eq(auditLog.op, "DELETE"),
-          ),
-        );
+        .where(and(eq(auditLog.tableName, "employee_profiles"), eq(auditLog.rowId, String(employeeId))))
+        .orderBy(auditLog.id);
+      const profileInsert = profileRows.filter((r) => r.op === "INSERT");
+      expect(profileInsert).toHaveLength(1);
+      expect(profileInsert[0].actorId).toBe(u.id); // outlived the user it names
+
+      // The DELETE, by contrast, names the ADMIN who deleted them — deleteUser
+      // pre-stamps the HR subtree. Before that fix this row read u.id, i.e. the
+      // log claimed the deleted user deleted their own payroll history.
+      const profileDelete = profileRows.filter((r) => r.op === "DELETE");
       expect(profileDelete).toHaveLength(1);
-      expect(profileDelete[0].actorId).toBe(u.id);
+      expect(profileDelete[0].actorId).toBe(SUPER.id);
     } finally {
       await deleteUser(SUPER, u.id); // no-op if already deleted
       // Purge this test's audit_log rows so repeated local runs don't accumulate.
@@ -475,6 +484,284 @@ describe("deleteUser — cascade audit regression", () => {
         await db
           .delete(auditLog)
           .where(and(eq(auditLog.tableName, tableName), eq(auditLog.rowId, String(rowId))));
+      }
+    }
+  });
+});
+
+/**
+ * user_roles and user_accounts have composite PKs, so audit_row() writes
+ * row_id = NULL for them (there is no `id` column to record). Locate their
+ * audit rows through the before/after images instead.
+ */
+function jsonEq(column: typeof auditLog.before, key: string, value: string | number) {
+  return sql`coalesce(${column} ->> ${sql.raw(`'${key}'`)}, '') = ${String(value)}`;
+}
+
+describe("revoke attribution — a revoke names the REVOKER, not the previous granter", () => {
+  const RUN = String(Date.now()).slice(-9);
+  // Three DISTINCT real users: SUPER creates, GRANTER grants, REVOKER revokes.
+  // Without three, a wrong-actor bug could land on the right id by accident and
+  // the assertions below would not discriminate.
+  let GRANTER: { id: number; roles: ["super-admin"] };
+  let REVOKER: { id: number; roles: ["super-admin"] };
+  const fx = { granterId: 0, revokerId: 0, targetId: 0, accountId: 0 };
+
+  beforeAll(async () => {
+    const g = await createUser(SUPER, {
+      name: `Revoke Granter ${RUN}`,
+      email: `revoke-granter-${RUN}@test.local`,
+      password: "secret123",
+      roles: ["super-admin"],
+    });
+    fx.granterId = g.id;
+    GRANTER = { id: g.id, roles: ["super-admin"] };
+
+    const r = await createUser(SUPER, {
+      name: `Revoke Revoker ${RUN}`,
+      email: `revoke-revoker-${RUN}@test.local`,
+      password: "secret123",
+      roles: ["super-admin"],
+    });
+    fx.revokerId = r.id;
+    REVOKER = { id: r.id, roles: ["super-admin"] };
+
+    const t = await createUser(SUPER, {
+      name: `Revoke Target ${RUN}`,
+      email: `revoke-target-${RUN}@test.local`,
+      password: "secret123",
+      roles: ["viewer"],
+    });
+    fx.targetId = t.id;
+
+    const all = await listAccountsForUser(SUPER, "FY26–27");
+    fx.accountId = all[0].id;
+  });
+
+  afterAll(async () => {
+    for (const id of [fx.targetId, fx.granterId, fx.revokerId]) {
+      if (id) await deleteUser(SUPER, id);
+    }
+    // Purge every audit_log row this describe produced. user_roles /
+    // user_accounts rows carry row_id = NULL, so scope them by the user_id
+    // inside the before/after image; users rows scope by row_id as usual.
+    for (const id of [fx.targetId, fx.granterId, fx.revokerId]) {
+      if (!id) continue;
+      for (const tableName of ["user_roles", "user_accounts"]) {
+        await db
+          .delete(auditLog)
+          .where(
+            and(
+              eq(auditLog.tableName, tableName),
+              sql`coalesce(${auditLog.before} ->> 'user_id', ${auditLog.after} ->> 'user_id') = ${String(id)}`,
+            ),
+          );
+      }
+      await db.delete(auditLog).where(and(eq(auditLog.tableName, "users"), eq(auditLog.rowId, String(id))));
+    }
+  });
+
+  it("setUserRoles: the user_roles DELETE audit row for the revoked role names the revoker", async () => {
+    // GRANTER grants "sales" — the row now carries updated_by = GRANTER.
+    await setUserRoles(GRANTER, fx.targetId, ["sales"]);
+    const [granted] = await db
+      .select()
+      .from(userRoles)
+      .where(and(eq(userRoles.userId, fx.targetId), eq(userRoles.role, "sales")))
+      .limit(1);
+    expect(granted.updatedBy).toBe(GRANTER.id);
+
+    // REVOKER takes it away.
+    await setUserRoles(REVOKER, fx.targetId, ["viewer"]);
+    expect(
+      await db.select().from(userRoles).where(and(eq(userRoles.userId, fx.targetId), eq(userRoles.role, "sales"))),
+    ).toHaveLength(0);
+
+    const deletes = await db
+      .select()
+      .from(auditLog)
+      .where(
+        and(
+          eq(auditLog.tableName, "user_roles"),
+          eq(auditLog.op, "DELETE"),
+          jsonEq(auditLog.before, "user_id", fx.targetId),
+          jsonEq(auditLog.before, "role", "sales"),
+        ),
+      )
+      .orderBy(auditLog.id);
+
+    expect(deletes).toHaveLength(1);
+    // The whole point: "who revoked this role" must answer REVOKER. An
+    // unstamped delete records OLD.updated_by, which is GRANTER — a real,
+    // uninvolved admin, which is worse than no actor at all.
+    expect(deletes[0].actorId).toBe(REVOKER.id);
+    expect(deletes[0].actorId).not.toBe(GRANTER.id);
+    expect(deletes[0].actorId).not.toBe(SUPER.id);
+  });
+
+  it("setUserAccounts: the user_accounts DELETE audit row for the revoked assignment names the revoker", async () => {
+    await setUserAccounts(GRANTER, fx.targetId, [fx.accountId]);
+    const [assigned] = await db
+      .select()
+      .from(userAccounts)
+      .where(and(eq(userAccounts.userId, fx.targetId), eq(userAccounts.accountId, fx.accountId)))
+      .limit(1);
+    expect(assigned.updatedBy).toBe(GRANTER.id);
+
+    await setUserAccounts(REVOKER, fx.targetId, []);
+    expect(await db.select().from(userAccounts).where(eq(userAccounts.userId, fx.targetId))).toHaveLength(0);
+
+    const deletes = await db
+      .select()
+      .from(auditLog)
+      .where(
+        and(
+          eq(auditLog.tableName, "user_accounts"),
+          eq(auditLog.op, "DELETE"),
+          jsonEq(auditLog.before, "user_id", fx.targetId),
+          jsonEq(auditLog.before, "account_id", fx.accountId),
+        ),
+      )
+      .orderBy(auditLog.id);
+
+    expect(deletes).toHaveLength(1);
+    expect(deletes[0].actorId).toBe(REVOKER.id);
+    expect(deletes[0].actorId).not.toBe(GRANTER.id);
+  });
+});
+
+describe("deleteUser — the full cascade names the DELETER", () => {
+  const RUN = String(Date.now()).slice(-9);
+
+  it("employee profile, leave request and un-assigned task all carry the deleting admin as actor", async () => {
+    const deleterRow = await createUser(SUPER, {
+      name: `Cascade Deleter ${RUN}`,
+      email: `cascade-deleter-${RUN}@test.local`,
+      password: "secret123",
+      roles: ["super-admin"],
+    });
+    const DELETER = { id: deleterRow.id, roles: ["super-admin" as const] };
+
+    const u = await createUser(SUPER, {
+      name: `Cascade Victim ${RUN}`,
+      email: `cascade-victim-${RUN}@test.local`,
+      password: "secret123",
+      roles: ["viewer"],
+    });
+    const self = { id: u.id, roles: ["viewer" as const] };
+
+    let employeeId: number | null = null;
+    let requestId: number | null = null;
+    let taskId: number | null = null;
+    try {
+      // Self-stamped HR subtree: created_by = updated_by = the user themselves.
+      const me = await getOrCreateEmployeeForUser(u.id);
+      employeeId = me!.employeeId;
+      const [type] = await db.select({ id: leaveTypes.id }).from(leaveTypes).limit(1);
+      const applied = await applyForLeave(self, {
+        leaveTypeId: type.id,
+        startDate: "2026-09-07",
+        endDate: "2026-09-07",
+        isHalfDay: false,
+        reason: "delete-cascade attribution fixture",
+      });
+      requestId = applied.requestId;
+
+      // A task assigned to them, last touched by SUPER. tasks.assignee_id is
+      // ON DELETE SET NULL, so the task survives as an audited UPDATE.
+      const [task] = await db
+        .insert(tasks)
+        .values({
+          title: `Cascade Task ${RUN}`,
+          assigneeId: u.id,
+          createdBy: SUPER.id,
+          updatedBy: SUPER.id,
+        })
+        .returning({ id: tasks.id });
+      taskId = task.id;
+
+      await deleteUser(DELETER, u.id);
+
+      // employee_profiles: previously attributed to the deleted user themselves.
+      const profileDelete = await db
+        .select()
+        .from(auditLog)
+        .where(
+          and(
+            eq(auditLog.tableName, "employee_profiles"),
+            eq(auditLog.rowId, String(employeeId)),
+            eq(auditLog.op, "DELETE"),
+          ),
+        );
+      expect(profileDelete).toHaveLength(1);
+      expect(profileDelete[0].actorId).toBe(DELETER.id);
+      expect(profileDelete[0].actorId).not.toBe(u.id);
+
+      // leave_requests: a SECOND cascade level (users → employee_profiles →
+      // leave_requests), so this proves the stamp reached the grandchildren.
+      const requestDelete = await db
+        .select()
+        .from(auditLog)
+        .where(
+          and(
+            eq(auditLog.tableName, "leave_requests"),
+            eq(auditLog.rowId, String(requestId)),
+            eq(auditLog.op, "DELETE"),
+          ),
+        );
+      expect(requestDelete).toHaveLength(1);
+      expect(requestDelete[0].actorId).toBe(DELETER.id);
+      expect(requestDelete[0].actorId).not.toBe(u.id);
+
+      // tasks: the SET NULL un-assignment. Identify it by its before/after
+      // images rather than by position, so the pre-stamp UPDATE can't be
+      // mistaken for it.
+      const unassign = await db
+        .select()
+        .from(auditLog)
+        .where(
+          and(
+            eq(auditLog.tableName, "tasks"),
+            eq(auditLog.rowId, String(taskId)),
+            eq(auditLog.op, "UPDATE"),
+            jsonEq(auditLog.before, "assignee_id", u.id),
+            sql`${auditLog.after} ->> 'assignee_id' IS NULL`,
+          ),
+        );
+      expect(unassign).toHaveLength(1);
+      expect(unassign[0].actorId).toBe(DELETER.id);
+      expect(unassign[0].actorId).not.toBe(SUPER.id);
+
+      const [taskRow] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);
+      expect(taskRow.assigneeId).toBeNull(); // orphaned, not deleted
+    } finally {
+      if (taskId) await db.delete(tasks).where(eq(tasks.id, taskId));
+      await deleteUser(SUPER, u.id); // no-op if already gone
+      await deleteUser(SUPER, DELETER.id);
+      const scopes: Array<[string, number | null]> = [
+        ["users", u.id],
+        ["users", DELETER.id],
+        ["employee_profiles", employeeId],
+        ["leave_requests", requestId],
+        ["tasks", taskId],
+      ];
+      for (const [tableName, rowId] of scopes) {
+        if (rowId === null) continue;
+        await db
+          .delete(auditLog)
+          .where(and(eq(auditLog.tableName, tableName), eq(auditLog.rowId, String(rowId))));
+      }
+      for (const id of [u.id, DELETER.id]) {
+        for (const tableName of ["user_roles", "user_accounts"]) {
+          await db
+            .delete(auditLog)
+            .where(
+              and(
+                eq(auditLog.tableName, tableName),
+                sql`coalesce(${auditLog.before} ->> 'user_id', ${auditLog.after} ->> 'user_id') = ${String(id)}`,
+              ),
+            );
+        }
       }
     }
   });

@@ -1,7 +1,16 @@
 import "server-only";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { accounts, oems, invoices, academicYears, cohorts, payments } from "@/lib/db/schema";
+import {
+  accounts,
+  oems,
+  invoices,
+  academicYears,
+  cohorts,
+  payments,
+  userAccounts,
+  tasks,
+} from "@/lib/db/schema";
 import { canEdit, type SessionUser } from "./authz";
 import { assignedIds } from "./accounts";
 import { stampedDelete, stampedDeleteWhere } from "./audit";
@@ -195,6 +204,29 @@ export async function deleteAccount(
   accountId: number,
 ): Promise<void> {
   assertSuperAdmin(user);
+  // Pre-stamp every audited row this delete will take down, so each one's
+  // DELETE/UPDATE audit entry names the deleter.
+  //
+  // The spec (§4 Cascades) originally accepted stale actors here on the theory
+  // that a whole-account delete is coarse enough not to need per-row precision.
+  // We tighten it: the fallback is not the NULL the spec assumed — the trigger
+  // reads OLD.updated_by, which is a real, specific, uninvolved person. An audit
+  // log that names the wrong human as the destroyer of an account's entire
+  // financial history is worse than one that names nobody.
+  const invoiceIds = (
+    await db.select({ id: invoices.id }).from(invoices).where(eq(invoices.accountId, accountId))
+  ).map((r) => r.id);
+  if (invoiceIds.length) {
+    // cohorts + payments CASCADE from invoices, so scope them by invoice id
+    // (mirrors deleteYear in rollover.ts).
+    await db.update(cohorts).set({ updatedBy: user.id }).where(inArray(cohorts.invoiceId, invoiceIds));
+    await db.update(payments).set({ updatedBy: user.id }).where(inArray(payments.invoiceId, invoiceIds));
+  }
+  // user_accounts CASCADEs from the account; tasks.account_id is SET NULL (an
+  // audited UPDATE, which also reads updated_by). Both hang off accountId.
+  await db.update(userAccounts).set({ updatedBy: user.id }).where(eq(userAccounts.accountId, accountId));
+  await db.update(tasks).set({ updatedBy: user.id }).where(eq(tasks.accountId, accountId));
+
   // Delete invoices first — payments and cohorts cascade from invoice deletion.
   // Non-atomic on neon-http (no transactions): if a new invoice is created for
   // this account between the two calls below, the account delete fails with an
