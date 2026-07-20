@@ -13,6 +13,8 @@ import { todayISO } from "@/lib/dates";
  * team's board, whose tasks may carry program context). Tasks link to a real
  * account + a real user; the assignment rule below rejects assigning a TEAM
  * task to a user who isn't on the account.
+ * actorId params are audit stamps only; they confer no authorization (the
+ * page + actions assert the session).
  */
 
 const TASK_SELECT = {
@@ -104,6 +106,7 @@ export async function countTasksByStatus(status: TaskStatus, board: TaskBoard = 
 }
 
 export async function addTaskComment(
+  actorId: number,
   taskId: number,
   input: { kind: TaskCommentKind; body: string; author: string },
 ): Promise<TaskComment> {
@@ -111,7 +114,7 @@ export async function addTaskComment(
   if (!body) throw new Error("Comment cannot be empty");
   const [row] = await db
     .insert(taskComments)
-    .values({ taskId, kind: input.kind, author: input.author, body })
+    .values({ taskId, kind: input.kind, author: input.author, body, createdBy: actorId, updatedBy: actorId })
     .returning();
   return { id: row.id, kind: row.kind, author: row.author, body: row.body, createdAt: row.createdAt.toISOString() };
 }
@@ -200,16 +203,16 @@ export async function assertAssignable(
   }
 }
 
-export async function updateTaskPriority(id: number, priority: TaskPriority): Promise<void> {
-  await db.update(tasks).set({ priority }).where(eq(tasks.id, id));
+export async function updateTaskPriority(actorId: number, id: number, priority: TaskPriority): Promise<void> {
+  await db.update(tasks).set({ priority, updatedBy: actorId }).where(eq(tasks.id, id));
 }
 
-export async function moveTask(id: number, status: TaskStatus): Promise<void> {
+export async function moveTask(actorId: number, id: number, status: TaskStatus): Promise<void> {
   // Status-only change — assignee/account are unchanged, so the rule still holds.
   // Stamp completedAt entering "done" (drives the recency window); clear it leaving.
   await db
     .update(tasks)
-    .set({ status, completedAt: status === "done" ? new Date() : null })
+    .set({ status, completedAt: status === "done" ? new Date() : null, updatedBy: actorId })
     .where(eq(tasks.id, id));
 }
 
@@ -226,7 +229,7 @@ export type NewTaskInput = {
   programId?: number | null; // delivery board: picking a program implies the account
 };
 
-export async function createTask(input: NewTaskInput): Promise<{ id: number }> {
+export async function createTask(actorId: number, input: NewTaskInput): Promise<{ id: number }> {
   const board = input.board ?? "team";
   let accountId = input.accountId ?? null;
   const assigneeId = input.assigneeId ?? null;
@@ -268,6 +271,8 @@ export async function createTask(input: NewTaskInput): Promise<{ id: number }> {
       status: input.status ?? "backlog",
       board,
       programId,
+      createdBy: actorId,
+      updatedBy: actorId,
     })
     .returning({ id: tasks.id });
   return { id: row.id };
