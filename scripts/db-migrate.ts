@@ -16,15 +16,29 @@
  * Which database does this touch?
  *   npx tsx scripts/db-migrate.ts           → your LOCAL db (.env.local)
  *   npx tsx scripts/db-migrate.ts --prod    → PRODUCTION (.env.production.local)
- *   on Vercel                               → whatever the platform injects
+ *   on Vercel (production deploy)           → whatever the platform injects
+ *   on Vercel (preview deploy)              → NOTHING; see below
  *
  * Production requires the explicit flag. It used to be the silent default: both
  * env files were loaded with production first, and dotenv never overwrites an
  * already-set variable — so `.env.local` could not win and the plain command
  * migrated production from a laptop. The comment here even said "Run locally".
  * A schema change against production should be something you asked for.
+ *
+ * Preview deploys do not migrate. `vercel-build` runs this on EVERY deployment,
+ * including the preview built for each push to a PR — and Preview and Production
+ * currently share one DATABASE_URL, so a preview deploy migrated the production
+ * database. That is how migration 0016 reached production days before its PR was
+ * reviewed or merged. A schema change should land when a PR merges, not when it
+ * is pushed.
+ *
+ * If previews are ever given their own database (a Neon branch per preview is
+ * the usual answer), set ALLOW_PREVIEW_MIGRATIONS=1 on the Preview environment
+ * to turn migrations back on there — at that point they mutate a throwaway DB,
+ * which is exactly what you want.
  */
 import { config } from "dotenv";
+import { shouldSkipAsPreview, PREVIEW_SKIP_MESSAGE } from "./preview-guard";
 
 // On Vercel the platform injects DATABASE_URL and no .env files are present, so
 // load nothing. VERCEL is never set in .env.local, so it only ever means the
@@ -35,6 +49,13 @@ const wantsProd =
 
 if (!onVercel) {
   config({ path: wantsProd ? ".env.production.local" : ".env.local" });
+}
+
+// A preview deployment must not migrate — see scripts/preview-guard.ts. Runs
+// before the DATABASE_URL check below, so a preview without one still builds.
+if (shouldSkipAsPreview(process.env)) {
+  console.log(PREVIEW_SKIP_MESSAGE);
+  process.exit(0);
 }
 
 import { neon } from "@neondatabase/serverless";
