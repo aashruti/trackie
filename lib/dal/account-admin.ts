@@ -1,5 +1,5 @@
 import "server-only";
-import { asc, eq, inArray } from "drizzle-orm";
+import { asc, count, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
   accounts,
@@ -14,6 +14,7 @@ import {
 import { canEdit, type SessionUser } from "./authz";
 import { assignedIds } from "./accounts";
 import { stampedDelete, stampedDeleteWhere } from "./audit";
+import type { PaymentEntry } from "./payments";
 import type { Category, Semester, Status } from "@/lib/money/types";
 
 function assertSuperAdmin(user: SessionUser) {
@@ -162,29 +163,117 @@ export async function createInvoice(
 }
 
 /**
- * Delete a single draft invoice (and its cohorts/payments via cascade).
- * Rejected if the invoice is not in "draft" status — only drafts can be removed.
- * Any admin who can edit the account can delete its draft invoices.
+ * What a bill deletion will destroy — the confirmation-dialog payload (spec §8).
+ * Amounts are rupees, converted the same way {@link loadPaymentLedger} does.
  */
-export async function deleteDraftInvoice(
+export interface BillDeletionPreview {
+  invoiceId: number;
+  /** Every payment that will be cascade-deleted, oldest first. */
+  payments: PaymentEntry[];
+  /** Σ of `direction: "receipt"` — money the university paid in. */
+  receiptsTotal: number;
+  /** Σ of `direction: "oem-payment"` — money paid out to the OEM. */
+  oemPaymentsTotal: number;
+  /** How many cohort rows hang off this invoice. */
+  cohortCount: number;
+}
+
+/**
+ * Sum rupee amounts without binary-float drift: accumulate in integer paise,
+ * then step back down. Per-row values still go through `Number(amount)` exactly
+ * as loadPaymentLedger does, so a listed payment and the total it feeds agree.
+ */
+function sumRupees(amounts: number[]): number {
+  return amounts.reduce((paise, a) => paise + Math.round(a * 100), 0) / 100;
+}
+
+/**
+ * The confirmation payload for {@link deleteBill}: every payment that would be
+ * cascade-deleted, the per-direction totals, and the cohort-row count.
+ * Super-admin only, and the invoice must belong to `accountId` — same authz as
+ * the delete it precedes, so the dialog can never preview a bill the caller
+ * could not then delete.
+ *
+ * Two queries (spec §8): one grouped invoice+cohort-count lookup that doubles as
+ * the ownership check, one for the payment rows.
+ */
+export async function getBillDeletionPreview(
+  user: SessionUser,
+  accountId: number,
+  invoiceId: number,
+): Promise<BillDeletionPreview> {
+  assertSuperAdmin(user);
+
+  // LEFT JOIN so an invoice with zero cohorts still returns a row (count 0) —
+  // an inner join would make "no cohorts" indistinguishable from "not found".
+  const [inv] = await db
+    .select({
+      id: invoices.id,
+      accountId: invoices.accountId,
+      cohortCount: count(cohorts.id),
+    })
+    .from(invoices)
+    .leftJoin(cohorts, eq(cohorts.invoiceId, invoices.id))
+    .where(eq(invoices.id, invoiceId))
+    .groupBy(invoices.id, invoices.accountId)
+    .limit(1);
+  if (!inv || inv.accountId !== accountId) throw new Error("Invoice not found");
+
+  const rows = await db.select().from(payments).where(eq(payments.invoiceId, invoiceId));
+  const entries: PaymentEntry[] = rows
+    .map((r) => ({
+      id: r.id,
+      invoiceId: r.invoiceId,
+      direction: r.direction,
+      paidOn: r.paidOn,
+      amount: Number(r.amount),
+      mode: r.mode,
+      ref: r.ref,
+    }))
+    .sort((a, b) => a.paidOn.localeCompare(b.paidOn));
+
+  return {
+    invoiceId,
+    payments: entries,
+    receiptsTotal: sumRupees(entries.filter((p) => p.direction === "receipt").map((p) => p.amount)),
+    oemPaymentsTotal: sumRupees(
+      entries.filter((p) => p.direction === "oem-payment").map((p) => p.amount),
+    ),
+    cohortCount: Number(inv.cohortCount),
+  };
+}
+
+/**
+ * Permanently delete a bill (invoice) and everything under it — its payments
+ * and its cohorts, via the DB cascade. Any status is deletable (draft through
+ * paid); the guarantee is not "you can't destroy money data" but "every row
+ * destroyed is named in the audit log, with the actor who destroyed it".
+ *
+ * Super-admin only (spec §8) — deliberately narrower than the retired
+ * `deleteDraftInvoice`, which any account editor could call.
+ *
+ * The invoice is looked up by id AND checked against `accountId`. The retired
+ * function authorized against the caller-supplied accountId but resolved the
+ * invoice by id alone, so a caller scoped to account A could delete account B's
+ * invoice by passing A's id. Both halves must agree.
+ */
+export async function deleteBill(
   user: SessionUser,
   accountId: number,
   invoiceId: number,
 ): Promise<void> {
-  const assigned = user.roles.includes("super-admin") ? [] : await assignedIds(user.id);
-  if (!canEdit(user, accountId, assigned)) throw new Error("Not authorized for this account");
+  assertSuperAdmin(user);
 
   const [row] = await db
-    .select({ status: invoices.status })
+    .select({ accountId: invoices.accountId })
     .from(invoices)
     .where(eq(invoices.id, invoiceId))
     .limit(1);
-  if (!row) throw new Error("Invoice not found");
-  if (row.status !== "draft") throw new Error("Only draft invoices can be deleted");
+  if (!row || row.accountId !== accountId) throw new Error("Invoice not found");
 
-  // Pre-stamp cascade children so their DELETE audit rows carry the
-  // deleter (spec §4 Cascades; mirrors deleteYear). addPayment has no
-  // draft-status guard, so a draft invoice can carry payments too.
+  // Pre-stamp cascade children so their DELETE audit rows carry the deleter
+  // rather than whoever last edited them (spec §4 Cascades; mirrors deleteYear
+  // and deleteAccount).
   await db.update(cohorts).set({ updatedBy: user.id }).where(eq(cohorts.invoiceId, invoiceId));
   await db.update(payments).set({ updatedBy: user.id }).where(eq(payments.invoiceId, invoiceId));
   // Payments and cohorts cascade from the invoice row.

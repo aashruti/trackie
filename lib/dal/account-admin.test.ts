@@ -1,4 +1,4 @@
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect, afterAll, beforeAll } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
@@ -12,7 +12,14 @@ import {
   userAccounts,
   users,
 } from "@/lib/db/schema";
-import { createAccount, createInvoice, deleteAccount, listOems } from "./account-admin";
+import {
+  createAccount,
+  createInvoice,
+  deleteAccount,
+  deleteBill,
+  getBillDeletionPreview,
+  listOems,
+} from "./account-admin";
 import { getAccountDetail } from "./account-detail";
 
 const SUPER = { id: 1, roles: ["super-admin" as const] };
@@ -274,5 +281,279 @@ describe("deleteAccount — the full cascade names the DELETER", () => {
 
     const [taskRow] = await db.select().from(tasks).where(eq(tasks.id, task.id)).limit(1);
     expect(taskRow.accountId).toBeNull(); // orphaned, not deleted
+  });
+});
+
+describe("deleteBill / getBillDeletionPreview", () => {
+  const RUN = String(Date.now()).slice(-9);
+  // SUPER creates everything; a DISTINCT super-admin deletes, so every actor
+  // assertion discriminates between creator and deleter.
+  const fx = { oemId: 0, accountId: 0, otherAccountId: 0, deleterId: 0 };
+  const cleanup = {
+    invoiceId: 0,
+    otherInvoiceId: 0,
+    paymentIds: [] as number[],
+    cohortIds: [] as number[],
+  };
+  let DELETER = { id: 0, roles: ["super-admin" as const] };
+  const SALES = { id: 2, roles: ["sales" as const] };
+
+  beforeAll(async () => {
+    const [deleter] = await db
+      .insert(users)
+      .values({
+        name: `Bill Deleter ${RUN}`,
+        email: `bill-deleter-${RUN}@test.local`,
+        passwordHash: "x",
+        role: "super-admin",
+      })
+      .returning({ id: users.id });
+    fx.deleterId = deleter.id;
+    DELETER = { id: deleter.id, roles: ["super-admin" as const] };
+
+    const [oem] = await db
+      .insert(oems)
+      .values({ name: `DeleteBillOEM-${RUN}`, createdBy: SUPER.id, updatedBy: SUPER.id })
+      .returning({ id: oems.id });
+    fx.oemId = oem.id;
+
+    const [acc] = await db
+      .insert(accounts)
+      .values({ name: `DeleteBillUni-${RUN}`, oemId: oem.id, createdBy: SUPER.id, updatedBy: SUPER.id })
+      .returning({ id: accounts.id });
+    fx.accountId = acc.id;
+
+    // A SECOND account, to prove the ownership check: its invoice must be
+    // untouchable through fx.accountId.
+    const [other] = await db
+      .insert(accounts)
+      .values({ name: `DeleteBillOther-${RUN}`, oemId: oem.id, createdBy: SUPER.id, updatedBy: SUPER.id })
+      .returning({ id: accounts.id });
+    fx.otherAccountId = other.id;
+
+    // The bill under test is deliberately NOT a draft — any-status deletion is
+    // the whole point of the feature.
+    const invoice = await createInvoice(SUPER, fx.accountId, YEAR, {
+      category: "old",
+      semester: "none",
+      students: 8,
+      priceToUni: 2000,
+      priceToDatagami: 1500,
+      gstRate: 0.18,
+      tdsRate: 0.1,
+      status: "paid",
+    });
+    cleanup.invoiceId = invoice.id;
+
+    const otherInvoice = await createInvoice(SUPER, fx.otherAccountId, YEAR, {
+      category: "new",
+      semester: "none",
+      students: 3,
+      priceToUni: 1000,
+      priceToDatagami: 800,
+      gstRate: 0.18,
+      tdsRate: 0.1,
+      status: "raised",
+    });
+    cleanup.otherInvoiceId = otherInvoice.id;
+
+    // Two receipts and one OEM payment. The receipt amounts are chosen so a
+    // naive float sum drifts: 1029.80 + 1740.23 === 2770.0299999999997 in
+    // binary float, not 2770.03. The totals assertion below is exact, so a
+    // naive sum fails the test.
+    // Inserted out of date order so the preview's ordering is discriminating.
+    const paid = await db
+      .insert(payments)
+      .values([
+        {
+          invoiceId: invoice.id,
+          direction: "receipt" as const,
+          paidOn: "2026-03-15",
+          amount: "1740.23",
+          mode: "NEFT" as const,
+          ref: `DeleteBillPay-B-${RUN}`,
+          createdBy: SUPER.id,
+          updatedBy: SUPER.id,
+        },
+        {
+          invoiceId: invoice.id,
+          direction: "receipt" as const,
+          paidOn: "2026-01-10",
+          amount: "1029.80",
+          mode: "RTGS" as const,
+          ref: `DeleteBillPay-A-${RUN}`,
+          createdBy: SUPER.id,
+          updatedBy: SUPER.id,
+        },
+        {
+          invoiceId: invoice.id,
+          direction: "oem-payment" as const,
+          paidOn: "2026-05-01",
+          amount: "1500.55",
+          mode: "UPI" as const,
+          ref: null,
+          createdBy: SUPER.id,
+          updatedBy: SUPER.id,
+        },
+      ])
+      .returning({ id: payments.id });
+    cleanup.paymentIds = paid.map((p) => p.id);
+
+    const madeCohorts = await db
+      .insert(cohorts)
+      .values([
+        {
+          invoiceId: invoice.id,
+          enrollmentYear: "2024-25",
+          count: 5,
+          createdBy: SUPER.id,
+          updatedBy: SUPER.id,
+        },
+        {
+          invoiceId: invoice.id,
+          enrollmentYear: "2025-26",
+          count: 3,
+          createdBy: SUPER.id,
+          updatedBy: SUPER.id,
+        },
+      ])
+      .returning({ id: cohorts.id });
+    cleanup.cohortIds = madeCohorts.map((c) => c.id);
+  });
+
+  afterAll(async () => {
+    // The delete test removes cleanup.invoiceId itself; these are safety nets.
+    if (cleanup.invoiceId) await db.delete(invoices).where(eq(invoices.id, cleanup.invoiceId));
+    if (cleanup.otherInvoiceId) await db.delete(invoices).where(eq(invoices.id, cleanup.otherInvoiceId));
+    if (fx.accountId) await db.delete(accounts).where(eq(accounts.id, fx.accountId));
+    if (fx.otherAccountId) await db.delete(accounts).where(eq(accounts.id, fx.otherAccountId));
+    if (fx.oemId) await db.delete(oems).where(eq(oems.id, fx.oemId));
+    if (fx.deleterId) await db.delete(users).where(eq(users.id, fx.deleterId));
+
+    const scopes: Array<[string, number]> = [
+      ["accounts", fx.accountId],
+      ["accounts", fx.otherAccountId],
+      ["oems", fx.oemId],
+      ["users", fx.deleterId],
+      ["invoices", cleanup.invoiceId],
+      ["invoices", cleanup.otherInvoiceId],
+      ...cleanup.paymentIds.map((id) => ["payments", id] as [string, number]),
+      ...cleanup.cohortIds.map((id) => ["cohorts", id] as [string, number]),
+    ];
+    for (const [tableName, rowId] of scopes) {
+      if (!rowId) continue;
+      await db.delete(auditLog).where(and(eq(auditLog.tableName, tableName), eq(auditLog.rowId, String(rowId))));
+    }
+  });
+
+  it("rejects a non-super-admin — both the preview and the delete", async () => {
+    await expect(getBillDeletionPreview(SALES, fx.accountId, cleanup.invoiceId)).rejects.toThrow(
+      /Super Admin/,
+    );
+    await expect(deleteBill(SALES, fx.accountId, cleanup.invoiceId)).rejects.toThrow(/Super Admin/);
+
+    // Nothing was destroyed on the way to the rejection.
+    const still = await db.select().from(invoices).where(eq(invoices.id, cleanup.invoiceId));
+    expect(still).toHaveLength(1);
+  });
+
+  it("rejects an invoice that belongs to a DIFFERENT account", async () => {
+    // The retired deleteDraftInvoice authorized against the caller-supplied
+    // accountId but resolved the invoice by id alone — so this call would have
+    // deleted another account's bill. Both functions must resolve the invoice
+    // AND check that it belongs to the account the caller named.
+    await expect(
+      getBillDeletionPreview(DELETER, fx.accountId, cleanup.otherInvoiceId),
+    ).rejects.toThrow(/not found/i);
+    await expect(deleteBill(DELETER, fx.accountId, cleanup.otherInvoiceId)).rejects.toThrow(
+      /not found/i,
+    );
+
+    // The other account's invoice survives untouched.
+    const survivor = await db.select().from(invoices).where(eq(invoices.id, cleanup.otherInvoiceId));
+    expect(survivor).toHaveLength(1);
+    expect(survivor[0].accountId).toBe(fx.otherAccountId);
+  });
+
+  it("preview lists every payment, both direction totals, and the cohort count", async () => {
+    const preview = await getBillDeletionPreview(DELETER, fx.accountId, cleanup.invoiceId);
+
+    expect(preview.invoiceId).toBe(cleanup.invoiceId);
+    expect(preview.cohortCount).toBe(2);
+
+    // Oldest first, regardless of insertion order.
+    expect(preview.payments.map((p) => p.paidOn)).toEqual(["2026-01-10", "2026-03-15", "2026-05-01"]);
+    expect(preview.payments).toHaveLength(3);
+    expect(preview.payments[0]).toMatchObject({
+      invoiceId: cleanup.invoiceId,
+      direction: "receipt",
+      paidOn: "2026-01-10",
+      amount: 1029.8,
+      mode: "RTGS",
+      ref: `DeleteBillPay-A-${RUN}`,
+    });
+    expect(preview.payments[1]).toMatchObject({
+      direction: "receipt",
+      amount: 1740.23,
+      mode: "NEFT",
+      ref: `DeleteBillPay-B-${RUN}`,
+    });
+    expect(preview.payments[2]).toMatchObject({
+      direction: "oem-payment",
+      amount: 1500.55,
+      mode: "UPI",
+      ref: null,
+    });
+
+    // Exact, not toBeCloseTo: a naive 1029.8 + 1740.23 lands on
+    // 2770.0299999999997 and must fail here.
+    expect(preview.receiptsTotal).toBe(2770.03);
+    expect(preview.oemPaymentsTotal).toBe(1500.55);
+    // The two directions are not conflated.
+    expect(preview.receiptsTotal).not.toBe(preview.oemPaymentsTotal);
+  });
+
+  it("deletes a PAID (non-draft) bill along with its payments and cohorts", async () => {
+    // Snapshot what the preview promised, so the post-delete assertions check
+    // the same set of rows the dialog would have shown the user.
+    const preview = await getBillDeletionPreview(DELETER, fx.accountId, cleanup.invoiceId);
+    const previewedPaymentIds = preview.payments.map((p) => p.id).sort((a, b) => a - b);
+    expect(previewedPaymentIds).toEqual([...cleanup.paymentIds].sort((a, b) => a - b));
+
+    const [before] = await db.select().from(invoices).where(eq(invoices.id, cleanup.invoiceId));
+    expect(before.status).toBe("paid"); // the retired function would have refused here
+
+    await deleteBill(DELETER, fx.accountId, cleanup.invoiceId);
+
+    expect(await db.select().from(invoices).where(eq(invoices.id, cleanup.invoiceId))).toHaveLength(0);
+    expect(await db.select().from(payments).where(eq(payments.invoiceId, cleanup.invoiceId))).toHaveLength(0);
+    expect(await db.select().from(cohorts).where(eq(cohorts.invoiceId, cleanup.invoiceId))).toHaveLength(0);
+  });
+
+  it("audits the invoice and every cascaded payment/cohort against the DELETER", async () => {
+    const deleteActor = async (tableName: string, rowId: number) => {
+      const rows = await db
+        .select()
+        .from(auditLog)
+        .where(
+          and(eq(auditLog.tableName, tableName), eq(auditLog.rowId, String(rowId)), eq(auditLog.op, "DELETE")),
+        );
+      expect(rows).toHaveLength(1);
+      return rows[0].actorId;
+    };
+
+    expect(await deleteActor("invoices", cleanup.invoiceId)).toBe(DELETER.id);
+    expect(await deleteActor("invoices", cleanup.invoiceId)).not.toBe(SUPER.id);
+
+    // Every cascaded child too — each was created and last edited by SUPER, so
+    // a missing pre-stamp would name SUPER, a real uninvolved admin.
+    for (const paymentId of cleanup.paymentIds) {
+      expect(await deleteActor("payments", paymentId)).toBe(DELETER.id);
+      expect(await deleteActor("payments", paymentId)).not.toBe(SUPER.id);
+    }
+    for (const cohortId of cleanup.cohortIds) {
+      expect(await deleteActor("cohorts", cohortId)).toBe(DELETER.id);
+      expect(await deleteActor("cohorts", cohortId)).not.toBe(SUPER.id);
+    }
   });
 });

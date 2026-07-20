@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth/config";
 import { updateInvoice, setCohorts, type InvoiceEdit, type CohortInput } from "@/lib/dal/mutations";
 import { addPayment, deletePayment, type NewPayment } from "@/lib/dal/payments";
-import { createInvoice, deleteAccount, deleteDraftInvoice, type NewInvoice } from "@/lib/dal/account-admin";
+import { createInvoice, deleteAccount, deleteBill, type NewInvoice } from "@/lib/dal/account-admin";
 import type { Role } from "@/lib/db/enums";
 
 function sessionUser(session: { user: { id: string; roles: Role[] } }) {
@@ -72,10 +72,10 @@ export async function deletePaymentAction(accountId: number, paymentId: number) 
   return { ok: true };
 }
 
-export async function deleteDraftInvoiceAction(accountId: number, invoiceId: number) {
+export async function deleteBillAction(accountId: number, invoiceId: number) {
   const session = await auth();
   if (!session?.user) throw new Error("Not authenticated");
-  await deleteDraftInvoice(sessionUser(session), accountId, invoiceId);
+  await deleteBill(sessionUser(session), accountId, invoiceId);
   revalidatePath(`/accounts/${accountId}`);
   return { ok: true };
 }

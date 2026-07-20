@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Money } from "@/components/ui/money";
 import { StatusBadge } from "@/components/ui/badge";
 import { PaymentForm } from "./payment-form";
-import { deleteDraftInvoiceAction } from "@/app/(app)/accounts/[id]/actions";
+import { deleteBillAction } from "@/app/(app)/accounts/[id]/actions";
 import type { InvoiceComputed, Status } from "@/lib/money/types";
 import type { Direction, PaymentEntry } from "@/lib/dal/payments";
 import { fmtDay, isOverdue } from "@/lib/dates";
@@ -132,11 +132,14 @@ export function InvoiceLadder({
                   Edit
                 </button>
               )}
+              {/* Still draft-only, deliberately: deleteBill now accepts any
+                  status, but the any-status Delete action belongs with the
+                  preview dialog (spec §8 UI) which is a follow-up task. */}
               {inv.status === "draft" && (
                 confirmDelete ? (
                   <span className="flex items-center gap-1">
                     <button
-                      onClick={() => startDelete(async () => { await deleteDraftInvoiceAction(accountId, inv.id); })}
+                      onClick={() => startDelete(async () => { await deleteBillAction(accountId, inv.id); })}
                       disabled={deleting}
                       className="rounded-md border border-[var(--negative-border)] bg-[var(--negative-subtle)] px-2.5 py-1 text-xs font-medium text-[var(--negative-text)] hover:opacity-80 disabled:opacity-50"
                     >
