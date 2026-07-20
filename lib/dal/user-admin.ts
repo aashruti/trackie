@@ -6,6 +6,7 @@ import { hashPassword } from "@/lib/auth/password";
 import type { Role } from "@/lib/db/enums";
 import { type SessionUser } from "./authz";
 import { deleteUserSessions } from "./sessions";
+import { stampedDelete, stampedDeleteWhere } from "./audit";
 
 function assertSuperAdmin(user: SessionUser) {
   if (!user.roles.includes("super-admin")) throw new Error("Only a Super Admin can manage users");
@@ -82,9 +83,18 @@ export async function createUser(
 
   const [row] = await db
     .insert(users)
-    .values({ name, email, passwordHash: await hashPassword(input.password), role: roles[0] })
+    .values({
+      name,
+      email,
+      passwordHash: await hashPassword(input.password),
+      role: roles[0],
+      createdBy: actor.id,
+      updatedBy: actor.id,
+    })
     .returning();
-  await db.insert(userRoles).values(roles.map((role) => ({ userId: row.id, role })));
+  await db
+    .insert(userRoles)
+    .values(roles.map((role) => ({ userId: row.id, role, createdBy: actor.id, updatedBy: actor.id })));
   return { id: row.id };
 }
 
@@ -128,9 +138,17 @@ export async function setUserRoles(actor: SessionUser, userId: number, roles: Ro
     }
   }
 
+  // Plain (unstamped) delete, not stampedDeleteWhere — user_roles has a
+  // composite PK (userId, role), but stampedDeleteWhere is predicate-based and
+  // could still stamp it. Skipped anyway: the plan accepts actor-NULL on this
+  // bulk-revoke's DELETE audit rows in exchange for one fewer round-trip and no
+  // phantom UPDATE-then-DELETE pair on every save; the re-insert rows below
+  // carry the actor, which is what matters for the new set.
   await db.delete(userRoles).where(eq(userRoles.userId, userId));
-  await db.insert(userRoles).values(unique.map((role) => ({ userId, role })));
-  await db.update(users).set({ role: unique[0] }).where(eq(users.id, userId));
+  await db
+    .insert(userRoles)
+    .values(unique.map((role) => ({ userId, role, createdBy: actor.id, updatedBy: actor.id })));
+  await db.update(users).set({ role: unique[0], updatedBy: actor.id }).where(eq(users.id, userId));
 }
 
 /**
@@ -171,7 +189,7 @@ export async function resetUserPassword(
   const ended = await deleteUserSessions(userId);
   await db
     .update(users)
-    .set({ passwordHash: await hashPassword(newPassword) })
+    .set({ passwordHash: await hashPassword(newPassword), updatedBy: actor.id })
     .where(eq(users.id, userId));
 
   console.info(`[security] password reset by user ${actor.id} for user ${userId} (${ended} sessions ended)`);
@@ -201,17 +219,40 @@ export async function setUserAccounts(
   accountIds: number[],
 ): Promise<void> {
   assertSuperAdmin(actor);
+  // Plain (unstamped) delete, not stampedDeleteWhere — user_accounts has a
+  // composite PK (userId, accountId), but stampedDeleteWhere is predicate-based
+  // and could still stamp it. Skipped anyway: the plan accepts actor-NULL on
+  // this bulk-revoke's DELETE audit rows in exchange for one fewer round-trip
+  // and no phantom UPDATE-then-DELETE pair on every save; the re-insert rows
+  // below carry the actor, which is what matters for the new set.
   await db.delete(userAccounts).where(eq(userAccounts.userId, userId));
   const unique = [...new Set(accountIds)];
   if (unique.length > 0) {
-    await db.insert(userAccounts).values(unique.map((accountId) => ({ userId, accountId })));
+    await db
+      .insert(userAccounts)
+      .values(unique.map((accountId) => ({ userId, accountId, createdBy: actor.id, updatedBy: actor.id })));
   }
 }
 
 export async function deleteUser(actor: SessionUser, userId: number): Promise<void> {
   assertSuperAdmin(actor);
   if (actor.id === userId) throw new Error("You can't delete yourself");
-  await db.delete(users).where(eq(users.id, userId));
+  // Must go through stampedDelete, not a raw delete: audit_log.actor_id has an
+  // FK to users.id, and this row's OLD.updated_by could point at userId itself
+  // (e.g. the target last touched their own row) — the DELETE audit trigger's
+  // INSERT would then violate that FK and abort the delete. Stamping with the
+  // (different, still-existing) actor first avoids that.
+  //
+  // Same problem hits the cascade: deleting the users row cascade-deletes its
+  // user_roles/user_accounts rows, and each of THOSE rows' own DELETE audit
+  // trigger reads ITS OWN updated_by as the actor. If the target ever edited
+  // their own roles/accounts (e.g. via setUserRoles as themselves), that
+  // child row's updated_by is userId — same dangling-FK abort, now mid-cascade.
+  // Stamp the children with the actor first, same as the parent, which also
+  // fixes their audit attribution (the deleting admin, not a stale self-edit).
+  await stampedDeleteWhere(userRoles, eq(userRoles.userId, userId), actor.id);
+  await stampedDeleteWhere(userAccounts, eq(userAccounts.userId, userId), actor.id);
+  await stampedDelete(users, userId, actor.id);
 }
 
 /**

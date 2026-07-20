@@ -35,8 +35,8 @@ describe("user-admin", () => {
 
     await setUserAccounts(SUPER, u.id, pick);
 
-    const users = await listUsers(SUPER);
-    const created = users.find((x) => x.id === u.id)!;
+    const allUsers = await listUsers(SUPER);
+    const created = allUsers.find((x) => x.id === u.id)!;
     expect(created.roles).toEqual(["sales"]);
     expect(created.assignedAccountIds.sort()).toEqual([...pick].sort());
 
@@ -45,6 +45,16 @@ describe("user-admin", () => {
     // scopeAccountIds/canEdit read the role SET.
     const scoped = await listAccountsForUser({ id: u.id, roles: ["sales"] }, "FY26–27");
     expect(scoped.map((a) => a.id).sort()).toEqual([...pick].sort());
+
+    // The audit trigger reads updated_by off the row to attribute the audit_log
+    // entry — assert the app actually stamped both columns on insert, on both
+    // the users row and its user_roles row.
+    const [userRow] = await db.select().from(users).where(eq(users.id, u.id)).limit(1);
+    expect(userRow.createdBy).toBe(SUPER.id);
+    expect(userRow.updatedBy).toBe(SUPER.id);
+    const [roleRow] = await db.select().from(userRoles).where(eq(userRoles.userId, u.id)).limit(1);
+    expect(roleRow.createdBy).toBe(SUPER.id);
+    expect(roleRow.updatedBy).toBe(SUPER.id);
   });
 
   it("rejects a non-super-admin", async () => {
@@ -325,6 +335,35 @@ describe("setUserRoles — the multi-select role set", () => {
       const after = (await listUsers(SUPER)).find((x) => x.id === u.id)!;
       expect(after.assignedAccountIds.sort()).toEqual([...pick].sort());
     } finally {
+      await deleteUser(SUPER, u.id);
+    }
+  });
+});
+
+describe("deleteUser — cascade audit regression", () => {
+  it("succeeds even when the target's own user_roles row has updated_by = target (self-edit)", async () => {
+    const u = await createUser(SUPER, {
+      name: "Self Editor",
+      email: "self-editor@datagami.local",
+      password: "secret123",
+      roles: ["super-admin"],
+    });
+    try {
+      // The target edits their own role set as themselves, so user_roles's
+      // updated_by ends up = the target's own id. Deleting the target
+      // cascade-deletes this row; its DELETE audit trigger reads updated_by
+      // (the target, about to be deleted) as the actor — which used to
+      // violate audit_log.actor_id's FK and abort the whole deleteUser
+      // mid-cascade. deleteUser must now stamp the cascaded rows first.
+      await setUserRoles({ id: u.id, roles: ["super-admin"] }, u.id, ["super-admin"]);
+
+      await deleteUser(SUPER, u.id);
+
+      const rows = await db.select().from(users).where(eq(users.id, u.id));
+      expect(rows).toHaveLength(0);
+    } finally {
+      // No-op if the assertions above already confirm deletion — deleteUser
+      // on an already-gone user is a harmless silent 0-row no-op.
       await deleteUser(SUPER, u.id);
     }
   });
