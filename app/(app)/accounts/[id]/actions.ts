@@ -5,7 +5,14 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth/config";
 import { updateInvoice, setCohorts, type InvoiceEdit, type CohortInput } from "@/lib/dal/mutations";
 import { addPayment, deletePayment, type NewPayment } from "@/lib/dal/payments";
-import { createInvoice, deleteAccount, deleteBill, type NewInvoice } from "@/lib/dal/account-admin";
+import {
+  createInvoice,
+  deleteAccount,
+  deleteBill,
+  getBillDeletionPreview,
+  type BillDeletionPreview,
+  type NewInvoice,
+} from "@/lib/dal/account-admin";
 import type { Role } from "@/lib/db/enums";
 
 function sessionUser(session: { user: { id: string; roles: Role[] } }) {
@@ -70,6 +77,19 @@ export async function deletePaymentAction(accountId: number, paymentId: number) 
   await deletePayment(sessionUser(session), paymentId);
   revalidatePath(`/accounts/${accountId}`);
   return { ok: true };
+}
+
+/**
+ * What `deleteBillAction` would destroy, for the confirmation dialog. A read —
+ * deliberately no revalidatePath, since nothing has changed yet.
+ */
+export async function billDeletionPreviewAction(
+  accountId: number,
+  invoiceId: number,
+): Promise<BillDeletionPreview> {
+  const session = await auth();
+  if (!session?.user) throw new Error("Not authenticated");
+  return getBillDeletionPreview(sessionUser(session), accountId, invoiceId);
 }
 
 export async function deleteBillAction(accountId: number, invoiceId: number) {
