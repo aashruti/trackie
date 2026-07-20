@@ -68,7 +68,7 @@ export async function changePasswordAction(
   // /login. Deliberate: someone who suspects compromise can evict an intruder
   // without waiting for an admin.
   await deleteUserSessions(userId);
-  await db.update(users).set({ passwordHash: hash }).where(eq(users.id, userId));
+  await db.update(users).set({ passwordHash: hash, updatedBy: userId }).where(eq(users.id, userId));
 
   return { ok: true };
 }

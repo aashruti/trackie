@@ -23,7 +23,7 @@ export async function getUserEmailInfo(
 export async function markEmailVerified(userId: number, email: string): Promise<boolean> {
   const updated = await db
     .update(users)
-    .set({ emailVerifiedAt: new Date() })
+    .set({ emailVerifiedAt: new Date(), updatedBy: userId })
     .where(and(eq(users.id, userId), eq(users.email, email)))
     .returning({ id: users.id });
   return updated.length > 0;
