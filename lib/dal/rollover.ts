@@ -1,9 +1,10 @@
 import "server-only";
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { academicYears, accounts, invoices, cohorts } from "@/lib/db/schema";
+import { academicYears, accounts, invoices, cohorts, payments } from "@/lib/db/schema";
 import { canEdit, type SessionUser } from "./authz";
 import { assignedIds } from "./accounts";
+import { stampedDelete, stampedDeleteWhere } from "./audit";
 
 export interface RolloverCohort {
   enrollmentYear: string;
@@ -152,7 +153,7 @@ export async function rolloverYear(
   if (!toYear) {
     [toYear] = await db
       .insert(academicYears)
-      .values({ label: toYearLabel })
+      .values({ label: toYearLabel, createdBy: user.id, updatedBy: user.id })
       .returning();
   }
 
@@ -232,6 +233,8 @@ export async function rolloverYear(
           advanceAdj: s.advanceAdj,
           invoiceDate: null,
           status: "draft",
+          createdBy: user.id,
+          updatedBy: user.id,
         })
         .returning();
       result.invoicesCreated++;
@@ -240,7 +243,14 @@ export async function rolloverYear(
       if (clonedCohorts.length) {
         await db
           .insert(cohorts)
-          .values(clonedCohorts.map((c) => ({ ...c, invoiceId: created.id })));
+          .values(
+            clonedCohorts.map((c) => ({
+              ...c,
+              invoiceId: created.id,
+              createdBy: user.id,
+              updatedBy: user.id,
+            })),
+          );
       }
     }
     if (rolledAny) result.accountsRolled++;
@@ -249,7 +259,7 @@ export async function rolloverYear(
   return result;
 }
 
-/** Delete a year's invoices for accounts the user can edit (undo a rollover). */
+/** Delete ALL of a year's invoices (and their cascaded cohorts/payments); super-admin only (undo a rollover). */
 export async function deleteYear(
   user: SessionUser,
   yearLabel: string,
@@ -264,6 +274,12 @@ export async function deleteYear(
   const ids = (
     await db.select({ id: invoices.id }).from(invoices).where(eq(invoices.yearId, year.id))
   ).map((r) => r.id);
-  if (ids.length) await db.delete(invoices).where(inArray(invoices.id, ids));
-  await db.delete(academicYears).where(eq(academicYears.id, year.id));
+  if (ids.length) {
+    // Pre-stamp cascade children so their DELETE audit rows carry the
+    // deleter (spec §4 Cascades; mirrors deleteGroup).
+    await db.update(cohorts).set({ updatedBy: user.id }).where(inArray(cohorts.invoiceId, ids));
+    await db.update(payments).set({ updatedBy: user.id }).where(inArray(payments.invoiceId, ids));
+    await stampedDeleteWhere(invoices, inArray(invoices.id, ids), user.id);
+  }
+  await stampedDelete(academicYears, year.id, user.id);
 }
