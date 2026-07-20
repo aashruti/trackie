@@ -16,6 +16,52 @@ async function invoiceCount(yearLabel: string) {
   return rows.length;
 }
 
+/** Snapshot the row ids a rollover test run created, before deleteYear removes them. */
+async function snapshotYearIds(yearLabel: string) {
+  const { db } = await import("@/lib/db/client");
+  const { academicYears, invoices, cohorts } = await import("@/lib/db/schema");
+  const { eq, inArray } = await import("drizzle-orm");
+  const [year] = await db.select().from(academicYears).where(eq(academicYears.label, yearLabel)).limit(1);
+  const yearId = year?.id ?? null;
+  const invoiceIds = yearId
+    ? (await db.select({ id: invoices.id }).from(invoices).where(eq(invoices.yearId, yearId))).map((r) => r.id)
+    : [];
+  const cohortIds = invoiceIds.length
+    ? (await db.select({ id: cohorts.id }).from(cohorts).where(inArray(cohorts.invoiceId, invoiceIds))).map(
+        (r) => r.id,
+      )
+    : [];
+  return { yearId, invoiceIds, cohortIds };
+}
+
+/** Best-effort audit_log scrub for rows a test run created — scoped by table+id so unrelated audit history is untouched. */
+async function cleanupAudit({
+  yearId,
+  invoiceIds,
+  cohortIds,
+}: {
+  yearId: number | null;
+  invoiceIds: number[];
+  cohortIds: number[];
+}) {
+  const { db } = await import("@/lib/db/client");
+  const { auditLog } = await import("@/lib/db/schema");
+  const { and, eq, inArray } = await import("drizzle-orm");
+  if (yearId != null) {
+    await db.delete(auditLog).where(and(eq(auditLog.tableName, "academic_years"), eq(auditLog.rowId, String(yearId))));
+  }
+  if (invoiceIds.length) {
+    await db
+      .delete(auditLog)
+      .where(and(eq(auditLog.tableName, "invoices"), inArray(auditLog.rowId, invoiceIds.map(String))));
+  }
+  if (cohortIds.length) {
+    await db
+      .delete(auditLog)
+      .where(and(eq(auditLog.tableName, "cohorts"), inArray(auditLog.rowId, cohortIds.map(String))));
+  }
+}
+
 describe("rolloverYear", () => {
   it("clones the year as Draft and retains the source year untouched", async () => {
     const before = await invoiceCount(FROM);
@@ -33,6 +79,20 @@ describe("rolloverYear", () => {
     // New year shows up scoped to the user.
     const rows = await listAccountsForUser(SUPER, TO);
     expect(rows.length).toBe(accountCount);
+
+    // The audit triggers read created_by/updated_by off the row — assert the
+    // app stamped the newly-created year and its cloned invoices.
+    const { db } = await import("@/lib/db/client");
+    const { academicYears, invoices } = await import("@/lib/db/schema");
+    const { eq } = await import("drizzle-orm");
+    const [toYear] = await db.select().from(academicYears).where(eq(academicYears.label, TO)).limit(1);
+    expect(toYear.createdBy).toBe(SUPER.id);
+    expect(toYear.updatedBy).toBe(SUPER.id);
+    const invRows = await db.select().from(invoices).where(eq(invoices.yearId, toYear.id));
+    for (const inv of invRows) {
+      expect(inv.createdBy).toBe(SUPER.id);
+      expect(inv.updatedBy).toBe(SUPER.id);
+    }
   });
 
   it("is idempotent — re-running skips already-populated accounts", async () => {
@@ -42,8 +102,34 @@ describe("rolloverYear", () => {
     expect(res.invoicesCreated).toBe(0);
   });
 
-  afterAll(async () => {
+  it("deleteYear pre-stamps cascaded cohorts so their DELETE audit row carries the deleter", async () => {
+    const ids = await snapshotYearIds(TO);
+    expect(ids.cohortIds.length).toBeGreaterThan(0); // Kalinga's cohort-driven "old" invoice cloned into TO
+
     await deleteYear(SUPER, TO);
+
+    const { db } = await import("@/lib/db/client");
+    const { auditLog } = await import("@/lib/db/schema");
+    const { and, eq } = await import("drizzle-orm");
+    const targetCohortId = ids.cohortIds[0];
+    const rows = await db
+      .select()
+      .from(auditLog)
+      .where(
+        and(
+          eq(auditLog.tableName, "cohorts"),
+          eq(auditLog.rowId, String(targetCohortId)),
+          eq(auditLog.op, "DELETE"),
+        ),
+      );
+    expect(rows.length).toBe(1);
+    expect(rows[0].actorId).toBe(SUPER.id);
+
+    await cleanupAudit(ids);
+  });
+
+  afterAll(async () => {
+    await deleteYear(SUPER, TO); // no-op — the test above already deleted it
   });
 });
 
@@ -82,7 +168,9 @@ describe("rolloverYear carries cohort prices forward", () => {
   });
 
   afterAll(async () => {
+    const ids = await snapshotYearIds(CARRY);
     await deleteYear(SUPER, CARRY);
+    await cleanupAudit(ids);
     if (cohortId != null) {
       const { db } = await import("@/lib/db/client");
       const { cohorts } = await import("@/lib/db/schema");
@@ -130,9 +218,18 @@ describe("rolloverYear applies per-cohort count overrides", () => {
     expect(match?.count).toBe(newCount); // override applied to the cohort
     // invoice.students is kept in sync with the cohort sum (the engine's basis).
     expect(clonedInv.students).toBe(cloned.reduce((a, c) => a + c.count, 0));
+
+    // The audit trigger reads created_by/updated_by off the row — assert the
+    // app stamped the bulk-inserted cloned cohorts.
+    for (const c of cloned) {
+      expect(c.createdBy).toBe(SUPER.id);
+      expect(c.updatedBy).toBe(SUPER.id);
+    }
   });
 
   afterAll(async () => {
+    const ids = await snapshotYearIds(COVR);
     await deleteYear(SUPER, COVR);
+    await cleanupAudit(ids);
   });
 });

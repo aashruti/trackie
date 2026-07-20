@@ -5,6 +5,7 @@ import { leads, leadActivities, leadFollowups, userAccounts } from "@/lib/db/sch
 import type { LeadStage, ActivityType } from "@/lib/db/enums";
 import type { LeadRow, LeadDetailRow, LeadActivityRow, LeadFollowupRow } from "@/lib/board/constants";
 import { assertLeadsAccess, type SessionUser } from "./authz";
+import { stampedDelete } from "./audit";
 import { ensureOem, insertAccount, createInvoice } from "./account-admin";
 import { todayISO } from "@/lib/dates";
 
@@ -161,7 +162,7 @@ export async function setLeadStage(
   assertLeadsAccess(user);
   // Store the reason when moving to lost; clear it when moving back out of lost.
   const reason = stage === "lost" ? (lostReason?.trim() || null) : null;
-  await db.update(leads).set({ stage, lostReason: reason }).where(eq(leads.id, id));
+  await db.update(leads).set({ stage, lostReason: reason, updatedBy: user.id }).where(eq(leads.id, id));
 }
 
 // ---- Follow-ups (a lead can have several) ----------------------------------
@@ -187,7 +188,7 @@ async function loadFollowupsByLead(leadIds: number[]): Promise<Map<number, LeadF
 }
 
 /** Cache the soonest pending dated follow-up into leads.next_action/next_date. */
-async function recomputeNextFollowup(leadId: number): Promise<void> {
+async function recomputeNextFollowup(leadId: number, actorId: number): Promise<void> {
   const [next] = await db
     .select({ action: leadFollowups.action, dueDate: leadFollowups.dueDate })
     .from(leadFollowups)
@@ -196,7 +197,7 @@ async function recomputeNextFollowup(leadId: number): Promise<void> {
     .limit(1);
   await db
     .update(leads)
-    .set({ nextAction: next?.action ?? null, nextDate: next?.dueDate ?? null })
+    .set({ nextAction: next?.action ?? null, nextDate: next?.dueDate ?? null, updatedBy: actorId })
     .where(eq(leads.id, leadId));
 }
 
@@ -210,9 +211,9 @@ export async function addLeadFollowup(
   if (!action) throw new Error("A follow-up needs an action");
   const [row] = await db
     .insert(leadFollowups)
-    .values({ leadId, action, dueDate: input.dueDate || null, done: false })
+    .values({ leadId, action, dueDate: input.dueDate || null, done: false, createdBy: user.id, updatedBy: user.id })
     .returning();
-  await recomputeNextFollowup(leadId);
+  await recomputeNextFollowup(leadId, user.id);
   return toFollowupRow(row);
 }
 
@@ -220,16 +221,16 @@ export async function setLeadFollowupDone(user: SessionUser, followupId: number,
   assertLeadsAccess(user);
   const [f] = await db.select({ leadId: leadFollowups.leadId }).from(leadFollowups).where(eq(leadFollowups.id, followupId)).limit(1);
   if (!f) return;
-  await db.update(leadFollowups).set({ done }).where(eq(leadFollowups.id, followupId));
-  await recomputeNextFollowup(f.leadId);
+  await db.update(leadFollowups).set({ done, updatedBy: user.id }).where(eq(leadFollowups.id, followupId));
+  await recomputeNextFollowup(f.leadId, user.id);
 }
 
 export async function deleteLeadFollowup(user: SessionUser, followupId: number): Promise<void> {
   assertLeadsAccess(user);
   const [f] = await db.select({ leadId: leadFollowups.leadId }).from(leadFollowups).where(eq(leadFollowups.id, followupId)).limit(1);
   if (!f) return;
-  await db.delete(leadFollowups).where(eq(leadFollowups.id, followupId));
-  await recomputeNextFollowup(f.leadId);
+  await stampedDelete(leadFollowups, followupId, user.id);
+  await recomputeNextFollowup(f.leadId, user.id);
 }
 
 export async function addActivity(
@@ -250,6 +251,8 @@ export async function addActivity(
       body,
       dateLabel: formatDateLabel(when),
       occurredAt: when,
+      createdBy: user.id,
+      updatedBy: user.id,
     })
     .returning();
   return toActivityRow(row);
@@ -305,9 +308,9 @@ export async function convertLeadToAccount(
 
   const oemName = (lead.oem ?? "").trim();
   if (!oemName) throw new Error("Set the lead's OEM before converting.");
-  const oem = await ensureOem(oemName); // match by name or create — convert is already authorized
+  const oem = await ensureOem(user.id, oemName); // match by name or create — convert is already authorized
 
-  const { id: accountId } = await insertAccount({
+  const { id: accountId } = await insertAccount(user.id, {
     name: lead.prospect,
     type: "university",
     city: lead.city,
@@ -317,7 +320,10 @@ export async function convertLeadToAccount(
   // Assign a non-super-admin converter to the new account so they can manage it
   // (and so createInvoice's canEdit check passes for them).
   if (!user.roles.includes("super-admin")) {
-    await db.insert(userAccounts).values({ userId: user.id, accountId }).onConflictDoNothing();
+    await db
+      .insert(userAccounts)
+      .values({ userId: user.id, accountId, createdBy: user.id, updatedBy: user.id })
+      .onConflictDoNothing();
   }
 
   // Carry the lead's per-seat pricing into a first draft invoice for the year.
@@ -337,7 +343,7 @@ export async function convertLeadToAccount(
 
   await db
     .update(leads)
-    .set({ stage: "won", convertedAccountId: accountId })
+    .set({ stage: "won", convertedAccountId: accountId, updatedBy: user.id })
     .where(eq(leads.id, leadId));
   return { accountId };
 }
@@ -370,12 +376,21 @@ export async function createLead(user: SessionUser, input: NewLeadInput): Promis
       contactRole: input.contactRole ?? null,
       contactEmail: input.contactEmail ?? null,
       contactPhone: input.contactPhone ?? null,
+      createdBy: user.id,
+      updatedBy: user.id,
     })
     .returning();
   // Seed the first follow-up so it shows in the lead's follow-up list.
   const firstAction = (input.nextAction ?? "Qualify budget & timeline").trim();
   if (firstAction) {
-    await db.insert(leadFollowups).values({ leadId: row.id, action: firstAction, dueDate: input.nextDate || null, done: false });
+    await db.insert(leadFollowups).values({
+      leadId: row.id,
+      action: firstAction,
+      dueDate: input.nextDate || null,
+      done: false,
+      createdBy: user.id,
+      updatedBy: user.id,
+    });
   }
   return toRow(row, 0);
 }

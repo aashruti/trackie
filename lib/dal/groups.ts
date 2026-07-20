@@ -11,6 +11,7 @@ import {
 } from "@/lib/db/schema";
 import { assertGroupsManage, scopeAccountIds, type SessionUser } from "./authz";
 import { assignedIds, listAccountsForUser } from "./accounts";
+import { stampedDelete } from "./audit";
 import { UserError } from "./errors";
 
 /**
@@ -315,10 +316,10 @@ async function assertGroupableAccounts(
  * (concurrent grouping loses the race loudly instead of silently stealing
  * members). Returns the claimed ids; rolls itself back on a partial claim.
  */
-async function claimAccounts(groupId: number, accountIds: number[]): Promise<void> {
+async function claimAccounts(groupId: number, accountIds: number[], actorId: number): Promise<void> {
   const claimed = await db
     .update(accounts)
-    .set({ groupId })
+    .set({ groupId, updatedBy: actorId })
     .where(and(inArray(accounts.id, accountIds), isNull(accounts.groupId)))
     .returning({ id: accounts.id });
   if (claimed.length !== accountIds.length) {
@@ -326,7 +327,7 @@ async function claimAccounts(groupId: number, accountIds: number[]): Promise<voi
     if (claimed.length) {
       await db
         .update(accounts)
-        .set({ groupId: null })
+        .set({ groupId: null, updatedBy: actorId })
         .where(and(inArray(accounts.id, claimed.map((c) => c.id)), eq(accounts.groupId, groupId)));
     }
     throw new UserError("One of those accounts was just added to another group — refresh and try again.");
@@ -366,17 +367,20 @@ export async function createGroup(
   await assertGroupableAccounts(scope, accountIds);
   let groupId: number;
   try {
-    const [row] = await db.insert(accountGroups).values({ name: label }).returning({ id: accountGroups.id });
+    const [row] = await db
+      .insert(accountGroups)
+      .values({ name: label, createdBy: user.id, updatedBy: user.id })
+      .returning({ id: accountGroups.id });
     groupId = row.id;
   } catch (e) {
     if (isUniqueViolation(e)) throw new UserError(`A group named “${label}” already exists.`);
     throw e;
   }
   try {
-    await claimAccounts(groupId, accountIds);
+    await claimAccounts(groupId, accountIds, user.id);
   } catch (e) {
     // No transactions on neon-http — compensate so no empty group is left behind.
-    await db.delete(accountGroups).where(eq(accountGroups.id, groupId));
+    await stampedDelete(accountGroups, groupId, user.id);
     throw e;
   }
   return { id: groupId };
@@ -389,7 +393,7 @@ export async function renameGroup(user: SessionUser, id: number, name: string): 
   try {
     const updated = await db
       .update(accountGroups)
-      .set({ name: label })
+      .set({ name: label, updatedBy: user.id })
       .where(eq(accountGroups.id, id))
       .returning({ id: accountGroups.id });
     if (!updated.length) throw new UserError("Group not found.");
@@ -403,7 +407,7 @@ export async function addAccountsToGroup(user: SessionUser, id: number, accountI
   assertGroupsManage(user);
   const scope = await assertGroupManageable(user, id);
   await assertGroupableAccounts(scope, accountIds);
-  await claimAccounts(id, accountIds);
+  await claimAccounts(id, accountIds, user.id);
 }
 
 export async function removeAccountFromGroup(user: SessionUser, accountId: number): Promise<void> {
@@ -412,13 +416,18 @@ export async function removeAccountFromGroup(user: SessionUser, accountId: numbe
   if (scope !== null && !scope.includes(accountId)) {
     throw new UserError("You can only manage accounts assigned to you.");
   }
-  await db.update(accounts).set({ groupId: null }).where(eq(accounts.id, accountId));
+  await db.update(accounts).set({ groupId: null, updatedBy: user.id }).where(eq(accounts.id, accountId));
 }
 
 /** Deleting a group only ungroups its members (FK SET NULL) — accounts stay intact. */
 export async function deleteGroup(user: SessionUser, id: number): Promise<void> {
   assertGroupsManage(user);
   await assertGroupManageable(user, id);
-  const deleted = await db.delete(accountGroups).where(eq(accountGroups.id, id)).returning({ id: accountGroups.id });
-  if (!deleted.length) throw new UserError("Group not found.");
+  // Pre-empt the FK SET NULL cascade: an unattributed cascade UPDATE would
+  // leave each member's audit row stamped with THAT account's stale last
+  // editor, not the deleter — actively misleading. Explicitly ungroup with
+  // attribution first (0 rows on an empty/nonexistent group — harmless).
+  await db.update(accounts).set({ groupId: null, updatedBy: user.id }).where(eq(accounts.groupId, id));
+  const n = await stampedDelete(accountGroups, id, user.id);
+  if (!n) throw new UserError("Group not found.");
 }

@@ -1,11 +1,22 @@
 import "server-only";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { users, userAccounts, userRoles } from "@/lib/db/schema";
+import {
+  users,
+  userAccounts,
+  userRoles,
+  employeeProfiles,
+  leaveBalances,
+  leaveRequests,
+  payslips,
+  attendanceRecords,
+  tasks,
+} from "@/lib/db/schema";
 import { hashPassword } from "@/lib/auth/password";
 import type { Role } from "@/lib/db/enums";
 import { type SessionUser } from "./authz";
 import { deleteUserSessions } from "./sessions";
+import { stampedDelete, stampedDeleteWhere } from "./audit";
 
 function assertSuperAdmin(user: SessionUser) {
   if (!user.roles.includes("super-admin")) throw new Error("Only a Super Admin can manage users");
@@ -82,9 +93,18 @@ export async function createUser(
 
   const [row] = await db
     .insert(users)
-    .values({ name, email, passwordHash: await hashPassword(input.password), role: roles[0] })
+    .values({
+      name,
+      email,
+      passwordHash: await hashPassword(input.password),
+      role: roles[0],
+      createdBy: actor.id,
+      updatedBy: actor.id,
+    })
     .returning();
-  await db.insert(userRoles).values(roles.map((role) => ({ userId: row.id, role })));
+  await db
+    .insert(userRoles)
+    .values(roles.map((role) => ({ userId: row.id, role, createdBy: actor.id, updatedBy: actor.id })));
   return { id: row.id };
 }
 
@@ -137,9 +157,20 @@ export async function setUserRoles(actor: SessionUser, userId: number, roles: Ro
     }
   }
 
-  await db.delete(userRoles).where(eq(userRoles.userId, userId));
-  await db.insert(userRoles).values(unique.map((role) => ({ userId, role })));
-  await db.update(users).set({ role: unique[0] }).where(eq(users.id, userId));
+  // Stamp-then-delete, deliberately. An earlier comment here claimed this
+  // bulk-revoke's DELETE audit rows would be actor-NULL and that one fewer
+  // round-trip was the better trade — both halves were wrong. These rows always
+  // carry an updated_by from whoever last GRANTED the role, so an unstamped
+  // delete doesn't produce a NULL actor: it names a real, uninvolved admin as
+  // the revoker. Naming the wrong person is strictly worse than naming nobody.
+  // stampedDeleteWhere is predicate-based, so the composite PK (userId, role) is
+  // no obstacle. The extra round-trip buys the answer to "who revoked this
+  // user's super-admin" — the highest-value forensic event in the system.
+  await stampedDeleteWhere(userRoles, eq(userRoles.userId, userId), actor.id);
+  await db
+    .insert(userRoles)
+    .values(unique.map((role) => ({ userId, role, createdBy: actor.id, updatedBy: actor.id })));
+  await db.update(users).set({ role: unique[0], updatedBy: actor.id }).where(eq(users.id, userId));
 }
 
 /**
@@ -180,7 +211,7 @@ export async function resetUserPassword(
   const ended = await deleteUserSessions(userId);
   await db
     .update(users)
-    .set({ passwordHash: await hashPassword(newPassword) })
+    .set({ passwordHash: await hashPassword(newPassword), updatedBy: actor.id })
     .where(eq(users.id, userId));
 
   console.info(`[security] password reset by user ${actor.id} for user ${userId} (${ended} sessions ended)`);
@@ -210,17 +241,69 @@ export async function setUserAccounts(
   accountIds: number[],
 ): Promise<void> {
   assertSuperAdmin(actor);
-  await db.delete(userAccounts).where(eq(userAccounts.userId, userId));
+  // Stamp-then-delete, deliberately — same reasoning as setUserRoles. The rows
+  // being revoked carry updated_by from whoever last GRANTED the assignment, so
+  // an unstamped delete attributes the revocation to that granter, not to the
+  // actor doing the revoking. "Who took this user off this account" has to name
+  // the revoker; one extra round-trip is the price.
+  await stampedDeleteWhere(userAccounts, eq(userAccounts.userId, userId), actor.id);
   const unique = [...new Set(accountIds)];
   if (unique.length > 0) {
-    await db.insert(userAccounts).values(unique.map((accountId) => ({ userId, accountId })));
+    await db
+      .insert(userAccounts)
+      .values(unique.map((accountId) => ({ userId, accountId, createdBy: actor.id, updatedBy: actor.id })));
   }
 }
 
 export async function deleteUser(actor: SessionUser, userId: number): Promise<void> {
   assertSuperAdmin(actor);
   if (actor.id === userId) throw new Error("You can't delete yourself");
-  await db.delete(users).where(eq(users.id, userId));
+  // Stamp before deleting so the trail names the ADMIN who deleted this user,
+  // not whoever last touched each row. The DELETE trigger reads the row's own
+  // OLD.updated_by as the actor, and a user who ever edited themselves (via
+  // setUserRoles/setUserAccounts on their own account, or leave self-service)
+  // carries their OWN id there — so an unstamped delete would record the
+  // deleted user as the actor of their own deletion.
+  //
+  // The cascade needs the same treatment: deleting the users row cascade-deletes
+  // its user_roles/user_accounts rows, and each fires its own DELETE trigger
+  // reading ITS OWN updated_by. Stamping the children first gives them the
+  // deleting admin too.
+  //
+  // (audit_log.actor_id deliberately has no FK to users.id — see migration 0016.
+  // That is what lets these rows be written while the user is being deleted, and
+  // what lets them survive the deletion afterwards.)
+  //
+  // The HR subtree is the deepest leg and the one most worth getting right:
+  // employee_profiles.user_id is ON DELETE CASCADE, and leave_balances /
+  // leave_requests / payslips / attendance_records all CASCADE from
+  // employee_profiles.id — so deleting one user silently deletes their entire
+  // payroll and attendance history. Each of those rows is audited and each
+  // DELETE trigger reads ITS OWN updated_by, which for HR data is typically the
+  // HR admin who last edited it. Unstamped, the whole trail would name that HR
+  // admin as the author of a deletion they had no part in. Stamp deepest-first
+  // (the grandchildren, then the profile) so every level attributes correctly.
+  const profileIds = (
+    await db.select({ id: employeeProfiles.id }).from(employeeProfiles).where(eq(employeeProfiles.userId, userId))
+  ).map((r) => r.id);
+  if (profileIds.length) {
+    await db.update(leaveBalances).set({ updatedBy: actor.id }).where(inArray(leaveBalances.employeeId, profileIds));
+    await db.update(leaveRequests).set({ updatedBy: actor.id }).where(inArray(leaveRequests.employeeId, profileIds));
+    await db.update(payslips).set({ updatedBy: actor.id }).where(inArray(payslips.employeeId, profileIds));
+    await db
+      .update(attendanceRecords)
+      .set({ updatedBy: actor.id })
+      .where(inArray(attendanceRecords.employeeId, profileIds));
+    await db.update(employeeProfiles).set({ updatedBy: actor.id }).where(eq(employeeProfiles.userId, userId));
+  }
+  // tasks.assignee_id is ON DELETE SET NULL, not CASCADE — the task survives,
+  // unassigned. That un-assignment is still an audited UPDATE, and it too reads
+  // updated_by, so without this stamp it would be attributed to whoever last
+  // edited the task rather than to the admin whose deletion orphaned it.
+  await db.update(tasks).set({ updatedBy: actor.id }).where(eq(tasks.assigneeId, userId));
+  await stampedDeleteWhere(userRoles, eq(userRoles.userId, userId), actor.id);
+  await stampedDeleteWhere(userAccounts, eq(userAccounts.userId, userId), actor.id);
+  await stampedDelete(users, userId, actor.id);
 }
 
 /**

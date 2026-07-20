@@ -134,6 +134,8 @@ export async function enableEmployee(
     [row] = await db
       .insert(employeeProfiles)
       .values({
+        createdBy: user.id,
+        updatedBy: user.id,
         userId,
         employeeCode: input.employeeCode.trim(),
         altCodes: input.altCodes ?? [],
@@ -172,6 +174,7 @@ export async function updateEmployee(
   await db
     .update(employeeProfiles)
     .set({
+      updatedBy: user.id,
       employeeCode: input.employeeCode.trim(),
       altCodes: input.altCodes ?? [],
       biometricId: input.biometricId ?? null,
@@ -201,6 +204,6 @@ export async function setEmployeeStatus(
   assertHrAccess(user);
   await db
     .update(employeeProfiles)
-    .set({ status })
+    .set({ status, updatedBy: user.id })
     .where(eq(employeeProfiles.id, employeeId));
 }

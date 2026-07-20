@@ -8,10 +8,10 @@ import type { TaskStatus, TaskPriority, TaskCommentKind } from "@/lib/db/enums";
 import { initials } from "@/lib/board/constants";
 
 /** Boards are open to all authenticated roles — just require a session. */
-async function requireUserCode() {
+async function requireActor() {
   const session = await auth();
   if (!session?.user) throw new Error("Not authenticated");
-  return initials(session.user.name ?? "U");
+  return { id: Number(session.user.id), code: initials(session.user.name ?? "U") };
 }
 
 /** Creating on the delivery board (or with program context) needs delivery access. */
@@ -32,17 +32,17 @@ function revalidateBoard() {
 }
 
 export async function moveTaskAction(id: number, status: TaskStatus) {
-  await requireUserCode();
-  await moveTask(id, status);
+  const { id: actorId } = await requireActor();
+  await moveTask(actorId, id, status);
   revalidateBoard();
   return { ok: true };
 }
 
 export async function addTaskAction(input: NewTaskInput) {
-  await requireUserCode();
+  const { id: actorId } = await requireActor();
   if (input.board === "delivery" || input.programId != null) await assertDeliveryBoardWrite();
   // createTask enforces the account/assignee rule and throws on a bad pairing.
-  await createTask({
+  await createTask(actorId, {
     title: input.title,
     accountId: input.accountId ?? null,
     assigneeId: input.assigneeId ?? null,
@@ -59,8 +59,8 @@ export async function addTaskAction(input: NewTaskInput) {
 }
 
 export async function updateTaskPriorityAction(id: number, priority: TaskPriority) {
-  await requireUserCode();
-  await updateTaskPriority(id, priority);
+  const { id: actorId } = await requireActor();
+  await updateTaskPriority(actorId, id, priority);
   revalidateBoard();
   return { ok: true };
 }
@@ -69,8 +69,8 @@ export async function addTaskCommentAction(
   taskId: number,
   input: { kind: TaskCommentKind; body: string },
 ) {
-  const code = await requireUserCode();
-  await addTaskComment(taskId, { kind: input.kind, body: input.body, author: code });
+  const { id: actorId, code } = await requireActor();
+  await addTaskComment(actorId, taskId, { kind: input.kind, body: input.body, author: code });
   revalidateBoard();
   return { ok: true };
 }

@@ -15,7 +15,7 @@ import { createTask, listTasks, listTaskOptions, countTasksByStatus } from "./ta
 // board, split by the `board` column. Delivery tasks may carry a program.
 
 const RUN = String(Date.now()).slice(-6);
-const fx = { oemId: 0, accountId: 0, methodId: 0, programId: 0, userId: 0 };
+const fx = { oemId: 0, accountId: 0, methodId: 0, programId: 0, userId: 0, actorId: 0 };
 const createdTasks: number[] = [];
 
 beforeAll(async () => {
@@ -42,6 +42,12 @@ beforeAll(async () => {
     .values({ name: `Board Tester ${RUN}`, email: `board-test-${RUN}@test.local`, passwordHash: "x", role: "delivery" })
     .returning({ id: users.id });
   fx.userId = u.id;
+  // A separate actor to create tasks as — its id is the one createTask stamps.
+  const [actorUser] = await db
+    .insert(users)
+    .values({ name: `Board Actor ${RUN}`, email: `board-actor-${RUN}@test.local`, passwordHash: "x", role: "delivery" })
+    .returning({ id: users.id });
+  fx.actorId = actorUser.id;
 });
 
 afterAll(async () => {
@@ -51,11 +57,12 @@ afterAll(async () => {
   await db.delete(deliveryMethods).where(eq(deliveryMethods.id, fx.methodId));
   await db.delete(oems).where(eq(oems.id, fx.oemId));
   await db.delete(users).where(eq(users.id, fx.userId));
+  await db.delete(users).where(eq(users.id, fx.actorId));
 });
 
 describe("board-aware tasks", () => {
   it("a delivery task with only a program derives its account and stays off the team board", async () => {
-    const { id } = await createTask({
+    const { id } = await createTask(fx.actorId, {
       title: `Delivery task ${RUN}`,
       board: "delivery",
       programId: fx.programId,
@@ -71,10 +78,16 @@ describe("board-aware tasks", () => {
 
     const team = await listTasks({ statuses: ["open"] }); // default board: team
     expect(team.find((t) => t.id === id)).toBeUndefined();
+
+    // The audit trigger reads created_by/updated_by off the row — assert the
+    // app actually stamped both columns on insert.
+    const [row] = await db.select().from(tasksTable).where(eq(tasksTable.id, id)).limit(1);
+    expect(row.createdBy).toBe(fx.actorId);
+    expect(row.updatedBy).toBe(fx.actorId);
   });
 
   it("team tasks stay off the delivery board (default board is team)", async () => {
-    const { id } = await createTask({ title: `Team task ${RUN}`, status: "open" });
+    const { id } = await createTask(fx.actorId, { title: `Team task ${RUN}`, status: "open" });
     createdTasks.push(id);
     const delivery = await listTasks({ board: "delivery", statuses: ["open"] });
     expect(delivery.find((t) => t.id === id)).toBeUndefined();
@@ -84,22 +97,26 @@ describe("board-aware tasks", () => {
 
   it("account/program mismatch is rejected; unknown program is rejected", async () => {
     await expect(
-      createTask({ title: "Mismatch", board: "delivery", programId: fx.programId, accountId: 999999 }),
+      createTask(fx.actorId, { title: "Mismatch", board: "delivery", programId: fx.programId, accountId: 999999 }),
     ).rejects.toThrow(/different account/);
-    await expect(createTask({ title: "Ghost", board: "delivery", programId: 99999999 })).rejects.toThrow(/not found/i);
+    await expect(
+      createTask(fx.actorId, { title: "Ghost", board: "delivery", programId: 99999999 }),
+    ).rejects.toThrow(/not found/i);
   });
 
   it("program linkage is rejected on the team board (keeps delivery data off it)", async () => {
-    await expect(createTask({ title: "Sneaky", programId: fx.programId })).rejects.toThrow(/delivery-board/);
-    await expect(createTask({ title: "Sneaky", board: "team", programId: fx.programId })).rejects.toThrow(/delivery-board/);
+    await expect(createTask(fx.actorId, { title: "Sneaky", programId: fx.programId })).rejects.toThrow(/delivery-board/);
+    await expect(
+      createTask(fx.actorId, { title: "Sneaky", board: "team", programId: fx.programId }),
+    ).rejects.toThrow(/delivery-board/);
   });
 
   it("the user_accounts assignment rule applies on team but NOT on delivery", async () => {
     // fx.userId has no user_accounts row for fx.accountId.
     await expect(
-      createTask({ title: "Team assign", accountId: fx.accountId, assigneeId: fx.userId }),
+      createTask(fx.actorId, { title: "Team assign", accountId: fx.accountId, assigneeId: fx.userId }),
     ).rejects.toThrow(/isn't assigned/);
-    const { id } = await createTask({
+    const { id } = await createTask(fx.actorId, {
       title: "Delivery assign",
       board: "delivery",
       programId: fx.programId,

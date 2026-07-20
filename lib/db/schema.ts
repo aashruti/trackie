@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   pgTable,
   serial,
+  bigserial,
   text,
   integer,
   numeric,
@@ -14,6 +15,7 @@ import {
   jsonb,
   unique,
   index,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import {
   ROLES,
@@ -67,8 +69,23 @@ export const deliveryEventStatusEnum = pgEnum("delivery_event_status", DELIVERY_
 export const deliveryActivityTypeEnum = pgEnum("delivery_activity_type", DELIVERY_ACTIVITY_TYPES);
 export const taskBoardEnum = pgEnum("task_board", TASK_BOARDS);
 
+// Base-entity columns on every audited table. created_by/updated_by are the
+// actor-delivery mechanism for the audit triggers (the app writes updated_by on
+// every mutation; the trigger reads it) — nullable because pre-migration rows,
+// seed scripts, and the users self-reference have no known author. updated_at
+// and version are maintained by the stamp_row() trigger and should never be
+// set by app code.
+export const baseColumns = {
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  createdBy: integer("created_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  updatedBy: integer("updated_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  version: integer("version").notNull().default(1),
+};
+
 export const oems = pgTable("oems", {
   id: serial("id").primaryKey(),
+  ...baseColumns,
   name: text("name").notNull().unique(),
   // True when the "OEM" is Datagami itself (own product → no external transfer).
   isSelf: boolean("is_self").notNull().default(false),
@@ -80,12 +97,13 @@ export const oems = pgTable("oems", {
 // Spec: docs/superpowers/specs/2026-07-14-account-groups-design.md
 export const accountGroups = pgTable("account_groups", {
   id: serial("id").primaryKey(),
+  ...baseColumns,
   name: text("name").notNull().unique(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 export const accounts = pgTable("accounts", {
   id: serial("id").primaryKey(),
+  ...baseColumns,
   name: text("name").notNull(),
   type: accountTypeEnum("type").notNull().default("university"),
   city: text("city"),
@@ -98,11 +116,13 @@ export const accounts = pgTable("accounts", {
 
 export const academicYears = pgTable("academic_years", {
   id: serial("id").primaryKey(),
+  ...baseColumns,
   label: text("label").notNull().unique(), // "FY26–27"
 });
 
 export const invoices = pgTable("invoices", {
   id: serial("id").primaryKey(),
+  ...baseColumns,
   accountId: integer("account_id")
     .notNull()
     .references(() => accounts.id),
@@ -124,6 +144,7 @@ export const invoices = pgTable("invoices", {
 
 export const cohorts = pgTable("cohorts", {
   id: serial("id").primaryKey(),
+  ...baseColumns,
   invoiceId: integer("invoice_id")
     .notNull()
     .references(() => invoices.id, { onDelete: "cascade" }),
@@ -136,6 +157,7 @@ export const cohorts = pgTable("cohorts", {
 
 export const payments = pgTable("payments", {
   id: serial("id").primaryKey(),
+  ...baseColumns,
   invoiceId: integer("invoice_id")
     .notNull()
     .references(() => invoices.id, { onDelete: "cascade" }),
@@ -148,6 +170,7 @@ export const payments = pgTable("payments", {
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
+  ...baseColumns,
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
@@ -155,7 +178,6 @@ export const users = pgTable("users", {
   // Set when the user confirms their email via the verification link.
   // Notification emails are only sent to verified addresses.
   emailVerifiedAt: timestamp("email_verified_at"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 /**
@@ -178,6 +200,7 @@ export const authSessions = pgTable(
 export const userAccounts = pgTable(
   "user_accounts",
   {
+    ...baseColumns,
     userId: integer("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -196,6 +219,7 @@ export const userAccounts = pgTable(
 export const userRoles = pgTable(
   "user_roles",
   {
+    ...baseColumns,
     userId: integer("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -212,6 +236,7 @@ export const userRoles = pgTable(
    ============================================================================= */
 export const tasks = pgTable("tasks", {
   id: serial("id").primaryKey(),
+  ...baseColumns,
   title: text("title").notNull(),
   // Null → "Internal" (no account).
   accountId: integer("account_id").references(() => accounts.id, { onDelete: "set null" }),
@@ -231,19 +256,18 @@ export const tasks = pgTable("tasks", {
   // Delivery-board tasks may carry program context (null elsewhere). set null so
   // deleting a program orphans, not drops, its tasks.
   programId: integer("program_id").references(() => programs.id, { onDelete: "set null" }),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 // Worklog / comment thread on a task.
 export const taskComments = pgTable("task_comments", {
   id: serial("id").primaryKey(),
+  ...baseColumns,
   taskId: integer("task_id")
     .notNull()
     .references(() => tasks.id, { onDelete: "cascade" }),
   kind: taskCommentKindEnum("kind").notNull().default("comment"),
   author: text("author").notNull(),
   body: text("body").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 /* =============================================================================
@@ -253,6 +277,7 @@ export const taskComments = pgTable("task_comments", {
    ============================================================================= */
 export const leads = pgTable("leads", {
   id: serial("id").primaryKey(),
+  ...baseColumns,
   prospect: text("prospect").notNull(),
   city: text("city"),
   oem: text("oem"),
@@ -281,23 +306,23 @@ export const leads = pgTable("leads", {
   convertedAccountId: integer("converted_account_id").references(() => accounts.id, {
     onDelete: "set null",
   }),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 // Scheduled follow-ups / reminders on a lead (a lead can have several).
 export const leadFollowups = pgTable("lead_followups", {
   id: serial("id").primaryKey(),
+  ...baseColumns,
   leadId: integer("lead_id")
     .notNull()
     .references(() => leads.id, { onDelete: "cascade" }),
   action: text("action").notNull(),
   dueDate: date("due_date"),
   done: boolean("done").notNull().default(false),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 export const leadActivities = pgTable("lead_activities", {
   id: serial("id").primaryKey(),
+  ...baseColumns,
   leadId: integer("lead_id")
     .notNull()
     .references(() => leads.id, { onDelete: "cascade" }),
@@ -320,6 +345,7 @@ export const leadActivities = pgTable("lead_activities", {
 // Work schedule a shift defines — drives late (LC) / early-leave (LE) detection.
 export const shifts = pgTable("shifts", {
   id: serial("id").primaryKey(),
+  ...baseColumns,
   name: text("name").notNull(), // "General", "Early", "Late"
   startTime: time("start_time").notNull(),
   endTime: time("end_time").notNull(),
@@ -336,6 +362,7 @@ export const shifts = pgTable("shifts", {
 // 1:1 with users. Presence of a row = "this user is an employee".
 export const employeeProfiles = pgTable("employee_profiles", {
   id: serial("id").primaryKey(),
+  ...baseColumns,
   userId: integer("user_id")
     .notNull()
     .unique()
@@ -361,12 +388,12 @@ export const employeeProfiles = pgTable("employee_profiles", {
   // [{ name, relation, number }, …]
   emergencyContacts: jsonb("emergency_contacts"),
   status: employeeStatusEnum("status").notNull().default("active"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 // Company holiday calendar (paid days off, excluded from working days).
 export const holidays = pgTable("holidays", {
   id: serial("id").primaryKey(),
+  ...baseColumns,
   date: date("date").notNull().unique(),
   name: text("name").notNull(),
 });
@@ -374,6 +401,7 @@ export const holidays = pgTable("holidays", {
 // Single-row (id=1) HR policy config — late→LOP rule, cycle, working-days basis.
 export const hrSettings = pgTable("hr_settings", {
   id: serial("id").primaryKey(),
+  ...baseColumns,
   lateLopMode: lateLopModeEnum("late_lop_mode").notNull().default("late-count"),
   latesPerLopDay: integer("lates_per_lop_day").notNull().default(3),
   absentIsLop: boolean("absent_is_lop").notNull().default(true),
@@ -386,12 +414,12 @@ export const hrSettings = pgTable("hr_settings", {
   updatedByUserId: integer("updated_by_user_id").references(() => users.id, {
     onDelete: "set null",
   }),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
 // HR-configurable leave types (Casual, Sick, Earned, Unpaid, Comp-off, …).
 export const leaveTypes = pgTable("leave_types", {
   id: serial("id").primaryKey(),
+  ...baseColumns,
   name: text("name").notNull(),
   code: text("code").notNull().unique(), // maps to grid codes (CL, SL, …)
   isPaid: boolean("is_paid").notNull().default(true),
@@ -406,6 +434,7 @@ export const leaveBalances = pgTable(
   "leave_balances",
   {
     id: serial("id").primaryKey(),
+    ...baseColumns,
     employeeId: integer("employee_id")
       .notNull()
       .references(() => employeeProfiles.id, { onDelete: "cascade" }),
@@ -425,6 +454,7 @@ export const leaveBalances = pgTable(
 
 export const leaveRequests = pgTable("leave_requests", {
   id: serial("id").primaryKey(),
+  ...baseColumns,
   employeeId: integer("employee_id")
     .notNull()
     .references(() => employeeProfiles.id, { onDelete: "cascade" }),
@@ -442,12 +472,12 @@ export const leaveRequests = pgTable("leave_requests", {
   }),
   reviewedAt: timestamp("reviewed_at"),
   reviewNote: text("review_note"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 // One HR upload of a scanner file.
 export const attendanceUploads = pgTable("attendance_uploads", {
   id: serial("id").primaryKey(),
+  ...baseColumns,
   uploadedByUserId: integer("uploaded_by_user_id").references(() => users.id, {
     onDelete: "set null",
   }),
@@ -459,7 +489,6 @@ export const attendanceUploads = pgTable("attendance_uploads", {
   matchedCount: integer("matched_count").notNull().default(0),
   unmatchedCount: integer("unmatched_count").notNull().default(0),
   status: uploadStatusEnum("status").notNull().default("parsed"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 // Raw parsed rows from an upload (audit / re-collapse). Optional for already-daily
@@ -482,6 +511,7 @@ export const attendanceRecords = pgTable(
   "attendance_records",
   {
     id: serial("id").primaryKey(),
+    ...baseColumns,
     employeeId: integer("employee_id")
       .notNull()
       .references(() => employeeProfiles.id, { onDelete: "cascade" }),
@@ -503,8 +533,6 @@ export const attendanceRecords = pgTable(
     uploadId: integer("upload_id").references(() => attendanceUploads.id, {
       onDelete: "set null",
     }),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-    updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (t) => [unique().on(t.employeeId, t.date)],
 );
@@ -514,13 +542,13 @@ export const payrollRuns = pgTable(
   "payroll_runs",
   {
     id: serial("id").primaryKey(),
+    ...baseColumns,
     month: integer("month").notNull(), // 1-12 (cycle end month)
     year: integer("year").notNull(),
     status: payrollRunStatusEnum("status").notNull().default("draft"),
     generatedByUserId: integer("generated_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
     finalizedAt: timestamp("finalized_at"),
   },
   (t) => [unique().on(t.month, t.year)],
@@ -530,6 +558,7 @@ export const payslips = pgTable(
   "payslips",
   {
     id: serial("id").primaryKey(),
+    ...baseColumns,
     runId: integer("run_id")
       .notNull()
       .references(() => payrollRuns.id, { onDelete: "cascade" }),
@@ -556,7 +585,6 @@ export const payslips = pgTable(
     additions: numeric("additions").notNull().default("0"),
     netPay: numeric("net_pay").notNull(),
     breakdown: jsonb("breakdown"), // itemized lines for transparency
-    createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [unique().on(t.runId, t.employeeId)],
 );
@@ -578,6 +606,7 @@ export const payslips = pgTable(
 // FK from programs is `no action`, so deleting an in-use method fails loudly.
 export const deliveryMethods = pgTable("delivery_methods", {
   id: serial("id").primaryKey(),
+  ...baseColumns,
   name: text("name").notNull(),
   code: text("code").notNull().unique(), // "D2S", "T3"
   description: text("description"),
@@ -587,6 +616,7 @@ export const deliveryMethods = pgTable("delivery_methods", {
 // A sold program being delivered under an account.
 export const programs = pgTable("programs", {
   id: serial("id").primaryKey(),
+  ...baseColumns,
   // cascade: deleting an account sweeps its delivery data (deleteAccount in the
   // finance DAL stays untouched — it never has to know programs exist).
   accountId: integer("account_id")
@@ -608,12 +638,12 @@ export const programs = pgTable("programs", {
   // Optional program-level budget envelope (null = untracked; per-event budgets
   // are the operative limit either way).
   totalBudget: numeric("total_budget"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 // A budgeted event under a program (workshop, hackathon, guest lecture…).
 export const deliveryEvents = pgTable("delivery_events", {
   id: serial("id").primaryKey(),
+  ...baseColumns,
   programId: integer("program_id")
     .notNull()
     .references(() => programs.id, { onDelete: "cascade" }),
@@ -627,13 +657,13 @@ export const deliveryEvents = pgTable("delivery_events", {
   status: deliveryEventStatusEnum("status").notNull().default("planned"),
   // Delivery owner running the event. set null so deleting a user orphans it.
   ownerUserId: integer("owner_user_id").references(() => users.id, { onDelete: "set null" }),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 // Everything done under an event — the log that becomes the annual/renewal
 // report, doubling as the expense ledger via `cost` (0 = non-monetary).
 export const deliveryActivities = pgTable("delivery_activities", {
   id: serial("id").primaryKey(),
+  ...baseColumns,
   eventId: integer("event_id")
     .notNull()
     .references(() => deliveryEvents.id, { onDelete: "cascade" }),
@@ -648,5 +678,30 @@ export const deliveryActivities = pgTable("delivery_activities", {
     onDelete: "set null",
   }),
   author: text("author").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+// Immutable audit trail written by the audit_row() trigger (see the
+// audit-foundation migration). Not itself audited — no ...baseColumns.
+export const auditLog = pgTable(
+  "audit_log",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    at: timestamp("at").notNull().defaultNow(),
+    tableName: text("table_name").notNull(),
+    op: text("op").notNull(), // INSERT | UPDATE | DELETE
+    rowId: text("row_id"), // text so it survives the row's deletion; null for composite-PK tables
+    // Deliberately NO .references(users.id). An audit log must outlive the data
+    // it audits, and an FK breaks that two ways: ON DELETE SET NULL retroactively
+    // strips attribution from a departed user's whole audit history, and the FK
+    // aborts cascade deletes mid-flight when a cascaded row's updated_by is the
+    // user being deleted. Readers LEFT JOIN users to resolve names, which works
+    // fine against a plain integer.
+    actorId: integer("actor_id"),
+    before: jsonb("before"),
+    after: jsonb("after"),
+  },
+  (t) => [
+    index("audit_log_table_at_idx").on(t.tableName, t.at),
+    index("audit_log_actor_at_idx").on(t.actorId, t.at),
+  ],
+);

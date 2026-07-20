@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { db } from "@/lib/db/client";
-import { accounts, deliveryMethods, oems, programs as programsTable, userAccounts, users } from "@/lib/db/schema";
-import { eq, inArray } from "drizzle-orm";
+import { accounts, auditLog, deliveryMethods, oems, programs as programsTable, tasks, userAccounts, userRoles, users } from "@/lib/db/schema";
+import { and, eq, inArray } from "drizzle-orm";
 import {
   createProgram,
   deleteProgram,
@@ -23,10 +23,15 @@ const SALES = { id: 997, roles: ["sales" as const] };
 const VIEWER = { id: 999, roles: ["viewer" as const] };
 // Real users row (created in beforeAll) — activity attribution has a users FK.
 const DELIVERY = { id: 0, roles: ["delivery" as const] };
+// A second, throwaway super-admin — used to make the delete-actor test
+// discriminating: create as SUPER, delete as OTHER, so a plain unstamped
+// delete (which would leave OLD.updated_by as the creator) fails the
+// assertion instead of accidentally matching. Mirrors lib/dal/groups.test.ts.
+const OTHER = { id: 0, roles: ["super-admin" as const] };
 
 // Unique names so reruns against a dirty local DB never collide.
 const RUN = String(Date.now()).slice(-6);
-const fixtures = { accountId: 0, oemId: 0, methodId: 0, userId: 0 };
+const fixtures = { accountId: 0, oemId: 0, methodId: 0, userId: 0, otherId: 0 };
 const cleanup = { programIds: [] as number[] };
 
 beforeAll(async () => {
@@ -51,6 +56,15 @@ beforeAll(async () => {
     .values({ name: `Style-${RUN}`, code: `S${RUN}` })
     .returning({ id: deliveryMethods.id });
   fixtures.methodId = method.id;
+
+  // Throwaway second super-admin (OTHER) — see comment above its declaration.
+  const [other] = await db
+    .insert(users)
+    .values({ name: `Delivery Other ${RUN}`, email: `delivery-other-${RUN}@test.local`, passwordHash: "x", role: "super-admin" })
+    .returning({ id: users.id });
+  fixtures.otherId = other.id;
+  OTHER.id = other.id;
+  await db.insert(userRoles).values({ userId: other.id, role: "super-admin", createdBy: SUPER.id, updatedBy: SUPER.id });
 });
 
 afterAll(async () => {
@@ -60,6 +74,7 @@ afterAll(async () => {
   await db.delete(deliveryMethods).where(eq(deliveryMethods.id, fixtures.methodId));
   await db.delete(oems).where(eq(oems.id, fixtures.oemId));
   await db.delete(users).where(eq(users.id, fixtures.userId));
+  await db.delete(users).where(eq(users.id, fixtures.otherId)); // cascades user_roles; audit_log.actorId FK is set-null
 });
 
 describe("programs — CRUD, rollups, budget math", () => {
@@ -87,6 +102,12 @@ describe("programs — CRUD, rollups, budget math", () => {
     expect(p.status).toBe("active");
     expect(p.totalBudget).toBe(200000);
     expect(p).toMatchObject({ eventCount: 0, allocated: 0, spent: 0 });
+
+    // The audit trigger reads created_by/updated_by off the row — assert the
+    // app stamped the freshly-inserted program with the creating actor.
+    const [progRow] = await db.select().from(programsTable).where(eq(programsTable.id, id)).limit(1);
+    expect(progRow.createdBy).toBe(DELIVERY.id);
+    expect(progRow.updatedBy).toBe(DELIVERY.id);
   });
 
   it("events allocate budget; activities accrue spend; detail rolls both up", async () => {
@@ -198,6 +219,16 @@ describe("programs — CRUD, rollups, budget math", () => {
     const detail = (await getProgramDetail(SUPER, programId))!;
     expect(detail.name).toBe(`IBM D2S ${RUN} v2`);
     expect(detail.status).toBe("on-hold");
+    // updateProgram was called as SUPER (not the DELIVERY creator) — updated_by
+    // must reflect the editor, not stay pinned to the creator.
+    const [updatedRow] = await db.select().from(programsTable).where(eq(programsTable.id, programId)).limit(1);
+    expect(updatedRow.updatedBy).toBe(SUPER.id);
+    expect(updatedRow.createdBy).toBe(DELIVERY.id); // creator attribution untouched by the edit
+
+    await setProgramStatus(DELIVERY, programId, "active");
+    const [statusRow] = await db.select().from(programsTable).where(eq(programsTable.id, programId)).limit(1);
+    expect(statusRow.status).toBe("active");
+    expect(statusRow.updatedBy).toBe(DELIVERY.id); // status-only write stamps its own actor
 
     await expect(
       createProgram(SUPER, { accountId: fixtures.accountId, oemId: fixtures.oemId, deliveryMethodId: fixtures.methodId, name: "Bad dates", startDate: "2026-07-10", endDate: "2026-07-01" }),
@@ -249,6 +280,52 @@ describe("programs — CRUD, rollups, budget math", () => {
     await createEvent(SUPER, { programId: id, title: "Doomed", startDate: "2026-07-01" });
     await deleteProgram(SUPER, id);
     expect(await getProgramDetail(SUPER, id)).toBeNull();
+  });
+
+  it("delete stamps the deleter, not the program's creator", async () => {
+    // Create as SUPER, delete as a DIFFERENT super-admin (OTHER). A plain
+    // unstamped delete would leave OLD.updated_by reading SUPER (the
+    // creator) — asserting actorId === OTHER.id only passes when
+    // deleteProgram routes through stampedDelete.
+    const { id } = await createProgram(SUPER, {
+      accountId: fixtures.accountId,
+      oemId: fixtures.oemId,
+      deliveryMethodId: fixtures.methodId,
+      name: `DelActor ${RUN}`,
+    });
+    // A board task linked to this program — deleteProgram's SET NULL cascade
+    // unlinks it; the pre-stamp must attribute that unlink to the deleter too.
+    const [task] = await db.insert(tasks).values({ title: `DelActorTask ${RUN}`, programId: id }).returning({ id: tasks.id });
+    // A delivery event — CASCADE-deletes with the program; its own DELETE
+    // audit row must also carry the deleter, not its stale editor (SUPER).
+    const event = await createEvent(SUPER, { programId: id, title: "DelActorEvent", startDate: "2026-07-01" });
+    await deleteProgram(OTHER, id);
+
+    const rows = await db
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.tableName, "programs"), eq(auditLog.rowId, String(id)), eq(auditLog.op, "DELETE")));
+    expect(rows.length).toBe(1);
+    expect(rows[0].actorId).toBe(OTHER.id);
+
+    const taskRows = await db
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.tableName, "tasks"), eq(auditLog.rowId, String(task.id)), eq(auditLog.op, "UPDATE")))
+      .orderBy(auditLog.id);
+    expect(taskRows.at(-1)!.actorId).toBe(OTHER.id); // the pre-delete unlink stamp
+
+    const eventRows = await db
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.tableName, "delivery_events"), eq(auditLog.rowId, String(event.id)), eq(auditLog.op, "DELETE")));
+    expect(eventRows.length).toBe(1);
+    expect(eventRows[0].actorId).toBe(OTHER.id); // pre-stamped before the CASCADE delete
+
+    await db.delete(auditLog).where(and(eq(auditLog.tableName, "programs"), eq(auditLog.rowId, String(id))));
+    await db.delete(auditLog).where(and(eq(auditLog.tableName, "tasks"), eq(auditLog.rowId, String(task.id))));
+    await db.delete(auditLog).where(and(eq(auditLog.tableName, "delivery_events"), eq(auditLog.rowId, String(event.id))));
+    await db.delete(tasks).where(eq(tasks.id, task.id));
   });
 });
 
