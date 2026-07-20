@@ -329,6 +329,16 @@ describe("setUserRoles — the multi-select role set", () => {
     }
   });
 
+  it("refuses a super-admin removing their OWN super-admin, even when others exist", async () => {
+    // Self-demotion guard, distinct from the orphan guard: it fires on the
+    // actor editing themselves regardless of how many other super-admins exist.
+    // Throws before any delete/insert, so it doesn't mutate the seed super-admin.
+    await expect(setUserRoles(SUPER, SUPER.id, ["sales"])).rejects.toThrow(/your own Super Admin/i);
+    // The set is untouched — still super-admin.
+    const rows = await db.select().from(userRoles).where(eq(userRoles.userId, SUPER.id));
+    expect(rows.map((r) => r.role)).toContain("super-admin");
+  });
+
   it("a role change never touches user_accounts", async () => {
     const all = await listAccountsForUser(SUPER, "FY26–27");
     const pick = all.slice(0, 1).map((a) => a.id);

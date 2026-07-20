@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, gte, inArray, lte, ne, or, isNotNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lte, ne, or, isNull, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { tasks, taskComments, accounts, oems, users, userAccounts, programs } from "@/lib/db/schema";
 import type { TaskStatus, TaskPriority, TaskCommentKind, TaskBoard } from "@/lib/db/enums";
@@ -47,7 +47,8 @@ export async function listTasks(
     doneWithinDays = 30,
     statuses,
     board = "team",
-  }: { doneWithinDays?: number | null; statuses?: TaskStatus[]; board?: TaskBoard } = {},
+    accountScope,
+  }: { doneWithinDays?: number | null; statuses?: TaskStatus[]; board?: TaskBoard; accountScope?: number[] | null } = {},
 ): Promise<TaskRow[]> {
   let doneFilter = undefined;
   if (doneWithinDays != null) {
@@ -59,6 +60,15 @@ export async function listTasks(
     );
   }
   const statusFilter = statuses && statuses.length ? inArray(tasks.status, statuses) : undefined;
+  // accountScope: undefined/null = unrestricted (the shared team board, and
+  // super-admin on the delivery board); an array = restrict to those
+  // universities' tasks (a scoped delivery user). Account-less general tasks
+  // stay visible to any board viewer; an empty array (a delivery user with zero
+  // assignments) collapses to general tasks only, never another university's.
+  const scopeFilter =
+    accountScope == null
+      ? undefined
+      : or(isNull(tasks.accountId), inArray(tasks.accountId, accountScope.length ? accountScope : [-1]));
   return db
     .select(TASK_SELECT)
     .from(tasks)
@@ -66,7 +76,7 @@ export async function listTasks(
     .leftJoin(oems, eq(accounts.oemId, oems.id))
     .leftJoin(users, eq(tasks.assigneeId, users.id))
     .leftJoin(programs, eq(tasks.programId, programs.id))
-    .where(and(eq(tasks.board, board), statusFilter, doneFilter))
+    .where(and(eq(tasks.board, board), statusFilter, doneFilter, scopeFilter))
     .orderBy(asc(tasks.status), desc(tasks.dueDate), desc(tasks.id));
 }
 
@@ -89,7 +99,7 @@ async function loadCommentsByTask(taskIds: number[]): Promise<Map<number, TaskCo
 
 /** Board tasks with their comment threads attached (for the detail dialog). */
 export async function listTasksWithComments(
-  opts: { doneWithinDays?: number | null; statuses?: TaskStatus[]; board?: TaskBoard } = {},
+  opts: { doneWithinDays?: number | null; statuses?: TaskStatus[]; board?: TaskBoard; accountScope?: number[] | null } = {},
 ): Promise<TaskDetailRow[]> {
   const rows = await listTasks(opts);
   const comments = await loadCommentsByTask(rows.map((r) => r.id));
@@ -145,18 +155,27 @@ export async function listUserOptions(): Promise<Option[]> {
   return db.select({ id: users.id, name: users.name }).from(users).orderBy(asc(users.name));
 }
 
-/** Accounts + users + programs for the New-task pickers and board filters. */
-export async function listTaskOptions(): Promise<{
+/**
+ * Accounts + users + programs for the New-task pickers and board filters.
+ * `scope`: undefined/null = all universities (team board, super-admin); an array
+ * = only those universities' accounts and their programs (a scoped delivery
+ * user), so the pickers and filters never name a university they can't see. The
+ * user list stays global — createTask validates assignee-on-account separately.
+ */
+export async function listTaskOptions(scope?: number[] | null): Promise<{
   accounts: Option[];
   users: Option[];
   programs: ProgramOption[];
 }> {
+  const acctScope = scope == null ? undefined : inArray(accounts.id, scope.length ? scope : [-1]);
+  const progScope = scope == null ? undefined : inArray(programs.accountId, scope.length ? scope : [-1]);
   const [accRows, userRows, programRows] = await Promise.all([
-    db.select({ id: accounts.id, name: accounts.name }).from(accounts).orderBy(asc(accounts.name)),
+    db.select({ id: accounts.id, name: accounts.name }).from(accounts).where(acctScope).orderBy(asc(accounts.name)),
     db.select({ id: users.id, name: users.name }).from(users).orderBy(asc(users.name)),
     db
       .select({ id: programs.id, name: programs.name, accountId: programs.accountId, status: programs.status })
       .from(programs)
+      .where(progScope)
       .orderBy(asc(programs.name)),
   ]);
   // Active programs first — completed/on-hold ones sink but stay pickable.

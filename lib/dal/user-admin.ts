@@ -117,14 +117,23 @@ export function wouldOrphanSuperAdmins(
  * re-insert). Also writes the scalar `users.role` to `roles[0]` for the
  * rollback-seed's display/consistency during the expand phase.
  *
- * Two invariants: a user must hold at least one role (else they're locked
- * out — `viewer` is the floor), and the system must never end up with zero
- * users holding `super-admin`.
+ * Three invariants: a user must hold at least one role (else they're locked
+ * out — `viewer` is the floor); the system must never end up with zero users
+ * holding `super-admin`; and a super-admin can't strip their OWN super-admin.
  */
 export async function setUserRoles(actor: SessionUser, userId: number, roles: Role[]): Promise<void> {
   assertSuperAdmin(actor);
   const unique = [...new Set(roles)];
   if (unique.length === 0) throw new Error("A user must have at least one role");
+
+  // Self-demotion guard (defense-in-depth; the UI also disables self-edit). A
+  // super-admin removing their own super-admin is a self-lockout footgun — and
+  // it slips past the orphan check below whenever another super-admin exists.
+  // Distinct concern: the orphan guard protects the SYSTEM; this protects the
+  // ACTOR from demoting themselves. Ask another super-admin to do it.
+  if (actor.id === userId && !unique.includes("super-admin")) {
+    throw new Error("You can't remove your own Super Admin — ask another Super Admin");
+  }
 
   if (!unique.includes("super-admin")) {
     const [holdsSuper] = await db
@@ -237,19 +246,21 @@ export async function setUserAccounts(
 export async function deleteUser(actor: SessionUser, userId: number): Promise<void> {
   assertSuperAdmin(actor);
   if (actor.id === userId) throw new Error("You can't delete yourself");
-  // Must go through stampedDelete, not a raw delete: audit_log.actor_id has an
-  // FK to users.id, and this row's OLD.updated_by could point at userId itself
-  // (e.g. the target last touched their own row) — the DELETE audit trigger's
-  // INSERT would then violate that FK and abort the delete. Stamping with the
-  // (different, still-existing) actor first avoids that.
+  // Stamp before deleting so the trail names the ADMIN who deleted this user,
+  // not whoever last touched each row. The DELETE trigger reads the row's own
+  // OLD.updated_by as the actor, and a user who ever edited themselves (via
+  // setUserRoles/setUserAccounts on their own account, or leave self-service)
+  // carries their OWN id there — so an unstamped delete would record the
+  // deleted user as the actor of their own deletion.
   //
-  // Same problem hits the cascade: deleting the users row cascade-deletes its
-  // user_roles/user_accounts rows, and each of THOSE rows' own DELETE audit
-  // trigger reads ITS OWN updated_by as the actor. If the target ever edited
-  // their own roles/accounts (e.g. via setUserRoles as themselves), that
-  // child row's updated_by is userId — same dangling-FK abort, now mid-cascade.
-  // Stamp the children with the actor first, same as the parent, which also
-  // fixes their audit attribution (the deleting admin, not a stale self-edit).
+  // The cascade needs the same treatment: deleting the users row cascade-deletes
+  // its user_roles/user_accounts rows, and each fires its own DELETE trigger
+  // reading ITS OWN updated_by. Stamping the children first gives them the
+  // deleting admin too.
+  //
+  // (audit_log.actor_id deliberately has no FK to users.id — see migration 0016.
+  // That is what lets these rows be written while the user is being deleted, and
+  // what lets them survive the deletion afterwards.)
   await stampedDeleteWhere(userRoles, eq(userRoles.userId, userId), actor.id);
   await stampedDeleteWhere(userAccounts, eq(userAccounts.userId, userId), actor.id);
   await stampedDelete(users, userId, actor.id);
