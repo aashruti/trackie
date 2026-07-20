@@ -31,6 +31,14 @@ describe("updateInvoice", () => {
     const newInv = detail!.invoices.find((i) => i.category === "new")!;
     expect(newInv.students).toBe(200);
     expect(newInv.netMargin).toBe(200 * (21200 - 18500)); // 540000
+
+    // The audit trigger reads updated_by off the row — assert the app
+    // actually stamped it on this update.
+    const { db } = await import("@/lib/db/client");
+    const { invoices } = await import("@/lib/db/schema");
+    const { eq } = await import("drizzle-orm");
+    const [invoiceRow] = await db.select().from(invoices).where(eq(invoices.id, id)).limit(1);
+    expect(invoiceRow.updatedBy).toBe(SUPER.id);
   });
 
   it("rejects a viewer / unassigned editor", async () => {
@@ -70,6 +78,20 @@ describe("setCohorts", () => {
     const inv = after!.invoices.find((i) => i.id === old1.id)!;
     expect(inv.students).toBe(150); // total synced to cohort sum
     expect(inv.cohorts.length).toBe(2);
+
+    // The audit trigger reads created_by/updated_by off the row — assert the
+    // app stamped the freshly-inserted cohorts and the synced invoice update.
+    const { db } = await import("@/lib/db/client");
+    const { cohorts, invoices } = await import("@/lib/db/schema");
+    const { eq } = await import("drizzle-orm");
+    const cohortRows = await db.select().from(cohorts).where(eq(cohorts.invoiceId, old1.id));
+    expect(cohortRows.length).toBe(2);
+    for (const c of cohortRows) {
+      expect(c.createdBy).toBe(SUPER.id);
+      expect(c.updatedBy).toBe(SUPER.id);
+    }
+    const [invoiceRow] = await db.select().from(invoices).where(eq(invoices.id, old1.id)).limit(1);
+    expect(invoiceRow.updatedBy).toBe(SUPER.id);
   });
 
   it("rejects a viewer", async () => {

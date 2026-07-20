@@ -5,6 +5,7 @@ import { invoices, cohorts } from "@/lib/db/schema";
 import type { Status } from "@/lib/money/types";
 import { canEdit, type SessionUser } from "./authz";
 import { assignedIds } from "./accounts";
+import { stampedDeleteWhere } from "./audit";
 
 export interface CohortInput {
   enrollmentYear: string;
@@ -74,7 +75,10 @@ export async function updateInvoice(
   if (edit.status != null) patch.status = edit.status;
 
   if (Object.keys(patch).length > 0) {
-    await db.update(invoices).set(patch).where(eq(invoices.id, invoiceId));
+    await db
+      .update(invoices)
+      .set({ ...patch, updatedBy: user.id })
+      .where(eq(invoices.id, invoiceId));
   }
   return { accountId: inv.accountId };
 }
@@ -109,7 +113,7 @@ export async function setCohorts(
     .filter((c) => c.enrollmentYear.length > 0);
   const total = clean.reduce((a, c) => a + c.count, 0);
 
-  await db.delete(cohorts).where(eq(cohorts.invoiceId, invoiceId));
+  await stampedDeleteWhere(cohorts, eq(cohorts.invoiceId, invoiceId), user.id);
   if (clean.length > 0) {
     await db.insert(cohorts).values(
       clean.map((c) => ({
@@ -118,9 +122,14 @@ export async function setCohorts(
         count: c.count,
         priceToUni: c.priceToUni,
         priceToDatagami: c.priceToDatagami,
+        createdBy: user.id,
+        updatedBy: user.id,
       })),
     );
   }
-  await db.update(invoices).set({ students: total }).where(eq(invoices.id, invoiceId));
+  await db
+    .update(invoices)
+    .set({ students: total, updatedBy: user.id })
+    .where(eq(invoices.id, invoiceId));
   return { accountId: inv.accountId, total };
 }
