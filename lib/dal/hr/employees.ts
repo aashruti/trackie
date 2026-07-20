@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, eq, notInArray } from "drizzle-orm";
+import { asc, eq, notInArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { employeeProfiles, shifts, users } from "@/lib/db/schema";
 import { assertHrAccess, type SessionUser } from "@/lib/dal/authz";
@@ -203,14 +203,4 @@ export async function setEmployeeStatus(
     .update(employeeProfiles)
     .set({ status })
     .where(eq(employeeProfiles.id, employeeId));
-}
-
-/** Does this user have an employee profile? Drives self-service ("Me") access. */
-export async function isEmployee(userId: number): Promise<boolean> {
-  const [row] = await db
-    .select({ id: employeeProfiles.id })
-    .from(employeeProfiles)
-    .where(and(eq(employeeProfiles.userId, userId), eq(employeeProfiles.status, "active")))
-    .limit(1);
-  return !!row;
 }
