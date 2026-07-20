@@ -5,6 +5,7 @@ import { db } from "@/lib/db/client";
 import { deliveryActivities, deliveryEvents, programs, users } from "@/lib/db/schema";
 import { assertDeliveryManage, type SessionUser } from "@/lib/dal/authz";
 import { UserError } from "@/lib/dal/errors";
+import { stampedDelete } from "../audit";
 import {
   DELIVERY_ACTIVITY_TYPES,
   DELIVERY_EVENT_STATUSES,
@@ -76,7 +77,7 @@ export async function createEvent(user: SessionUser, input: NewEvent): Promise<{
   if (!programRows.length) throw new UserError("Program not found.");
   const [row] = await db
     .insert(deliveryEvents)
-    .values({ ...values, programId: input.programId })
+    .values({ ...values, programId: input.programId, createdBy: user.id, updatedBy: user.id })
     .returning({ id: deliveryEvents.id });
   return { id: row.id };
 }
@@ -86,7 +87,11 @@ export async function updateEvent(user: SessionUser, id: number, input: Omit<New
   await assertEventInScope(user, id);
   const values = cleanEventInput(input);
   await assertEventRefs(values.ownerUserId);
-  const updated = await db.update(deliveryEvents).set(values).where(eq(deliveryEvents.id, id)).returning({ id: deliveryEvents.id });
+  const updated = await db
+    .update(deliveryEvents)
+    .set({ ...values, updatedBy: user.id })
+    .where(eq(deliveryEvents.id, id))
+    .returning({ id: deliveryEvents.id });
   if (!updated.length) throw new UserError("Event not found.");
 }
 
@@ -94,7 +99,11 @@ export async function setEventStatus(user: SessionUser, id: number, status: Deli
   assertDeliveryManage(user);
   await assertEventInScope(user, id);
   if (!DELIVERY_EVENT_STATUSES.includes(status)) throw new UserError("Unknown event status.");
-  const updated = await db.update(deliveryEvents).set({ status }).where(eq(deliveryEvents.id, id)).returning({ id: deliveryEvents.id });
+  const updated = await db
+    .update(deliveryEvents)
+    .set({ status, updatedBy: user.id })
+    .where(eq(deliveryEvents.id, id))
+    .returning({ id: deliveryEvents.id });
   if (!updated.length) throw new UserError("Event not found.");
 }
 
@@ -102,8 +111,11 @@ export async function setEventStatus(user: SessionUser, id: number, status: Deli
 export async function deleteEvent(user: SessionUser, id: number): Promise<void> {
   assertDeliveryManage(user);
   await assertEventInScope(user, id);
-  const deleted = await db.delete(deliveryEvents).where(eq(deliveryEvents.id, id)).returning({ id: deliveryEvents.id });
-  if (!deleted.length) throw new UserError("Event not found.");
+  // delivery_activities CASCADE-deletes with the event — stamp updated_by
+  // first so their DELETE audit rows carry the deleter, not a stale editor.
+  await db.update(deliveryActivities).set({ updatedBy: user.id }).where(eq(deliveryActivities.eventId, id));
+  const n = await stampedDelete(deliveryEvents, id, user.id);
+  if (!n) throw new UserError("Event not found.");
 }
 
 /**
@@ -131,6 +143,8 @@ export async function addActivity(user: SessionUser, authorName: string, input: 
       cost: toMoney(input.cost, "Cost"),
       createdByUserId: user.id,
       author: authorName.trim() || "Unknown",
+      createdBy: user.id,
+      updatedBy: user.id,
     })
     .returning({ id: deliveryActivities.id });
   return { id: row.id };
@@ -139,6 +153,6 @@ export async function addActivity(user: SessionUser, authorName: string, input: 
 export async function deleteActivity(user: SessionUser, id: number): Promise<void> {
   assertDeliveryManage(user);
   await assertActivityInScope(user, id);
-  const deleted = await db.delete(deliveryActivities).where(eq(deliveryActivities.id, id)).returning({ id: deliveryActivities.id });
-  if (!deleted.length) throw new UserError("Activity not found.");
+  const n = await stampedDelete(deliveryActivities, id, user.id);
+  if (!n) throw new UserError("Activity not found.");
 }
