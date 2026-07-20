@@ -15,7 +15,7 @@ export default async function GroupDetailPage({
   const session = await auth();
   const user = session!.user;
   const { currentYear: YEAR, years } = await getYearContext();
-  const actor = { id: Number(user.id), role: user.role };
+  const actor = { id: Number(user.id), roles: user.roles };
   const { id: idParam } = await params;
   const id = Number(idParam);
   if (!Number.isFinite(id)) notFound();

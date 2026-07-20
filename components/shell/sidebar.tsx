@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { TrackieLogo } from "./logo";
-import { roleLabel } from "@/lib/auth/role-label";
+import { rolesLabel } from "@/lib/auth/role-label";
 import type { Role } from "@/lib/db/enums";
 
 type Item = { label: string; href: string; icon: string; soon?: boolean; locked?: boolean };
@@ -129,24 +129,27 @@ function initials(name: string) {
 }
 
 export function Sidebar({
-  role,
+  roles = [],
   user,
   version,
   isEmployee,
 }: {
-  role?: Role;
-  user?: { name?: string | null; role?: Role };
+  roles?: Role[];
+  user?: { name?: string | null; roles?: Role[] };
   version?: string;
   isEmployee?: boolean;
 }) {
   const pathname = usePathname();
-  // Finance/admin are for super-admin & admin; HR is for super-admin & hr;
-  // Delivery is for super-admin & delivery (admins reach the delivery report
-  // through the account page instead); the "Me" self-service group appears for
-  // anyone flagged as an employee.
-  const showFinance = role === "super-admin" || role === "admin";
-  const showHr = role === "super-admin" || role === "hr";
-  const showDelivery = role === "super-admin" || role === "delivery";
+  const isSuper = roles.includes("super-admin");
+  // Additive by role set — a user stacking {sales, hr} sees both sections, not
+  // just one. Finance is for super-admin & sales; HR is for super-admin & hr;
+  // Delivery is for super-admin & delivery (sales reaches the delivery report
+  // through the account page instead, not the Delivery nav group — sales lost
+  // canAccessDelivery in the admin→sales split); the "Me" self-service group
+  // appears for anyone flagged as an employee. Admin group stays super-only.
+  const showFinance = isSuper || roles.includes("sales");
+  const showHr = isSuper || roles.includes("hr");
+  const showDelivery = isSuper || roles.includes("delivery");
   const finance: Item[] = [
     FINANCE_BASE[0],
     FINANCE_BASE[1],
@@ -167,7 +170,7 @@ export function Sidebar({
       </div>
       <nav className="flex-1 overflow-y-auto px-3">
         {showFinance && <Group title="Finance" items={finance} pathname={pathname} />}
-        {role === "super-admin" && <Group title="Admin" items={ADMIN} pathname={pathname} />}
+        {isSuper && <Group title="Admin" items={ADMIN} pathname={pathname} />}
         {showHr && (
           <Group
             title="HR"
@@ -194,7 +197,7 @@ export function Sidebar({
           </span>
           <div className="min-w-0 leading-tight">
             <div className="truncate text-sm font-semibold text-text-primary">{name}</div>
-            <div className="truncate text-[11px] text-text-muted">{roleLabel(user?.role ?? role)}</div>
+            <div className="truncate text-[11px] text-text-muted">{rolesLabel(user?.roles ?? roles)}</div>
           </div>
         </div>
         <div className="px-1 pt-2 text-[11px] text-text-muted">

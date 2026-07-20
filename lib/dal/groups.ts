@@ -76,7 +76,7 @@ const EMPTY_DELIVERY: GroupDelivery = { programs: 0, allocated: 0, spent: 0, res
  * the delivery queries and membership checks.
  */
 async function scopeFor(user: SessionUser): Promise<{ assigned: number[]; scope: number[] | null }> {
-  const assigned = user.role === "super-admin" ? [] : await assignedIds(user.id);
+  const assigned = user.roles.includes("super-admin") ? [] : await assignedIds(user.id);
   return { assigned, scope: scopeAccountIds(user, assigned) };
 }
 

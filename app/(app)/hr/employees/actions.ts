@@ -14,7 +14,7 @@ import type { EmployeeStatus } from "@/lib/db/enums";
 async function actor() {
   const session = await auth();
   if (!session?.user) throw new Error("Not authenticated");
-  return { id: Number(session.user.id), role: session.user.role };
+  return { id: Number(session.user.id), roles: session.user.roles };
 }
 
 export type ActionResult = { ok: true } | { ok: false; error: string };

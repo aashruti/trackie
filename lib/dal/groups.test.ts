@@ -26,9 +26,9 @@ import {
   renameGroup,
 } from "./groups";
 
-const SUPER = { id: 1, role: "super-admin" as const };
-const VIEWER = { id: 999, role: "viewer" as const };
-const DELIVERY_ROLE = { id: 998, role: "delivery" as const };
+const SUPER = { id: 1, roles: ["super-admin" as const] };
+const VIEWER = { id: 999, roles: ["viewer" as const] };
+const DELIVERY_ROLE = { id: 998, roles: ["delivery" as const] };
 const YEAR = "FY26–27";
 
 const RUN = String(Date.now()).slice(-6);
@@ -84,7 +84,7 @@ beforeAll(async () => {
   // Admin scoped to acc1 only (for the scoping test).
   const [admin] = await db
     .insert(users)
-    .values({ name: `Grp Admin ${RUN}`, email: `grp-admin-${RUN}@test.local`, passwordHash: "x", role: "admin" })
+    .values({ name: `Grp Admin ${RUN}`, email: `grp-admin-${RUN}@test.local`, passwordHash: "x", role: "sales" })
     .returning({ id: users.id });
   fx.adminId = admin.id;
   await db.insert(userAccounts).values({ userId: admin.id, accountId: fx.acc1 });
@@ -137,7 +137,7 @@ describe("account groups — rollups & membership", () => {
   });
 
   it("a scoped admin sees only their members' sums", async () => {
-    const admin = { id: fx.adminId, role: "admin" as const };
+    const admin = { id: fx.adminId, roles: ["sales" as const] };
     const groups = await listGroups(admin, YEAR);
     const g = groups.find((x) => x.id === fx.groupId)!;
     expect(g.memberCount).toBe(1); // acc2 invisible to this admin
@@ -154,7 +154,7 @@ describe("account groups — rollups & membership", () => {
   });
 
   it("scoped admin cannot group accounts outside their assignment", async () => {
-    const admin = { id: fx.adminId, role: "admin" as const };
+    const admin = { id: fx.adminId, roles: ["sales" as const] };
     await removeAccountFromGroup(SUPER, fx.acc2); // acc2 now ungrouped but NOT assigned to admin
     await expect(addAccountsToGroup(admin, fx.groupId, [fx.acc2])).rejects.toThrow(/assigned to you/);
     await addAccountsToGroup(SUPER, fx.groupId, [fx.acc2]); // super-admin can re-add
@@ -197,7 +197,7 @@ describe("account groups — rollups & membership", () => {
   });
 
   it("a scoped admin can't see, rename, delete or add to a group with only out-of-scope members", async () => {
-    const admin = { id: fx.adminId, role: "admin" as const };
+    const admin = { id: fx.adminId, roles: ["sales" as const] };
     // acc2 is NOT assigned to the admin; group it alone.
     const { id } = await createGroup(SUPER, `Hidden ${RUN}`, [fx.acc2]);
     expect((await listGroups(admin, YEAR)).find((g) => g.id === id)).toBeUndefined();

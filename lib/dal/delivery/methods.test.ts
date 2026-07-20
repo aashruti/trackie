@@ -4,10 +4,12 @@ import { db } from "@/lib/db/client";
 import { deliveryMethods } from "@/lib/db/schema";
 import { inArray } from "drizzle-orm";
 
-const SUPER = { id: 1, role: "super-admin" as const };
-const DELIVERY = { id: 998, role: "delivery" as const };
-const ADMIN = { id: 997, role: "admin" as const };
-const VIEWER = { id: 999, role: "viewer" as const };
+const SUPER = { id: 1, roles: ["super-admin" as const] };
+const DELIVERY = { id: 998, roles: ["delivery" as const] };
+// Sales lost delivery read/write in the admin→sales split (the ONE intended
+// reduction from stackable roles — see lib/dal/authz.test.ts).
+const SALES = { id: 997, roles: ["sales" as const] };
+const VIEWER = { id: 999, roles: ["viewer" as const] };
 
 // Unique per-run code so reruns against a dirty local DB never collide.
 const CODE = `TX${String(Date.now()).slice(-6)}`;
@@ -42,9 +44,9 @@ describe("delivery methods catalogue", () => {
     expect(activeOnly.find((r) => r.id === id)).toBeUndefined();
   });
 
-  it("admin can read but not write; viewer can do neither", async () => {
-    await expect(listMethods(ADMIN)).resolves.toBeInstanceOf(Array);
-    await expect(createMethod(ADMIN, { name: "Nope", code: "NOPE1" })).rejects.toThrow();
+  it("sales has no delivery access at all (lost it in the admin→sales split); viewer neither", async () => {
+    await expect(listMethods(SALES)).rejects.toThrow();
+    await expect(createMethod(SALES, { name: "Nope", code: "NOPE1" })).rejects.toThrow();
     await expect(listMethods(VIEWER)).rejects.toThrow();
     await expect(setMethodActive(VIEWER, created[0] ?? 1, true)).rejects.toThrow();
   });

@@ -16,7 +16,7 @@ async function main() {
   const { db } = await import("../lib/db/client");
   const t = await import("../lib/db/schema");
 
-  // Upsert the admin user.
+  // Upsert the sales user (cascade-deletes their old user_roles row too).
   await db.delete(t.users).where(eq(t.users.email, EMAIL));
   const [user] = await db
     .insert(t.users)
@@ -24,9 +24,10 @@ async function main() {
       name: "Region Admin",
       email: EMAIL,
       passwordHash: await hashPassword(PASSWORD),
-      role: "admin",
+      role: "sales",
     })
     .returning();
+  await db.insert(t.userRoles).values({ userId: user.id, role: "sales" });
 
   // Assign the named accounts.
   const accs = await db

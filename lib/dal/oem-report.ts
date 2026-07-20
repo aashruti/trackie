@@ -85,7 +85,7 @@ export async function getOemReport(
     return { oem: oem.name, isSelf: oem.isSelf, accounts: [], payments: [], totals: blankTotals };
   }
 
-  const assigned = user.role === "super-admin" ? [] : await assignedIds(user.id);
+  const assigned = user.roles.includes("super-admin") ? [] : await assignedIds(user.id);
   const scope = scopeAccountIds(user, assigned);
 
   const accRows = await db

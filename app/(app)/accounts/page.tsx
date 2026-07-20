@@ -1,17 +1,19 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth/config";
 import { Topbar } from "@/components/shell/topbar";
 import { listAccountsForUser } from "@/lib/dal/accounts";
 import { AccountsExplorer } from "@/components/accounts/accounts-explorer";
 import { getYearContext } from "@/lib/dal/years";
-import { canManageGroups } from "@/lib/dal/authz";
+import { canManageGroups, canViewFinance } from "@/lib/dal/authz";
 
 export default async function AccountsPage() {
   const session = await auth();
   const user = session!.user;
+  if (!canViewFinance({ id: Number(user.id), roles: user.roles })) redirect("/dashboard");
   const { currentYear: YEAR, years } = await getYearContext();
   const rows = await listAccountsForUser(
-    { id: Number(user.id), role: user.role },
+    { id: Number(user.id), roles: user.roles },
     YEAR,
   );
 
@@ -23,7 +25,7 @@ export default async function AccountsPage() {
           <p className="text-xs text-text-muted">
             {rows.length} accounts · {YEAR}
           </p>
-          {canManageGroups({ id: Number(user.id), role: user.role }) && (
+          {canManageGroups({ id: Number(user.id), roles: user.roles }) && (
             <Link
               href="/accounts/groups"
               className="rounded-md border border-border-strong px-3 py-1.5 text-sm font-medium text-text-secondary hover:bg-surface-hover"
@@ -33,7 +35,7 @@ export default async function AccountsPage() {
           )}
         </div>
         <AccountsExplorer
-          canCreate={user.role === "super-admin"}
+          canCreate={user.roles.includes("super-admin")}
           rows={rows.map((r) => ({
             id: r.id,
             name: r.name,

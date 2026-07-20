@@ -5,7 +5,7 @@ import { auth } from "@/lib/auth/config";
 import {
   createUser,
   setUserAccounts,
-  updateUserRole,
+  setUserRoles,
   deleteUser,
   resetUserPassword,
   signOutUserEverywhere,
@@ -18,14 +18,14 @@ import { appBaseUrl } from "@/lib/http/base-url";
 async function actor() {
   const session = await auth();
   if (!session?.user) throw new Error("Not authenticated");
-  return { id: Number(session.user.id), role: session.user.role };
+  return { id: Number(session.user.id), roles: session.user.roles };
 }
 
 export async function createUserAction(input: {
   name: string;
   email: string;
   password: string;
-  role: Role;
+  roles: Role[];
 }) {
   const { id } = await createUser(await actor(), input);
   // Best-effort: send the new user a verification link (never blocks creation).
@@ -47,10 +47,16 @@ export async function setUserAccountsAction(userId: number, accountIds: number[]
   return { ok: true };
 }
 
-export async function updateUserRoleAction(userId: number, role: Role) {
-  await updateUserRole(await actor(), userId, role);
+export async function setUserRolesAction(userId: number, roles: Role[]) {
+  try {
+    await setUserRoles(await actor(), userId, roles);
+  } catch (e) {
+    // A rejected guard (empty set / last super-admin) is an expected error,
+    // not an exception — same shape as resetUserPasswordAction.
+    return { ok: false as const, error: e instanceof Error ? e.message : "Failed to update roles" };
+  }
   revalidatePath("/admin/users");
-  return { ok: true };
+  return { ok: true as const };
 }
 
 export async function deleteUserAction(userId: number) {

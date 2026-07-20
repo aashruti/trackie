@@ -20,18 +20,18 @@ import { eq } from "drizzle-orm";
 import { users } from "../lib/db/schema";
 import { hashPassword } from "../lib/auth/password";
 
-const PROD_USERS: { name: string; email: string; role: "super-admin" | "admin" | "viewer" }[] = [
+const PROD_USERS: { name: string; email: string; role: "super-admin" | "sales" | "viewer" }[] = [
   { name: "Aashruti Shah",    email: "aashruti@datagami.in",              role: "super-admin" },
-  { name: "Abhishek Singh",   email: "abhishek.singh@datagami.in",        role: "admin" },
+  { name: "Abhishek Singh",   email: "abhishek.singh@datagami.in",        role: "sales" },
   { name: "Dhaval",           email: "Dhaval@datagami.in",                role: "super-admin" },
-  { name: "farzana maghi",    email: "farzana@datagami.in",               role: "admin" },
-  { name: "Kiran Mamtora",    email: "Kiran.Mamtora@datagami.in",         role: "admin" },
+  { name: "farzana maghi",    email: "farzana@datagami.in",               role: "sales" },
+  { name: "Kiran Mamtora",    email: "Kiran.Mamtora@datagami.in",         role: "sales" },
   { name: "Kunal Sharma",     email: "kunal.sharma@datagami.in",          role: "super-admin" },
   { name: "Prakruti Shah",    email: "prakruti@datagami.in",              role: "super-admin" },
   { name: "Sanjay Daga",      email: "Sanjay@datagami.in",               role: "super-admin" },
-  { name: "Shweta Shah",      email: "shweta@datagami.in",               role: "admin" },
+  { name: "Shweta Shah",      email: "shweta@datagami.in",               role: "sales" },
   { name: "Social Media",     email: "socialmediacreative@datagami.in",  role: "viewer" },
-  { name: "Suresh",           email: "Suresh@datagami.in",               role: "admin" },
+  { name: "Suresh",           email: "Suresh@datagami.in",               role: "sales" },
 ];
 
 const DEFAULT_PASSWORD = process.env.DEFAULT_USER_PASSWORD;

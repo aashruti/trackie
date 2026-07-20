@@ -10,7 +10,7 @@ import {
   type ReportMetrics,
 } from "@/lib/money/report-view";
 
-const SUPER = { id: 1, role: "super-admin" as const };
+const SUPER = { id: 1, roles: ["super-admin" as const] };
 const YEAR = "FY26–27";
 
 /**

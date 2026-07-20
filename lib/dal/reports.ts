@@ -76,7 +76,7 @@ export async function getReportData(
     .limit(1);
   if (!year) return empty;
 
-  const assigned = user.role === "super-admin" ? [] : await assignedIds(user.id);
+  const assigned = user.roles.includes("super-admin") ? [] : await assignedIds(user.id);
   const scope = scopeAccountIds(user, assigned);
 
   const accRows = await db

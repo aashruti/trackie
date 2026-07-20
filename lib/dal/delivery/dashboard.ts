@@ -1,9 +1,10 @@
 import "server-only";
 
-import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { accounts, deliveryActivities, deliveryEvents, programs } from "@/lib/db/schema";
-import { assertDeliveryAccess, type SessionUser } from "@/lib/dal/authz";
+import { assertDeliveryAccess, scopeAccountIds, type SessionUser } from "@/lib/dal/authz";
+import { assignedIds } from "@/lib/dal/accounts";
 import type { DeliveryActivityType, DeliveryEventStatus } from "@/lib/db/enums";
 
 /** The delivery-role dashboard: programs at a glance, what's coming, what's burning. */
@@ -52,6 +53,9 @@ function isoPlusDays(days: number): string {
 
 export async function getDeliveryDashboard(user: SessionUser): Promise<DeliveryDashboard> {
   assertDeliveryAccess(user);
+  const assigned = user.roles.includes("super-admin") ? [] : await assignedIds(user.id);
+  const scope = scopeAccountIds(user, assigned); // null → unrestricted (super-admin)
+  const accountFilter = scope ? inArray(programs.accountId, scope.length ? scope : [-1]) : undefined;
   const today = isoPlusDays(0);
   const horizon = isoPlusDays(14);
 
@@ -61,7 +65,8 @@ export async function getDeliveryDashboard(user: SessionUser): Promise<DeliveryD
         total: sql<number>`count(*)::int`,
         active: sql<number>`count(*) filter (where ${programs.status} = 'active')::int`,
       })
-      .from(programs),
+      .from(programs)
+      .where(accountFilter),
     db
       .select({
         eventId: deliveryEvents.id,
@@ -81,6 +86,7 @@ export async function getDeliveryDashboard(user: SessionUser): Promise<DeliveryD
           eq(deliveryEvents.status, "planned"),
           lte(deliveryEvents.startDate, horizon),
           gte(sql`coalesce(${deliveryEvents.endDate}, ${deliveryEvents.startDate})`, today),
+          accountFilter,
         ),
       )
       .orderBy(asc(deliveryEvents.startDate)),
@@ -97,6 +103,7 @@ export async function getDeliveryDashboard(user: SessionUser): Promise<DeliveryD
       .from(deliveryEvents)
       .innerJoin(programs, eq(deliveryEvents.programId, programs.id))
       .innerJoin(deliveryActivities, eq(deliveryActivities.eventId, deliveryEvents.id))
+      .where(accountFilter)
       .groupBy(deliveryEvents.id, deliveryEvents.title, deliveryEvents.programId, programs.name, deliveryEvents.budget)
       .having(sql`coalesce(sum(${deliveryActivities.cost}), 0) > ${deliveryEvents.budget}`),
     db
@@ -112,6 +119,7 @@ export async function getDeliveryDashboard(user: SessionUser): Promise<DeliveryD
       .from(deliveryActivities)
       .innerJoin(deliveryEvents, eq(deliveryActivities.eventId, deliveryEvents.id))
       .innerJoin(programs, eq(deliveryEvents.programId, programs.id))
+      .where(accountFilter)
       .orderBy(desc(deliveryActivities.createdAt), desc(deliveryActivities.id))
       .limit(10),
   ]);

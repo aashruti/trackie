@@ -10,13 +10,13 @@ export default async function NewYearPage() {
   const YEAR = await getCurrentYear();
   const years = (await listYears()).map((y) => y.label);
 
-  if (user.role !== "super-admin" && user.role !== "admin") {
+  if (!user.roles.includes("super-admin") && !user.roles.includes("sales")) {
     return (
       <>
         <Topbar section="Setup" title="New year setup" user={user} years={years} currentYear={YEAR} />
         <main className="mx-auto w-full max-w-[1440px] px-6 py-6">
           <p className="text-sm text-text-secondary">
-            Year rollover is available to Admin / Super Admin only.
+            Year rollover is available to Sales / Super Admin only.
           </p>
         </main>
       </>
@@ -24,7 +24,7 @@ export default async function NewYearPage() {
   }
 
   const plan = await getRolloverPlan(
-    { id: Number(user.id), role: user.role },
+    { id: Number(user.id), roles: user.roles },
     YEAR,
   );
 

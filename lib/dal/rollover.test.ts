@@ -2,7 +2,7 @@ import { describe, it, expect, afterAll } from "vitest";
 import { rolloverYear, deleteYear } from "./rollover";
 import { listAccountsForUser } from "./accounts";
 
-const SUPER = { id: 1, role: "super-admin" as const };
+const SUPER = { id: 1, roles: ["super-admin" as const] };
 const FROM = "FY26–27";
 const TO = "FY99–TEST";
 

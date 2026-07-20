@@ -9,7 +9,7 @@ import { LeadsBoard } from "@/components/leads/leads-board";
 export default async function LeadsPage() {
   const session = await auth();
   const user = session!.user;
-  const sessionUser = { id: Number(user.id), role: user.role };
+  const sessionUser = { id: Number(user.id), roles: user.roles };
 
   // Designer / Employee (viewer) is locked out — the nav greys this item, and
   // this guards a direct URL hit.
@@ -25,7 +25,7 @@ export default async function LeadsPage() {
           leads={leads}
           meCode={initials(user.name ?? "U")}
           currentUserId={Number(user.id)}
-          isSuperAdmin={user.role === "super-admin"}
+          isSuperAdmin={user.roles.includes("super-admin")}
         />
       </main>
     </>

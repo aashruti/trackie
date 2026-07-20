@@ -17,8 +17,8 @@ export type DemoUser = {
 export const DEMO_PASSWORD = "changeme123";
 
 export const DEMO_USERS: DemoUser[] = [
-  { email: "ramesh@datagami.local", name: "Ramesh Kothari", role: "admin", accountSlots: [0, 1, 2] },
-  { email: "arjun@datagami.local", name: "Arjun Rao", role: "admin", accountSlots: [2, 3, 4] },
+  { email: "ramesh@datagami.local", name: "Ramesh Kothari", role: "sales", accountSlots: [0, 1, 2] },
+  { email: "arjun@datagami.local", name: "Arjun Rao", role: "sales", accountSlots: [2, 3, 4] },
   { email: "priya@datagami.local", name: "Priya Nair", role: "viewer", accountSlots: [1, 4] },
   { email: "neha@datagami.local", name: "Neha Singh", role: "viewer", accountSlots: [0, 3] },
 ];

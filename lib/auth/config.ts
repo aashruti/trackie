@@ -2,9 +2,15 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { users } from "@/lib/db/schema";
+import { users, userRoles } from "@/lib/db/schema";
+import type { Role } from "@/lib/db/enums";
 import { verifyPassword } from "./password";
 import { createSession, sessionExists, deleteSession } from "@/lib/dal/sessions";
+
+async function rolesFor(userId: number): Promise<Role[]> {
+  const rows = await db.select({ role: userRoles.role }).from(userRoles).where(eq(userRoles.userId, userId));
+  return rows.map((r) => r.role);
+}
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   session: { strategy: "jwt" },
@@ -18,7 +24,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!email || !password) return null;
         const [u] = await db.select().from(users).where(eq(users.email, email)).limit(1);
         if (!u || !(await verifyPassword(password, u.passwordHash))) return null;
-        return { id: String(u.id), name: u.name, email: u.email, role: u.role };
+        return { id: String(u.id), name: u.name, email: u.email, roles: await rolesFor(u.id) };
       },
     }),
   ],
@@ -37,8 +43,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
      */
     jwt: async ({ token, user }) => {
       if (user) {
-        token.role = (user as { role?: string }).role;
         token.uid = user.id;
+        token.roles = (user as { roles?: Role[] }).roles ?? [];
         token.sid = await createSession(Number(user.id));
         return token;
       }
@@ -57,11 +63,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // trade: revocation must never be delayed, even at the cost of
       // availability. If users report random logouts, look here first.
       if (!(await sessionExists(sid))) return null;
+      // Live role resolution — same fail-closed contract as the session check,
+      // same DB round trip cost already paid above. Role changes apply on the
+      // very next request rather than waiting for re-login.
+      token.roles = await rolesFor(Number(token.uid));
       return token;
     },
     session: ({ session, token }) => {
       if (session.user) {
-        (session.user as { role?: string }).role = token.role as string;
+        (session.user as { roles?: Role[] }).roles = (token.roles as Role[] | undefined) ?? [];
         (session.user as { id?: string }).id = token.uid as string;
       }
       return session;

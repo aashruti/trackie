@@ -42,7 +42,7 @@ export async function listAccountsForUser(
   if (!year) return [];
 
   const assigned =
-    assignedOverride ?? (user.role === "super-admin" ? [] : await assignedIds(user.id));
+    assignedOverride ?? (user.roles.includes("super-admin") ? [] : await assignedIds(user.id));
   const scope = scopeAccountIds(user, assigned);
 
   const accRows = await db
@@ -138,7 +138,7 @@ export async function listOverdueInvoices(
 ): Promise<OverdueInvoice[]> {
   const today = todayISO();
   let accFilter;
-  if (user.role !== "super-admin") {
+  if (!user.roles.includes("super-admin")) {
     const allowed = await assignedIds(user.id);
     if (allowed.length === 0) return [];
     accFilter = inArray(invoices.accountId, allowed);

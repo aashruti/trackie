@@ -18,7 +18,7 @@ import { isUserError } from "@/lib/dal/errors";
 async function actor() {
   const session = await auth();
   if (!session?.user) throw new Error("Not authenticated");
-  return { id: Number(session.user.id), role: session.user.role };
+  return { id: Number(session.user.id), roles: session.user.roles };
 }
 
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024; // 8 MB — device reports are ~100 KB

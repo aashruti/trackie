@@ -2,7 +2,7 @@ import { describe, it, expect, afterAll } from "vitest";
 import { createSession, sessionExists, deleteSession, deleteUserSessions } from "./sessions";
 import { createUser, deleteUser } from "./user-admin";
 
-const SUPER = { id: 1, role: "super-admin" as const };
+const SUPER = { id: 1, roles: ["super-admin" as const] };
 
 describe("sessions", () => {
   const made: number[] = [];
@@ -12,7 +12,7 @@ describe("sessions", () => {
       name: "Session Test",
       email,
       password: "throwaway1",
-      role: "viewer",
+      roles: ["viewer"],
     });
     made.push(u.id);
     return u.id;

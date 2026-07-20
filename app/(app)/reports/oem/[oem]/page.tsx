@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { auth } from "@/lib/auth/config";
+import { canViewFinance } from "@/lib/dal/authz";
 import { Topbar } from "@/components/shell/topbar";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Money } from "@/components/ui/money";
@@ -30,10 +31,11 @@ export default async function OemReportPage({
   const oemName = decodeURIComponent(oem);
   const session = await auth();
   const user = session!.user;
+  if (!canViewFinance({ id: Number(user.id), roles: user.roles })) redirect("/dashboard");
   const YEAR = await getCurrentYear();
   const years = (await listYears()).map((y) => y.label);
 
-  const report = await getOemReport({ id: Number(user.id), role: user.role }, oemName, YEAR);
+  const report = await getOemReport({ id: Number(user.id), roles: user.roles }, oemName, YEAR);
   if (!report) notFound();
   const t = report.totals;
 

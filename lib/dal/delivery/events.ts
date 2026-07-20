@@ -12,6 +12,7 @@ import {
   type DeliveryEventStatus,
 } from "@/lib/db/enums";
 import { assertDateOrder, assertIsoDate, toMoney } from "./util";
+import { assertProgramInScope, assertEventInScope, assertActivityInScope } from "./scope";
 
 /**
  * Events (budgeted) and their activity log. Reads happen through
@@ -65,6 +66,7 @@ async function assertEventRefs(ownerUserId: number | null): Promise<void> {
 
 export async function createEvent(user: SessionUser, input: NewEvent): Promise<{ id: number }> {
   assertDeliveryManage(user);
+  await assertProgramInScope(user, input.programId);
   const values = cleanEventInput(input);
   // Program and owner checks are independent — run them together (house rule).
   const [programRows] = await Promise.all([
@@ -81,6 +83,7 @@ export async function createEvent(user: SessionUser, input: NewEvent): Promise<{
 
 export async function updateEvent(user: SessionUser, id: number, input: Omit<NewEvent, "programId">): Promise<void> {
   assertDeliveryManage(user);
+  await assertEventInScope(user, id);
   const values = cleanEventInput(input);
   await assertEventRefs(values.ownerUserId);
   const updated = await db.update(deliveryEvents).set(values).where(eq(deliveryEvents.id, id)).returning({ id: deliveryEvents.id });
@@ -89,6 +92,7 @@ export async function updateEvent(user: SessionUser, id: number, input: Omit<New
 
 export async function setEventStatus(user: SessionUser, id: number, status: DeliveryEventStatus): Promise<void> {
   assertDeliveryManage(user);
+  await assertEventInScope(user, id);
   if (!DELIVERY_EVENT_STATUSES.includes(status)) throw new UserError("Unknown event status.");
   const updated = await db.update(deliveryEvents).set({ status }).where(eq(deliveryEvents.id, id)).returning({ id: deliveryEvents.id });
   if (!updated.length) throw new UserError("Event not found.");
@@ -97,6 +101,7 @@ export async function setEventStatus(user: SessionUser, id: number, status: Deli
 /** Hard delete — its activity log cascades away with it. */
 export async function deleteEvent(user: SessionUser, id: number): Promise<void> {
   assertDeliveryManage(user);
+  await assertEventInScope(user, id);
   const deleted = await db.delete(deliveryEvents).where(eq(deliveryEvents.id, id)).returning({ id: deliveryEvents.id });
   if (!deleted.length) throw new UserError("Event not found.");
 }
@@ -107,6 +112,7 @@ export async function deleteEvent(user: SessionUser, id: number): Promise<void> 
  */
 export async function addActivity(user: SessionUser, authorName: string, input: NewActivity): Promise<{ id: number }> {
   assertDeliveryManage(user);
+  await assertEventInScope(user, input.eventId);
   const title = input.title?.trim();
   if (!title) throw new UserError("Describe the activity in a short title.");
   if (title.length > 200) throw new UserError("Activity title is too long.");
@@ -132,6 +138,7 @@ export async function addActivity(user: SessionUser, authorName: string, input: 
 
 export async function deleteActivity(user: SessionUser, id: number): Promise<void> {
   assertDeliveryManage(user);
+  await assertActivityInScope(user, id);
   const deleted = await db.delete(deliveryActivities).where(eq(deliveryActivities.id, id)).returning({ id: deliveryActivities.id });
   if (!deleted.length) throw new UserError("Activity not found.");
 }

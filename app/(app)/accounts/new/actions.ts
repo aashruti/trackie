@@ -9,7 +9,7 @@ export async function createAccountAction(input: NewAccount) {
   const session = await auth();
   if (!session?.user) throw new Error("Not authenticated");
   const { id } = await createAccount(
-    { id: Number(session.user.id), role: session.user.role },
+    { id: Number(session.user.id), roles: session.user.roles },
     input,
   );
   revalidatePath("/accounts");

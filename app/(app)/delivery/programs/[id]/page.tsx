@@ -24,7 +24,7 @@ export default async function ProgramDetailPage({
   const session = await auth();
   const user = session!.user;
   const { currentYear: YEAR, years } = await getYearContext();
-  const actor = { id: Number(user.id), role: user.role };
+  const actor = { id: Number(user.id), roles: user.roles };
   const { id: idParam } = await params;
   const sp = await searchParams;
   const id = Number(idParam);

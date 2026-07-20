@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   createUserAction,
   setUserAccountsAction,
-  updateUserRoleAction,
+  setUserRolesAction,
   deleteUserAction,
   resetUserPasswordAction,
   signOutUserEverywhereAction,
@@ -14,14 +14,18 @@ import {
 import type { Role } from "@/lib/db/enums";
 import type { UserRow } from "@/lib/dal/user-admin";
 
-const ROLES: Role[] = ["super-admin", "admin", "hr", "delivery", "viewer"];
+const ROLES: Role[] = ["super-admin", "sales", "hr", "delivery", "viewer"];
 const ROLE_TONE: Record<Role, string> = {
   "super-admin": "info",
-  admin: "pending",
+  sales: "pending",
   hr: "positive",
   delivery: "info",
   viewer: "neutral",
 };
+// Account-scoped roles — these are the ones scopeAccountIds actually reads
+// assignments for (finance for sales, delivery module for delivery). Pure
+// super-admin/hr/viewer never needs the account-assignment picker.
+const SCOPED_ROLES: Role[] = ["sales", "delivery"];
 
 interface AccountOption {
   id: number;
@@ -56,17 +60,30 @@ function CreateUser() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<Role>("admin");
+  const [roles, setRoles] = useState<Set<Role>>(new Set(["sales"]));
   const [pending, startTransition] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  function toggleRole(r: Role) {
+    setRoles((p) => {
+      const n = new Set(p);
+      if (n.has(r)) n.delete(r);
+      else n.add(r);
+      return n;
+    });
+  }
+
   function submit() {
     setError(null);
     setMsg(null);
+    if (roles.size === 0) {
+      setError("Pick at least one role");
+      return;
+    }
     startTransition(async () => {
       try {
-        await createUserAction({ name, email, password, role });
+        await createUserAction({ name, email, password, roles: [...roles] });
         setMsg(`Created ${email}`);
         setName("");
         setEmail("");
@@ -79,7 +96,7 @@ function CreateUser() {
 
   return (
     <Card>
-      <CardHeader title="Add user" subtitle="Create a team member and set their role" />
+      <CardHeader title="Add user" subtitle="Create a team member and set their roles" />
       <div className="flex flex-wrap items-end gap-3 p-5">
         <label className="block">
           <span className="text-[11px] text-text-muted">Name</span>
@@ -93,12 +110,17 @@ function CreateUser() {
           <span className="text-[11px] text-text-muted">Password</span>
           <input value={password} onChange={(e) => setPassword(e.target.value)} type="text" placeholder="min 6 chars" className={`mt-1 block ${inputCls}`} />
         </label>
-        <label className="block">
-          <span className="text-[11px] text-text-muted">Role</span>
-          <select value={role} onChange={(e) => setRole(e.target.value as Role)} className={`mt-1 block ${inputCls}`}>
-            {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-          </select>
-        </label>
+        <div className="block">
+          <span className="text-[11px] text-text-muted">Roles</span>
+          <div className="mt-1 flex flex-wrap gap-3 rounded-md border border-border-strong bg-surface px-3 py-2">
+            {ROLES.map((r) => (
+              <label key={r} className="flex items-center gap-1.5 text-sm text-text-secondary">
+                <input type="checkbox" checked={roles.has(r)} onChange={() => toggleRole(r)} />
+                {r}
+              </label>
+            ))}
+          </div>
+        </div>
         <button onClick={submit} disabled={pending} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-fg hover:opacity-90 disabled:opacity-50">
           {pending ? "Creating…" : "Create user"}
         </button>
@@ -112,6 +134,8 @@ function CreateUser() {
 function UserCard({ user, accounts, self }: { user: UserRow; accounts: AccountOption[]; self: boolean }) {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set(user.assignedAccountIds));
+  const [rolesOpen, setRolesOpen] = useState(false);
+  const [selectedRoles, setSelectedRoles] = useState<Set<Role>>(new Set(user.roles));
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [pwOpen, setPwOpen] = useState(false);
@@ -119,7 +143,10 @@ function UserCard({ user, accounts, self }: { user: UserRow; accounts: AccountOp
   const [pwDone, setPwDone] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
-  const scoped = user.role !== "super-admin";
+  // Account-scoped roles (sales, delivery) are the ones the assignment
+  // picker below actually matters for — a pure super-admin/hr/viewer set
+  // never reads user_accounts.
+  const scoped = user.roles.some((r) => SCOPED_ROLES.includes(r));
 
   function toggle(id: number) {
     setSelected((p) => {
@@ -142,13 +169,30 @@ function UserCard({ user, accounts, self }: { user: UserRow; accounts: AccountOp
     });
   }
 
-  function changeRole(role: Role) {
+  function toggleRole(role: Role) {
+    setSelectedRoles((p) => {
+      const n = new Set(p);
+      if (n.has(role)) n.delete(role);
+      else n.add(role);
+      return n;
+    });
+  }
+
+  function saveRoles() {
     setError(null);
+    if (selectedRoles.size === 0) {
+      setError("Pick at least one role");
+      return;
+    }
     startTransition(async () => {
-      try {
-        await updateUserRoleAction(user.id, role);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed");
+      const res = await setUserRolesAction(user.id, [...selectedRoles]);
+      if (res.ok) {
+        setRolesOpen(false);
+      } else {
+        setError(res.error);
+        // A rejected change (empty set / last super-admin) wasn't saved —
+        // snap the checkboxes back to what's actually persisted.
+        setSelectedRoles(new Set(user.roles));
       }
     });
   }
@@ -204,24 +248,23 @@ function UserCard({ user, accounts, self }: { user: UserRow; accounts: AccountOp
     <Card className="p-5">
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="font-medium text-text-primary">{user.name}</span>
-            <Badge tone={ROLE_TONE[user.role]}>{user.role}</Badge>
+            {user.roles.map((r) => <Badge key={r} tone={ROLE_TONE[r]}>{r}</Badge>)}
             {self && <span className="text-[11px] text-text-muted">(you)</span>}
           </div>
           <div className="text-xs text-text-muted">{user.email}</div>
         </div>
 
         <div className="ml-auto flex items-center gap-2">
-          <select
-            value={user.role}
-            onChange={(e) => changeRole(e.target.value as Role)}
+          <button
+            onClick={() => { setSelectedRoles(new Set(user.roles)); setRolesOpen((o) => !o); }}
             disabled={pending || self}
-            className={`${inputCls} py-1.5`}
-            title={self ? "You can't change your own role" : "Change role"}
+            className="rounded-md border border-border-strong px-3 py-1.5 text-sm font-medium text-text-secondary hover:bg-surface-hover disabled:opacity-50"
+            title={self ? "You can't change your own roles" : "Edit roles"}
           >
-            {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-          </select>
+            Edit roles
+          </button>
           {scoped && (
             <button onClick={() => setOpen((o) => !o)} className="rounded-md border border-border-strong px-3 py-1.5 text-sm font-medium text-text-secondary hover:bg-surface-hover">
               Assign accounts ({user.assignedAccountIds.length})
@@ -252,6 +295,28 @@ function UserCard({ user, accounts, self }: { user: UserRow; accounts: AccountOp
 
       {error && <p className="mt-2 text-xs text-[var(--negative-text)]">{error}</p>}
       {note && <p className="mt-2 text-xs text-[var(--positive-text)]">{note}</p>}
+
+      {rolesOpen && !self && (
+        <div className="mt-4 rounded-lg border border-border bg-surface-sunken p-4">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-secondary">
+            Roles ({selectedRoles.size})
+          </div>
+          <div className="flex flex-wrap gap-3">
+            {ROLES.map((r) => (
+              <label key={r} className="flex items-center gap-1.5 rounded px-2 py-1 text-sm hover:bg-surface-hover">
+                <input type="checkbox" checked={selectedRoles.has(r)} onChange={() => toggleRole(r)} />
+                <span className="text-text-secondary">{r}</span>
+              </label>
+            ))}
+          </div>
+          <div className="mt-3 flex justify-end gap-2">
+            <button onClick={() => { setRolesOpen(false); setSelectedRoles(new Set(user.roles)); }} className="rounded-md border border-border-strong px-3 py-1.5 text-sm font-medium text-text-secondary hover:bg-surface-hover">Cancel</button>
+            <button onClick={saveRoles} disabled={pending} className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-fg hover:opacity-90 disabled:opacity-50">
+              {pending ? "Saving…" : "Save roles"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {open && scoped && (
         <div className="mt-4 rounded-lg border border-border bg-surface-sunken p-4">

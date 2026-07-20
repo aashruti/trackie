@@ -20,7 +20,7 @@ async function actor() {
   const session = await auth();
   if (!session?.user) throw new Error("Not authenticated");
   return {
-    user: { id: Number(session.user.id), role: session.user.role },
+    user: { id: Number(session.user.id), roles: session.user.roles },
     code: initials(session.user.name ?? "U"),
   };
 }
