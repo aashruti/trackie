@@ -4,6 +4,7 @@ import {
   academicYears,
   accountGroups,
   accounts,
+  auditLog,
   deliveryActivities,
   deliveryEvents,
   deliveryMethods,
@@ -11,9 +12,10 @@ import {
   oems,
   programs,
   userAccounts,
+  userRoles,
   users,
 } from "@/lib/db/schema";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { listAccountsForUser } from "./accounts";
 import {
   addAccountsToGroup,
@@ -32,7 +34,15 @@ const DELIVERY_ROLE = { id: 998, roles: ["delivery" as const] };
 const YEAR = "FY26–27";
 
 const RUN = String(Date.now()).slice(-6);
-const fx = { oemId: 0, acc1: 0, acc2: 0, yearId: 0, methodId: 0, adminId: 0, groupId: 0 };
+const fx = { oemId: 0, acc1: 0, acc2: 0, yearId: 0, methodId: 0, adminId: 0, otherId: 0, groupId: 0 };
+// A second, throwaway super-admin — used to make the delete-actor test
+// discriminating: create as SUPER, delete as OTHER, so a plain unstamped
+// delete (which would leave OLD.updated_by as the creator) fails the
+// assertion instead of accidentally matching. `roles` is set from this
+// object directly (authz reads SessionUser.roles, not the DB); the users/
+// user_roles rows created in beforeAll exist only so audit_log's actorId FK
+// has something to point at.
+const OTHER = { id: 0, roles: ["super-admin" as const] };
 
 beforeAll(async () => {
   const [year] = await db.select().from(academicYears).where(eq(academicYears.label, YEAR)).limit(1);
@@ -88,10 +98,20 @@ beforeAll(async () => {
     .returning({ id: users.id });
   fx.adminId = admin.id;
   await db.insert(userAccounts).values({ userId: admin.id, accountId: fx.acc1 });
+
+  // Throwaway second super-admin (OTHER) — see comment above its declaration.
+  const [other] = await db
+    .insert(users)
+    .values({ name: `Grp Other ${RUN}`, email: `grp-other-${RUN}@test.local`, passwordHash: "x", role: "super-admin" })
+    .returning({ id: users.id });
+  fx.otherId = other.id;
+  OTHER.id = other.id;
+  await db.insert(userRoles).values({ userId: other.id, role: "super-admin", createdBy: SUPER.id, updatedBy: SUPER.id });
 });
 
 afterAll(async () => {
   await db.delete(users).where(eq(users.id, fx.adminId)); // cascades user_accounts
+  await db.delete(users).where(eq(users.id, fx.otherId)); // cascades user_roles; audit_log.actorId FK is set-null
   // Invoices don't cascade from accounts — clear them first; programs/events/
   // activities DO cascade from accounts.
   await db.delete(invoices).where(inArray(invoices.accountId, [fx.acc1, fx.acc2]));
@@ -123,6 +143,14 @@ describe("account groups — rollups & membership", () => {
     // Delivery: cancelled budget freed, its spend still counted.
     expect(g.delivery).toMatchObject({ programs: 2, allocated: 5000, spent: 2500, result: 2500 });
     expect(g.groupNet).toBe(expected.netMargin + 2500);
+
+    // The audit trigger reads created_by/updated_by off the row — assert the
+    // app stamped both the freshly-inserted group and the claimed members.
+    const [groupRow] = await db.select().from(accountGroups).where(eq(accountGroups.id, id)).limit(1);
+    expect(groupRow.createdBy).toBe(SUPER.id);
+    expect(groupRow.updatedBy).toBe(SUPER.id);
+    const memberRows = await db.select().from(accounts).where(inArray(accounts.id, [fx.acc1, fx.acc2]));
+    for (const m of memberRows) expect(m.updatedBy).toBe(SUPER.id);
   });
 
   it("getGroupDetail returns member rows with per-account delivery spend", async () => {
@@ -169,12 +197,49 @@ describe("account groups — rollups & membership", () => {
     await renameGroup(SUPER, fx.groupId, `Grp ${RUN} renamed`);
     const renamed = (await listGroups(SUPER, YEAR)).find((x) => x.id === fx.groupId)!;
     expect(renamed.name).toBe(`Grp ${RUN} renamed`);
+    const [renamedRow] = await db.select().from(accountGroups).where(eq(accountGroups.id, fx.groupId)).limit(1);
+    expect(renamedRow.updatedBy).toBe(SUPER.id);
 
     await deleteGroup(SUPER, fx.groupId);
     fx.groupId = 0;
     const [acc1Row] = await db.select().from(accounts).where(eq(accounts.id, fx.acc1)).limit(1);
     expect(acc1Row).toBeDefined(); // account survives
     expect(acc1Row.groupId).toBeNull(); // just ungrouped
+    expect(acc1Row.updatedBy).toBe(SUPER.id); // claimAccounts stamped it back at creation
+  });
+
+  it("delete stamps the deleter, not the group's creator or the member's stale editor", async () => {
+    // Create as SUPER, delete as a DIFFERENT super-admin (OTHER), WITH a
+    // member still in the group. If deleteGroup were reverted to a plain
+    // delete, the FK SET NULL cascade would ungroup fx.acc1 unattributed
+    // (leaving its audit row stamped with acc1's stale last editor, SUPER,
+    // from the previous test) and OLD.updated_by on the group would still
+    // read SUPER's id — so asserting actorId === OTHER.id on BOTH rows only
+    // passes when deleteGroup's explicit pre-delete ungroup runs.
+    const { id } = await createGroup(SUPER, `DelActor ${RUN}`, [fx.acc1]);
+    await deleteGroup(OTHER, id);
+
+    const groupRows = await db
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.tableName, "account_groups"), eq(auditLog.rowId, String(id)), eq(auditLog.op, "DELETE")));
+    expect(groupRows.length).toBe(1);
+    expect(groupRows[0].actorId).toBe(OTHER.id);
+
+    const memberRows = await db
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.tableName, "accounts"), eq(auditLog.rowId, String(fx.acc1)), eq(auditLog.op, "UPDATE")))
+      .orderBy(auditLog.id);
+    const ungroupRow = memberRows.at(-1)!; // deleteGroup's explicit ungroup is the last UPDATE on this row
+    expect(ungroupRow.actorId).toBe(OTHER.id);
+
+    await db.delete(auditLog).where(and(eq(auditLog.tableName, "account_groups"), eq(auditLog.rowId, String(id))));
+    await db
+      .delete(auditLog)
+      .where(
+        and(eq(auditLog.tableName, "accounts"), eq(auditLog.rowId, String(fx.acc1)), eq(auditLog.op, "UPDATE"), eq(auditLog.actorId, OTHER.id)),
+      );
   });
 
   it("viewer and delivery roles are rejected", async () => {
