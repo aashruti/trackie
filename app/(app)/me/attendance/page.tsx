@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth/config";
 import { Topbar } from "@/components/shell/topbar";
 import { getYearContext } from "@/lib/dal/years";
 import { getMyAttendanceMonth } from "@/lib/dal/hr/attendance";
+import { getOrCreateEmployeeForUser } from "@/lib/dal/hr/leave";
 import { MyAttendanceView } from "@/components/hr/my-attendance";
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -23,6 +24,9 @@ export default async function MyAttendancePage({
     ? [Number(month.slice(0, 4)), Number(month.slice(5, 7))]
     : [now.getUTCFullYear(), now.getUTCMonth() + 1];
 
+  // Provision a profile on first access (same as /me/leave) so any user has an
+  // attendance view; a deactivated employee gets null and is still redirected.
+  await getOrCreateEmployeeForUser(actor.id);
   const data = await getMyAttendanceMonth(actor, y, m);
   if (!data.isEmployee) redirect("/dashboard");
 
