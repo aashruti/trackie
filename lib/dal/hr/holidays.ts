@@ -5,6 +5,7 @@ import { db } from "@/lib/db/client";
 import { holidays, attendanceRecords, employeeProfiles } from "@/lib/db/schema";
 import { assertHrAccess, type SessionUser } from "@/lib/dal/authz";
 import { UserError } from "@/lib/dal/errors";
+import { stampedDelete, stampedDeleteWhere } from "@/lib/dal/audit";
 
 export type HolidayRow = { id: number; date: string; name: string; applied: number };
 
@@ -22,7 +23,7 @@ const ISO = /^\d{4}-\d{2}-\d{2}$/;
 /** Insert a 'holiday' record for every active employee on `date`, preserving any
  *  existing mark. Returns how many rows were newly applied is not tracked here —
  *  callers re-read counts via listHolidays. */
-async function materialize(date: string): Promise<void> {
+async function materialize(date: string, actorId: number): Promise<void> {
   const emps = await db
     .select({ id: employeeProfiles.id })
     .from(employeeProfiles)
@@ -39,6 +40,8 @@ async function materialize(date: string): Promise<void> {
         lopDays: "0",
         isLate: false,
         isEarlyLeave: false,
+        createdBy: actorId,
+        updatedBy: actorId,
       })),
     )
     // Preserve any real attendance already on that date.
@@ -46,16 +49,16 @@ async function materialize(date: string): Promise<void> {
 }
 
 /** Remove only the auto-applied holiday rows for a date (manual holiday marks stay). */
-async function dematerialize(date: string): Promise<void> {
-  await db
-    .delete(attendanceRecords)
-    .where(
-      and(
-        eq(attendanceRecords.date, date),
-        eq(attendanceRecords.dayType, "holiday"),
-        eq(attendanceRecords.source, "auto-off"),
-      ),
-    );
+async function dematerialize(date: string, actorId: number): Promise<void> {
+  await stampedDeleteWhere(
+    attendanceRecords,
+    and(
+      eq(attendanceRecords.date, date),
+      eq(attendanceRecords.dayType, "holiday"),
+      eq(attendanceRecords.source, "auto-off"),
+    )!,
+    actorId,
+  );
 }
 
 /** All company holidays (soonest first), with how many employees each is applied to. */
@@ -82,9 +85,9 @@ export async function addHoliday(user: SessionUser, date: string, name: string):
   if (label.length > 120) throw new UserError("Holiday name is too long.");
   await db
     .insert(holidays)
-    .values({ date, name: label })
-    .onConflictDoUpdate({ target: holidays.date, set: { name: label } });
-  await materialize(date);
+    .values({ date, name: label, createdBy: user.id, updatedBy: user.id })
+    .onConflictDoUpdate({ target: holidays.date, set: { name: label, updatedBy: user.id } });
+  await materialize(date, user.id);
 }
 
 /** Re-apply an existing holiday (e.g. to include employees enrolled since it was added). */
@@ -92,7 +95,7 @@ export async function reapplyHoliday(user: SessionUser, id: number): Promise<voi
   assertHrAccess(user);
   const [row] = await db.select({ date: holidays.date }).from(holidays).where(eq(holidays.id, id)).limit(1);
   if (!row) throw new UserError("Holiday not found.");
-  await materialize(row.date);
+  await materialize(row.date, user.id);
 }
 
 /** Delete a company holiday and remove its auto-applied attendance rows. */
@@ -100,6 +103,6 @@ export async function deleteHoliday(user: SessionUser, id: number): Promise<void
   assertHrAccess(user);
   const [row] = await db.select({ date: holidays.date }).from(holidays).where(eq(holidays.id, id)).limit(1);
   if (!row) throw new UserError("Holiday not found.");
-  await dematerialize(row.date);
-  await db.delete(holidays).where(eq(holidays.id, id));
+  await dematerialize(row.date, user.id);
+  await stampedDelete(holidays, id, user.id);
 }
