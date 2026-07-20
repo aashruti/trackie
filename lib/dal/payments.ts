@@ -4,6 +4,7 @@ import { db } from "@/lib/db/client";
 import { payments, invoices } from "@/lib/db/schema";
 import { canEdit, type SessionUser } from "./authz";
 import { assignedIds } from "./accounts";
+import { stampedDelete } from "./audit";
 
 export type Direction = "receipt" | "oem-payment";
 export type Mode = "RTGS" | "NEFT" | "IMPS" | "UPI" | "Cheque";
@@ -58,6 +59,8 @@ export async function addPayment(
     amount: String(Math.max(0, entry.amount)),
     mode: entry.mode,
     ref: entry.ref ?? null,
+    createdBy: user.id,
+    updatedBy: user.id,
   });
   return { accountId };
 }
@@ -73,7 +76,7 @@ export async function deletePayment(
     .limit(1);
   if (!p) throw new Error("Payment not found");
   const accountId = await assertCanEditInvoice(user, p.invoiceId);
-  await db.delete(payments).where(eq(payments.id, paymentId));
+  await stampedDelete(payments, paymentId, user.id);
   return { accountId };
 }
 
