@@ -210,8 +210,23 @@ ALTER TABLE "delivery_activities"
 -- 3) trigger functions
 CREATE OR REPLACE FUNCTION stamp_row() RETURNS trigger AS $$
 BEGIN
-  NEW.updated_at := now();
-  NEW.version := OLD.version + 1;
+  -- Only a real edit re-stamps the row. If the sole difference is attribution
+  -- (created_by / updated_by), leave updated_at and version alone.
+  --
+  -- Why this guard is load-bearing: created_by/updated_by are ON DELETE SET
+  -- NULL to users.id, and Postgres implements that referential action as an
+  -- internal UPDATE on every referencing row. Without the guard, deleting one
+  -- user would rewrite updated_at to the deletion timestamp and inflate
+  -- version on every row that user ever authored or touched — irreversibly
+  -- destroying the edit history this column exists to record, on rows nobody
+  -- actually edited. It also stops stamped-delete's pre-stamp (which writes
+  -- only updated_by) from bumping version on its way out.
+  IF (to_jsonb(OLD) - 'created_by' - 'updated_by' - 'updated_at' - 'version')
+     IS DISTINCT FROM
+     (to_jsonb(NEW) - 'created_by' - 'updated_by' - 'updated_at' - 'version') THEN
+    NEW.updated_at := now();
+    NEW.version := OLD.version + 1;
+  END IF;
   RETURN NEW;
 END; $$ LANGUAGE plpgsql SET search_path = public;--> statement-breakpoint
 -- audit_row notes:
