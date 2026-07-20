@@ -550,12 +550,16 @@ export async function getOrCreateEmployeeForUser(userId: number): Promise<SelfEm
     .limit(1);
   if (existing) return null;
 
-  // Provision. onConflictDoNothing makes concurrent first-accesses race-safe
-  // (user_id is unique); re-read either the row we made or the winner's.
+  // Provision. Target user_id explicitly so onConflictDoNothing swallows ONLY
+  // the concurrent-first-access race (two requests inserting the same user_id),
+  // and re-reads the winner's row. A collision on any OTHER unique column —
+  // e.g. some roster row already using this exact `U<id>` employee_code — is
+  // not the race we're absorbing; let it surface loudly rather than silently
+  // no-op and redirect an active user off /me/* forever.
   await db
     .insert(employeeProfiles)
     .values({ userId, employeeCode: `U${userId}` })
-    .onConflictDoNothing();
+    .onConflictDoNothing({ target: employeeProfiles.userId });
   return getEmployeeForUser(userId);
 }
 

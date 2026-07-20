@@ -107,14 +107,23 @@ export function wouldOrphanSuperAdmins(
  * re-insert). Also writes the scalar `users.role` to `roles[0]` for the
  * rollback-seed's display/consistency during the expand phase.
  *
- * Two invariants: a user must hold at least one role (else they're locked
- * out — `viewer` is the floor), and the system must never end up with zero
- * users holding `super-admin`.
+ * Three invariants: a user must hold at least one role (else they're locked
+ * out — `viewer` is the floor); the system must never end up with zero users
+ * holding `super-admin`; and a super-admin can't strip their OWN super-admin.
  */
 export async function setUserRoles(actor: SessionUser, userId: number, roles: Role[]): Promise<void> {
   assertSuperAdmin(actor);
   const unique = [...new Set(roles)];
   if (unique.length === 0) throw new Error("A user must have at least one role");
+
+  // Self-demotion guard (defense-in-depth; the UI also disables self-edit). A
+  // super-admin removing their own super-admin is a self-lockout footgun — and
+  // it slips past the orphan check below whenever another super-admin exists.
+  // Distinct concern: the orphan guard protects the SYSTEM; this protects the
+  // ACTOR from demoting themselves. Ask another super-admin to do it.
+  if (actor.id === userId && !unique.includes("super-admin")) {
+    throw new Error("You can't remove your own Super Admin — ask another Super Admin");
+  }
 
   if (!unique.includes("super-admin")) {
     const [holdsSuper] = await db

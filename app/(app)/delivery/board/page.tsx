@@ -4,7 +4,8 @@ import { listTasksWithComments, listTaskOptions } from "@/lib/dal/tasks";
 import { TeamBoard } from "@/components/team/team-board";
 import { TASK_COLUMNS, initials } from "@/lib/board/constants";
 import { TASK_STATUSES } from "@/lib/db/enums";
-import { canAccessDelivery } from "@/lib/dal/authz";
+import { canAccessDelivery, scopeAccountIds } from "@/lib/dal/authz";
+import { assignedIds } from "@/lib/dal/accounts";
 
 export default async function DeliveryBoardPage({
   searchParams,
@@ -30,10 +31,17 @@ export default async function DeliveryBoardPage({
   const doneParam = sp.done ?? "30";
   const doneWithinDays = doneParam === "all" ? null : Number(doneParam) || 30;
 
+  // Scope the board to the delivery user's assigned universities — same rule as
+  // the delivery programs/report/dashboard surfaces. super-admin (scope null)
+  // sees every university's tasks; a scoped delivery user sees only theirs (plus
+  // account-less general tasks), and the account/program pickers match.
+  const assigned = actor.roles.includes("super-admin") ? [] : await assignedIds(actor.id);
+  const scope = scopeAccountIds(actor, assigned);
+
   const [tasks, options] = await Promise.all([
     // All six columns on one screen (backlog included) — delivery triages in place.
-    listTasksWithComments({ statuses: [...TASK_STATUSES], doneWithinDays, board: "delivery" }),
-    listTaskOptions(),
+    listTasksWithComments({ statuses: [...TASK_STATUSES], doneWithinDays, board: "delivery", accountScope: scope }),
+    listTaskOptions(scope),
   ]);
 
   return (
