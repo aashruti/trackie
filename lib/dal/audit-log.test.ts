@@ -3,6 +3,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { auditLog, users } from "@/lib/db/schema";
 import {
+  AUDIT_ACTOR_NONE,
   AUDIT_PAGE_SIZE,
   changedFields,
   isStampOnlyUpdate,
@@ -32,6 +33,8 @@ const RUN = String(Date.now()).slice(-9);
 const TBL = `zzaudit_${RUN}`;
 const TBL2 = `zzaudit2_${RUN}`;
 const PGTBL = `zzauditpg_${RUN}`;
+/** Mixed NULL-actor and named-actor rows — for the "System / unknown" filter. */
+const NTBL = `zzauditnull_${RUN}`;
 
 const fx = {
   actorA: 0,
@@ -40,6 +43,8 @@ const fx = {
   ghostActor: 0,
   /** ids of the four TBL rows, in insertion (= ascending id) order. */
   tblIds: [] as number[],
+  /** ids of the three NTBL rows: [null-actor, actorA, null-actor]. */
+  ntblIds: [] as number[],
 };
 
 function img(over: Record<string, unknown>): Record<string, unknown> {
@@ -95,6 +100,19 @@ beforeAll(async () => {
     after: img({ id: 9 }),
   });
 
+  // --- NTBL: NULL-actor rows interleaved with a named one. The interleaving is
+  // the point: a filter that ignored the actor entirely would return all three,
+  // so "returns exactly the two NULL rows" is discriminating. ---
+  const nInserted = await db
+    .insert(auditLog)
+    .values([
+      { tableName: NTBL, op: "INSERT" as const, rowId: "1", actorId: null, at: new Date("2026-06-01T00:00:00Z"), before: null, after: img({ id: 1 }) },
+      { tableName: NTBL, op: "UPDATE" as const, rowId: "1", actorId: fx.actorA, at: new Date("2026-06-02T00:00:00Z"), before: img({ id: 1 }), after: img({ id: 1, name: "by a human" }) },
+      { tableName: NTBL, op: "DELETE" as const, rowId: "1", actorId: null, at: new Date("2026-06-03T00:00:00Z"), before: img({ id: 1, name: "by a human" }), after: null },
+    ])
+    .returning({ id: auditLog.id });
+  fx.ntblIds = nInserted.map((r) => r.id);
+
   // --- PGTBL: 60 rows, purely for pagination. ---
   await db.insert(auditLog).values(
     Array.from({ length: 60 }, (_, i) => ({
@@ -111,7 +129,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   // Every audit row this file wrote, by our own synthetic table names…
-  await db.delete(auditLog).where(inArray(auditLog.tableName, [TBL, TBL2, PGTBL]));
+  await db.delete(auditLog).where(inArray(auditLog.tableName, [TBL, TBL2, PGTBL, NTBL]));
   // …plus the rows the users triggers wrote for the three throwaway users
   // (INSERT on create, DELETE on removal). Scoped by table + rowId, no op
   // filter, mirroring audit-behavior.test.ts.
@@ -177,6 +195,37 @@ describe("listAuditEntries — filters", () => {
     expect(entries).toHaveLength(1);
     expect(entries[0].actorId).toBe(fx.actorB);
     expect(entries[0].id).toBe(fx.tblIds[1]);
+  });
+
+  it("filters by the NULL actor via AUDIT_ACTOR_NONE — the 40% no numeric id can reach", async () => {
+    const { entries } = await listAuditEntries(SUPER, { tableName: NTBL, actorId: AUDIT_ACTOR_NONE });
+    // Exactly the two actor-less rows, newest first — not all three.
+    expect(entries.map((e) => e.id)).toEqual([fx.ntblIds[2], fx.ntblIds[0]]);
+    for (const e of entries) {
+      expect(e.actorId).toBeNull();
+      expect(e.actorName).toBeNull();
+    }
+  });
+
+  it("AUDIT_ACTOR_NONE and a numeric actor id are disjoint and together cover the table", async () => {
+    // The complement: asking for the named actor must NOT sweep in NULL rows,
+    // which is the mistake a `WHERE actor_id = $1 OR actor_id IS NULL` would make.
+    const named = await listAuditEntries(SUPER, { tableName: NTBL, actorId: fx.actorA });
+    expect(named.entries.map((e) => e.id)).toEqual([fx.ntblIds[1]]);
+
+    const none = await listAuditEntries(SUPER, { tableName: NTBL, actorId: AUDIT_ACTOR_NONE });
+    const all = await listAuditEntries(SUPER, { tableName: NTBL });
+    expect(named.entries.length + none.entries.length).toBe(all.entries.length);
+    expect(all.entries).toHaveLength(3);
+  });
+
+  it("combines AUDIT_ACTOR_NONE with the other filters (still AND)", async () => {
+    const { entries } = await listAuditEntries(SUPER, {
+      tableName: NTBL,
+      actorId: AUDIT_ACTOR_NONE,
+      op: "DELETE",
+    });
+    expect(entries.map((e) => e.id)).toEqual([fx.ntblIds[2]]);
   });
 
   it("filters by date range (inclusive both ends)", async () => {
@@ -301,6 +350,7 @@ describe("listAuditFilterOptions", () => {
     expect(opts.tableNames).toContain(TBL);
     expect(opts.tableNames).toContain(TBL2);
     expect(opts.tableNames).toContain(PGTBL);
+    expect(opts.tableNames).toContain(NTBL);
     // Alphabetical, so the dropdown is navigable. Compared with localeCompare,
     // not the default codepoint sort: Postgres orders by the DB collation,
     // which ignores punctuation ("zzaudit2_x" before "zzaudit_x") where a

@@ -1,7 +1,8 @@
 import "server-only";
-import { and, desc, eq, gte, isNotNull, lte, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, isNull, lte, sql, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { auditLog, users } from "@/lib/db/schema";
+import { AUDIT_ACTOR_NONE, type AuditActorFilter } from "@/lib/audit-view";
 import { UserError } from "./errors";
 import { type SessionUser } from "./authz";
 
@@ -29,11 +30,19 @@ export type AuditOp = "INSERT" | "UPDATE" | "DELETE";
 /** A jsonb row image as the triggers write it: snake_case column → value. */
 export type AuditRowImage = Record<string, unknown>;
 
+// Defined in the client-safe module (the filter bar needs the sentinel too) and
+// re-exported here so server-side callers keep a single import site.
+export { AUDIT_ACTOR_NONE, type AuditActorFilter };
+
 export interface AuditFilters {
   /** Exact `audit_log.table_name`, e.g. "invoices". */
   tableName?: string;
-  /** Exact actor id. Rows with a NULL actor are never matched by this. */
-  actorId?: number;
+  /**
+   * Exact actor id, or {@link AUDIT_ACTOR_NONE} for rows with no actor at all.
+   * A numeric id never matches NULL-actor rows, and vice versa — the two are
+   * disjoint, and together they cover the log.
+   */
+  actorId?: AuditActorFilter;
   op?: AuditOp;
   /** Inclusive lower bound on `at`. */
   from?: Date;
@@ -198,7 +207,13 @@ export function isStampOnlyUpdate(op: AuditOp, changes: FieldChange[]): boolean 
 function buildWhere(filters: AuditFilters): SQL | undefined {
   const clauses: SQL[] = [];
   if (filters.tableName) clauses.push(eq(auditLog.tableName, filters.tableName));
-  if (filters.actorId !== undefined) clauses.push(eq(auditLog.actorId, filters.actorId));
+  if (filters.actorId !== undefined) {
+    clauses.push(
+      filters.actorId === AUDIT_ACTOR_NONE
+        ? isNull(auditLog.actorId)
+        : eq(auditLog.actorId, filters.actorId),
+    );
+  }
   if (filters.op) clauses.push(eq(auditLog.op, filters.op));
   if (filters.from) clauses.push(gte(auditLog.at, filters.from));
   if (filters.to) clauses.push(lte(auditLog.at, filters.to));
@@ -288,7 +303,13 @@ export interface AuditActorOption {
 export interface AuditFilterOptions {
   /** Distinct `table_name` values present in the log, alphabetical. */
   tableNames: string[];
-  /** Distinct non-null actors present in the log, named where still resolvable. */
+  /**
+   * Distinct non-null actors present in the log, named where still resolvable.
+   *
+   * The NULL actor is deliberately NOT an entry here — it has no id and no name
+   * to offer. The viewer adds its own "System / unknown" choice, which maps to
+   * {@link AUDIT_ACTOR_NONE}.
+   */
   actors: AuditActorOption[];
 }
 
