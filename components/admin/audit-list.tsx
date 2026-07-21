@@ -1,5 +1,16 @@
 import { Badge } from "@/components/ui/badge";
+import { redactedColumnsFor } from "@/lib/audit-view";
 import type { AuditEntry, AuditOp, FieldChange } from "@/lib/dal/audit-log";
+
+/** `["aadhar", "pan"]` → `aadhar or pan`, each in code face. */
+function joinColumns(cols: readonly string[]) {
+  return cols.map((c, i) => (
+    <span key={c}>
+      {i > 0 && (i === cols.length - 1 ? " or " : ", ")}
+      <span className="font-mono">{c}</span>
+    </span>
+  ));
+}
 
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -72,13 +83,21 @@ function Diff({ entry }: { entry: AuditEntry }) {
     // is what `isRedactedOnly` keys off), so an empty diff usually means the
     // write genuinely moved nothing. Either way it is never folded away.
     if (entry.op === "UPDATE") {
+      // The stripped-columns caveat is only worth stating — and only TRUE — on a
+      // table that actually owns one. On the other ~38 audited tables there is
+      // nothing for audit_row() to strip, so raising it would invent a doubt.
+      const stripped = redactedColumnsFor(entry.tableName);
       return (
         <p className="border-t border-border-subtle bg-surface-sunken px-5 py-4 text-sm text-text-secondary">
           The two stored row images are identical, so no column that this log can show was changed.
-          That is usually a write that set a row to the values it already held. Note that{" "}
-          <span className="font-mono">password_hash</span>, <span className="font-mono">aadhar</span>{" "}
-          and <span className="font-mono">pan</span> are stripped from both images before storage
-          and so can never appear here.
+          That is usually a write that set a row to the values it already held.
+          {stripped.length > 0 && (
+            <>
+              {" "}
+              Note that {joinColumns(stripped)} {stripped.length === 1 ? "is" : "are"} stripped from
+              both images before storage and so can never appear here.
+            </>
+          )}
         </p>
       );
     }
@@ -90,16 +109,30 @@ function Diff({ entry }: { entry: AuditEntry }) {
   }
 
   // A change confined to attribution columns, yet stamped by the database as a
-  // real edit — so the column that moved is one the trigger redacts. Lead with
-  // that, because the diff below (updated_at, version) does not say it.
+  // real edit. Lead with an explanation, because the diff below (updated_at,
+  // version) does not carry one — but WHICH explanation depends on the table,
+  // and only `users` / `employee_profiles` own a column the trigger can strip.
+  // Naming password_hash/aadhar/pan on an invoice would assert a credential
+  // change on a row that has never held a credential.
+  const redacted = redactedColumnsFor(entry.tableName);
   const redactedNotice = entry.isRedactedOnly ? (
     <p className="border-t border-border-subtle bg-surface-sunken px-5 pt-4 text-sm text-text-secondary">
       Every column visible here is attribution, but the database bumped{" "}
       <span className="font-mono">version</span> — which since migration 0017 happens only when a
-      real column changed. That column is therefore one the trigger redacts:{" "}
-      <span className="font-mono">password_hash</span>, <span className="font-mono">aadhar</span> or{" "}
-      <span className="font-mono">pan</span>. Its value is not recoverable from this log; the fact
-      that it changed, when, and by whom, is.
+      real column changed. On <span className="font-mono">{entry.tableName}</span> that column is
+      therefore one the trigger redacts: {joinColumns(redacted)}. Its value is not recoverable from
+      this log; the fact that it changed, when, and by whom, is.
+    </p>
+  ) : entry.isPreGuardStamp ? (
+    <p className="border-t border-border-subtle bg-surface-sunken px-5 pt-4 text-sm text-text-secondary">
+      Every column visible here is attribution: the database moved{" "}
+      <span className="font-mono">version</span> without recording a change to any other column.
+      Nothing was hidden — <span className="font-mono">{entry.tableName}</span> has no column the
+      trigger redacts. This is the signature of the pre-0017{" "}
+      <span className="font-mono">stamp_row()</span>, which bumped{" "}
+      <span className="font-mono">version</span> and <span className="font-mono">updated_at</span> on
+      every update, including ones that touched only attribution. Since migration 0017 added the
+      guard, this shape is no longer produced.
     </p>
   ) : null;
 
@@ -207,9 +240,13 @@ export function AuditList({
   hiddenStampOnly?: number;
 }) {
   if (entries.length === 0) {
-    // A whole page CAN fold to nothing — `?table=user_roles&op=UPDATE` is
-    // reachable from the dropdowns alone and does exactly that. Saying "no
-    // entries match these filters" there is simply false: 50 matched.
+    // A whole page CAN fold to nothing — `?table=payments&op=UPDATE` is
+    // reachable from the dropdowns alone and does exactly that: 6 rows match
+    // and all 6 are phantom pre-delete stamps. Saying "no entries match these
+    // filters" there is simply false. (The example used to be
+    // `?table=user_roles&op=UPDATE`, which was true under the old, far wider
+    // fold rule; under the narrowed `diff === {updated_by}` rule that page
+    // folds only 4 of its 50 rows.)
     if (hiddenStampOnly > 0) {
       return (
         <p className="px-5 py-10 text-center text-sm text-text-secondary">

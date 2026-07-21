@@ -1,15 +1,18 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { auditLog, users } from "@/lib/db/schema";
 import {
   AUDIT_ACTOR_NONE,
   AUDIT_PAGE_SIZE,
+  AUDIT_REDACTED_COLUMNS,
   changedFields,
+  isPreGuardStampUpdate,
   isRedactedOnlyUpdate,
   isStampOnlyUpdate,
   listAuditEntries,
   listAuditFilterOptions,
+  type FieldChange,
 } from "./audit-log";
 import type { SessionUser } from "./authz";
 
@@ -158,11 +161,12 @@ beforeAll(async () => {
         at: new Date("2026-07-01T00:00:00Z"),
         before: fBase, after: img({ id: 7, version: 5, updated_by: fx.actorB }),
       },
-      // 2. THE CREDENTIAL CHANGE. version bumped, nothing else visible: since
-      // 0017 stamp_row() bumps only when a NON-attribution column changed, and
-      // audit_row() then strips password_hash/aadhar/pan — so this is Postgres
-      // testifying that a column you may not see did change. 1,939 such rows in
-      // the real log, every one of them hidden by the old rule.
+      // 2. version bumped, nothing else visible. On `users` this shape IS the
+      // credential change (proved end-to-end through the live trigger below) —
+      // but FTBL is a synthetic table with no password_hash/aadhar/pan for
+      // audit_row() to strip, so here the same shape may NOT be read that way.
+      // It is the pre-0017 stamp: 1,365 such rows in the real log, on nine
+      // tables that have never held a redactable column.
       {
         tableName: FTBL, op: "UPDATE" as const, rowId: "7", actorId: fx.actorB,
         at: new Date("2026-07-02T00:00:00Z"),
@@ -457,24 +461,29 @@ describe("listAuditEntries — isStampOnly", () => {
     // first is noise.
     const { entries } = await listAuditEntries(SUPER, { tableName: FTBL });
     const byId = new Map(entries.map((e) => [e.id, e]));
-    const [phantom, redacted, noop, realEdit] = fx.foldIds.map((id) => byId.get(id)!);
+    const [phantom, bumped, noop, realEdit] = fx.foldIds.map((id) => byId.get(id)!);
 
     expect(phantom.isStampOnly).toBe(true);
     expect(phantom.isRedactedOnly).toBe(false);
+    expect(phantom.isPreGuardStamp).toBe(false);
 
-    // The credential change: attribution-only diff, but not folded — and
-    // positively marked, so the viewer can explain the bare version bump.
-    expect(redacted.changedFields.map((c) => c.key).sort()).toEqual(["updated_by", "version"]);
-    expect(redacted.isStampOnly).toBe(false);
-    expect(redacted.isRedactedOnly).toBe(true);
+    // The bare version bump: attribution-only diff, not folded — and marked so
+    // the viewer can explain it. NOT as a credential change: FTBL has no
+    // redactable column, so there is nothing that could have been hidden.
+    expect(bumped.changedFields.map((c) => c.key).sort()).toEqual(["updated_by", "version"]);
+    expect(bumped.isStampOnly).toBe(false);
+    expect(bumped.isRedactedOnly).toBe(false);
+    expect(bumped.isPreGuardStamp).toBe(true);
 
     // Identical images: shown, but not overclaimed as a credential change.
     expect(noop.changedFields).toEqual([]);
     expect(noop.isStampOnly).toBe(false);
     expect(noop.isRedactedOnly).toBe(false);
+    expect(noop.isPreGuardStamp).toBe(false);
 
     expect(realEdit.isStampOnly).toBe(false);
     expect(realEdit.isRedactedOnly).toBe(false);
+    expect(realEdit.isPreGuardStamp).toBe(false);
 
     // Exactly one of the four is foldable — the viewer hides one row, not three.
     expect(entries.filter((e) => e.isStampOnly)).toHaveLength(1);
@@ -506,6 +515,7 @@ describe("listAuditEntries — isStampOnly", () => {
     // viewer can say what happened instead of showing a bare version bump.
     expect(pwRow!.isStampOnly).toBe(false);
     expect(pwRow!.isRedactedOnly).toBe(true);
+    expect(pwRow!.isPreGuardStamp).toBe(false);
   });
 });
 
@@ -662,48 +672,131 @@ describe("isStampOnlyUpdate — pure", () => {
   });
 });
 
+/** The `{updated_at, version}` shape a redacted change leaves behind. */
+const BUMP: FieldChange[] = [
+  { key: "updated_at", before: "t1", after: "t2" },
+  { key: "version", before: 1, after: 2 },
+];
+/** Same, with the actor stamped too (97 such rows in the real log). */
+const BUMP_WITH_ACTOR: FieldChange[] = [...BUMP, { key: "updated_by", before: 1, after: 2 }];
+
 describe("isRedactedOnlyUpdate — pure", () => {
-  it("flags an attribution-only diff that nonetheless carries a version bump", () => {
-    // The password-change shape, confirmed against the live trigger below.
-    expect(
-      isRedactedOnlyUpdate("UPDATE", [
-        { key: "updated_at", before: "t1", after: "t2" },
-        { key: "version", before: 1, after: 2 },
-      ]),
-    ).toBe(true);
-    // Same, with the actor stamped too (97 such rows in the real log).
-    expect(
-      isRedactedOnlyUpdate("UPDATE", [
-        { key: "updated_at", before: "t1", after: "t2" },
-        { key: "updated_by", before: 1, after: 2 },
-        { key: "version", before: 1, after: 2 },
-      ]),
-    ).toBe(true);
+  it("flags the bump shape on a table that OWNS a redactable column", () => {
+    // The password-change shape, confirmed against the live trigger above.
+    expect(isRedactedOnlyUpdate("users", "UPDATE", BUMP)).toBe(true);
+    expect(isRedactedOnlyUpdate("users", "UPDATE", BUMP_WITH_ACTOR)).toBe(true);
+    // employee_profiles owns aadhar and pan.
+    expect(isRedactedOnlyUpdate("employee_profiles", "UPDATE", BUMP)).toBe(true);
+    expect(isRedactedOnlyUpdate("employee_profiles", "UPDATE", BUMP_WITH_ACTOR)).toBe(true);
+  });
+
+  it("does NOT flag the identical shape on a table with no redactable column", () => {
+    // The bug this replaced: judged on (op, changes) alone this returned true
+    // for all of these, and the viewer told the reader that a password, aadhar
+    // or pan had been changed — on an invoice, a cohort, a user_role. 1,365 of
+    // the real log's 1,945 badged rows, 70% of them, were exactly this lie.
+    // There is no password_hash/aadhar/pan column on any of these tables for
+    // audit_row() to have stripped, so the inference has no premise.
+    for (const table of [
+      "invoices",
+      "cohorts",
+      "user_roles",
+      "programs",
+      "user_accounts",
+      "account_groups",
+      "delivery_events",
+      "delivery_activities",
+      "academic_years",
+      "payments",
+    ]) {
+      expect(isRedactedOnlyUpdate(table, "UPDATE", BUMP), table).toBe(false);
+      expect(isRedactedOnlyUpdate(table, "UPDATE", BUMP_WITH_ACTOR), table).toBe(false);
+    }
   });
 
   it("does not flag the phantom — updated_by alone carries no bump", () => {
-    expect(isRedactedOnlyUpdate("UPDATE", [{ key: "updated_by", before: 1, after: 2 }])).toBe(false);
+    expect(isRedactedOnlyUpdate("users", "UPDATE", [{ key: "updated_by", before: 1, after: 2 }])).toBe(
+      false,
+    );
   });
 
   it("does not flag an empty diff — that is a no-op write, and overclaiming it would be a lie", () => {
     // Since 0017 a redacted change ALWAYS bumps the version (stamp_row sees the
     // row unredacted), so two identical images mean nothing non-attribution
     // moved. Never folded, but not badged as a credential change either.
-    expect(isRedactedOnlyUpdate("UPDATE", [])).toBe(false);
+    expect(isRedactedOnlyUpdate("users", "UPDATE", [])).toBe(false);
   });
 
   it("does not flag an UPDATE with a real visible change", () => {
     expect(
-      isRedactedOnlyUpdate("UPDATE", [
+      isRedactedOnlyUpdate("users", "UPDATE", [
         { key: "version", before: 1, after: 2 },
-        { key: "amount", before: 100, after: 200 },
+        { key: "name", before: "a", after: "b" },
       ]),
     ).toBe(false);
   });
 
   it("does not flag INSERT or DELETE", () => {
     const bump = [{ key: "version", before: 1, after: 2 }];
-    expect(isRedactedOnlyUpdate("INSERT", bump)).toBe(false);
-    expect(isRedactedOnlyUpdate("DELETE", bump)).toBe(false);
+    expect(isRedactedOnlyUpdate("users", "INSERT", bump)).toBe(false);
+    expect(isRedactedOnlyUpdate("users", "DELETE", bump)).toBe(false);
+  });
+});
+
+describe("isPreGuardStampUpdate — pure", () => {
+  it("is the exact complement of isRedactedOnlyUpdate on the bump shape", () => {
+    // Same shape, opposite tables — the two flags partition it, so a bare
+    // version bump is always explained and never explained wrongly.
+    for (const shape of [BUMP, BUMP_WITH_ACTOR]) {
+      expect(isPreGuardStampUpdate("invoices", "UPDATE", shape)).toBe(true);
+      expect(isPreGuardStampUpdate("cohorts", "UPDATE", shape)).toBe(true);
+      expect(isPreGuardStampUpdate("users", "UPDATE", shape)).toBe(false);
+      expect(isPreGuardStampUpdate("employee_profiles", "UPDATE", shape)).toBe(false);
+    }
+  });
+
+  it("shares every non-table exclusion with the redacted rule", () => {
+    expect(isPreGuardStampUpdate("invoices", "UPDATE", [])).toBe(false);
+    expect(
+      isPreGuardStampUpdate("invoices", "UPDATE", [{ key: "updated_by", before: 1, after: 2 }]),
+    ).toBe(false);
+    expect(
+      isPreGuardStampUpdate("invoices", "UPDATE", [
+        { key: "version", before: 1, after: 2 },
+        { key: "amount", before: 100, after: 200 },
+      ]),
+    ).toBe(false);
+    expect(isPreGuardStampUpdate("invoices", "INSERT", BUMP)).toBe(false);
+    expect(isPreGuardStampUpdate("invoices", "DELETE", BUMP)).toBe(false);
+  });
+});
+
+describe("AUDIT_REDACTED_COLUMNS", () => {
+  it("matches the columns that actually exist in the database", async () => {
+    // The map is what the whole redacted/pre-guard split turns on, so it may
+    // not be allowed to drift from the schema. Asserted in both directions:
+    // every column the map claims exists, and no OTHER audited table has one.
+    // db.execute()'s shape differs by driver — neon-http returns { rows }, the
+    // local postgres-js returns the array. Same normalization as
+    // lib/db/audit-coverage.test.ts.
+    const result = await db.execute(
+      sql`select table_name, column_name from information_schema.columns
+          where table_schema = 'public'
+            and column_name in ('password_hash', 'aadhar', 'pan')`,
+    );
+    const found = (
+      Array.isArray(result) ? result : (result as { rows: unknown[] }).rows
+    ) as Array<{ table_name: string; column_name: string }>;
+    expect(found.length).toBeGreaterThan(0); // a wrong DB must not pass vacuously
+
+    const actual = new Map<string, string[]>();
+    for (const r of found) {
+      actual.set(r.table_name, [...(actual.get(r.table_name) ?? []), r.column_name].sort());
+    }
+
+    const expected = new Map(
+      Object.entries(AUDIT_REDACTED_COLUMNS).map(([t, cols]) => [t, [...cols].sort()]),
+    );
+    expect(Object.fromEntries(actual)).toEqual(Object.fromEntries(expected));
   });
 });

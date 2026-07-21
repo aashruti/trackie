@@ -2,7 +2,13 @@ import "server-only";
 import { and, desc, eq, isNotNull, isNull, sql, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { auditLog, users } from "@/lib/db/schema";
-import { AUDIT_ACTOR_NONE, type AuditActorFilter } from "@/lib/audit-view";
+import {
+  AUDIT_ACTOR_NONE,
+  AUDIT_REDACTED_COLUMNS,
+  redactedColumnsFor,
+  tableHasRedactedColumn,
+  type AuditActorFilter,
+} from "@/lib/audit-view";
 import { UserError } from "./errors";
 import { type SessionUser } from "./authz";
 
@@ -32,7 +38,13 @@ export type AuditRowImage = Record<string, unknown>;
 
 // Defined in the client-safe module (the filter bar needs the sentinel too) and
 // re-exported here so server-side callers keep a single import site.
-export { AUDIT_ACTOR_NONE, type AuditActorFilter };
+export {
+  AUDIT_ACTOR_NONE,
+  AUDIT_REDACTED_COLUMNS,
+  redactedColumnsFor,
+  tableHasRedactedColumn,
+  type AuditActorFilter,
+};
 
 export interface AuditFilters {
   /** Exact `audit_log.table_name`, e.g. "invoices". */
@@ -103,9 +115,9 @@ export interface AuditEntry {
   isStampOnly: boolean;
   /**
    * True for an UPDATE whose only VISIBLE change is attribution, but which the
-   * database stamped as a real edit — meaning the column that changed is one
-   * `audit_row()` redacts (`password_hash`, `aadhar`, `pan`). A password change
-   * lands here. See {@link isRedactedOnlyUpdate} for why this is inferable.
+   * database stamped as a real edit, ON A TABLE THAT OWNS A REDACTED COLUMN —
+   * meaning the column that changed is one `audit_row()` strips. A password
+   * change lands here. See {@link isRedactedOnlyUpdate}.
    *
    * This is the opposite of noise: the value is (rightly) unrecoverable, but
    * the EVENT — someone changed a credential or a regulated identifier on this
@@ -114,6 +126,11 @@ export interface AuditEntry {
    * never fold it away.
    */
   isRedactedOnly: boolean;
+  /**
+   * The SAME diff shape on a table with NO redactable column — where the
+   * credential inference is simply unavailable. See {@link isPreGuardStampUpdate}.
+   */
+  isPreGuardStamp: boolean;
 }
 
 export interface AuditPage {
@@ -251,11 +268,26 @@ export function isStampOnlyUpdate(op: AuditOp, changes: FieldChange[]): boolean 
 const ATTRIBUTION_KEYS = new Set(["updated_by", "updated_at", "version"]);
 
 /**
+ * The DIFF SHAPE both classifications below key off: an UPDATE whose visible
+ * diff is attribution-only, yet which carries an `updated_at`/`version` bump.
+ *
+ * The shape alone says only "the database moved the version without showing a
+ * reason". What that MEANS depends entirely on the table — which is the whole
+ * point of splitting this out.
+ */
+function isAttributionBumpShape(op: AuditOp, changes: FieldChange[]): boolean {
+  if (op !== "UPDATE") return false;
+  // An empty diff is a different (weaker) signal — see isRedactedOnlyUpdate.
+  if (changes.length === 0) return false;
+  if (!changes.every((c) => ATTRIBUTION_KEYS.has(c.key))) return false;
+  return changes.some((c) => c.key === "version" || c.key === "updated_at");
+}
+
+/**
  * An UPDATE that changed ONLY columns the trigger redacts — i.e. a credential
  * or regulated-identifier change. See {@link AuditEntry.isRedactedOnly}.
  *
- * How this is knowable despite the value being stripped, and it is worth being
- * precise because it is the crux of the bug this replaced:
+ * How this is knowable despite the value being stripped:
  *
  * `stamp_row()` is a BEFORE trigger on the REAL row, so it sees password_hash
  * and friends unredacted, and since 0017 it bumps `updated_at`/`version` only
@@ -266,21 +298,57 @@ const ATTRIBUTION_KEYS = new Set(["updated_by", "updated_at", "version"]);
  * to see. Verified end-to-end against the live trigger in audit-log.test.ts —
  * `UPDATE users SET password_hash = …` lands as exactly `{updated_at, version}`.
  *
- * On the real log that is 1,939 rows (1,842 `{updated_at, version}` plus 97
- * that also moved `updated_by`), every one of which the old fold rule hid and
- * badged "attribution only".
+ * THE TABLE IS PART OF THE INFERENCE, and leaving it out was the bug this
+ * replaced. The argument above has a silent premise: that a stripped column
+ * exists to be stripped. Only `users` and `employee_profiles` own one
+ * ({@link AUDIT_REDACTED_COLUMNS}); on `invoices` there is no `password_hash`,
+ * `aadhar` or `pan` for `audit_row()` to remove, so a version bump with no
+ * visible change cannot mean a hidden column moved — it means something else
+ * entirely ({@link isPreGuardStampUpdate}). Judged on `(op, changes)` alone,
+ * this flagged 1,945 rows of the real log of which 1,365 (70%) were on tables
+ * with no redactable column at all — invoices 540, user_roles 417, cohorts 100,
+ * … — each one telling the reader a credential had been changed on a row that
+ * has never held one. In a viewer whose entire value is not lying about
+ * history, that is the one thing it may not do.
  *
- * An EMPTY diff is deliberately NOT included. It is a genuinely different and
- * weaker signal: with 0017 in place a redacted change always bumps the version,
- * so two identical images mean no non-attribution column moved at all — a
- * no-op write far more often than a redaction. It is never folded either, but
- * the viewer describes it for what it is rather than overclaiming.
+ * An EMPTY diff is also deliberately excluded, for a parallel reason: with 0017
+ * in place a redacted change always bumps the version, so two identical images
+ * mean no non-attribution column moved at all. Never folded either, but
+ * described for what it is rather than overclaimed.
  */
-export function isRedactedOnlyUpdate(op: AuditOp, changes: FieldChange[]): boolean {
-  if (op !== "UPDATE") return false;
-  if (changes.length === 0) return false;
-  if (!changes.every((c) => ATTRIBUTION_KEYS.has(c.key))) return false;
-  return changes.some((c) => c.key === "version" || c.key === "updated_at");
+export function isRedactedOnlyUpdate(
+  tableName: string,
+  op: AuditOp,
+  changes: FieldChange[],
+): boolean {
+  return isAttributionBumpShape(op, changes) && tableHasRedactedColumn(tableName);
+}
+
+/**
+ * The attribution-bump shape on a table that owns NO redactable column — so the
+ * bump is unexplained rather than explained-but-hidden.
+ *
+ * What is actually known about these rows, and nothing beyond it: the database
+ * moved `version`/`updated_at` while every column this log can show stayed the
+ * same, and no column on this table is one the trigger strips. So nothing was
+ * hidden; the bump simply had no accompanying column change.
+ *
+ * That is precisely what pre-0017 `stamp_row()` did — it bumped `updated_at`
+ * and `version` on every UPDATE, including writes that touched only attribution.
+ * Migration 0017 added the guard, so the shape is no longer producible on a
+ * non-redacted table; measured against the real log, the newest such row is
+ * 2026-07-21 00:13, i.e. all 1,365 of them predate the guard.
+ *
+ * Kept as its own flag rather than folded into "attribution only": the version
+ * DID move, and quietly hiding a row because we cannot explain it is the same
+ * failure mode as loudly mislabelling it.
+ */
+export function isPreGuardStampUpdate(
+  tableName: string,
+  op: AuditOp,
+  changes: FieldChange[],
+): boolean {
+  return isAttributionBumpShape(op, changes) && !tableHasRedactedColumn(tableName);
 }
 
 function buildWhere(filters: AuditFilters): SQL | undefined {
@@ -371,7 +439,8 @@ export async function listAuditEntries(
       after: asImage(r.after),
       changedFields: changes,
       isStampOnly: isStampOnlyUpdate(op, changes),
-      isRedactedOnly: isRedactedOnlyUpdate(op, changes),
+      isRedactedOnly: isRedactedOnlyUpdate(r.tableName, op, changes),
+      isPreGuardStamp: isPreGuardStampUpdate(r.tableName, op, changes),
     };
   });
 
