@@ -110,7 +110,9 @@ export interface AuditEntry {
   changedFields: FieldChange[];
   /**
    * True for the phantom UPDATE our stamp-then-delete idiom writes immediately
-   * before each DELETE. Presentation hint only — see {@link isStampOnlyUpdate}.
+   * before each DELETE — and NOT for the identically-shaped row that
+   * `ON DELETE SET NULL` leaves on a surviving one. Presentation hint only —
+   * see {@link isStampOnlyUpdate}.
    */
   isStampOnly: boolean;
   /**
@@ -227,26 +229,59 @@ export function changedFields(before: unknown, after: unknown): FieldChange[] {
 /**
  * Is this entry the phantom half of a stamp-then-delete pair — and NOTHING else?
  *
- * `stampedDelete` sets `updated_by` on a row and then deletes it, so every
- * delete produces an UPDATE audit row immediately before the DELETE row. That
- * single artefact is the only thing worth folding, and since migration 0017 it
- * is exactly identifiable: `stamp_row()` now SKIPS the updated_at/version bump
- * when the sole difference is attribution, so the pre-stamp's diff is precisely
- * `{updated_by}`.
+ * THIS IS A CLAIM ABOUT CAUSE, NOT SHAPE, and the distinction is the whole
+ * function. `diff === {updated_by}` is a shape, and exactly TWO causes in this
+ * database produce it:
  *
- * The rule is therefore `diff === {updated_by}`, and deliberately not "diff ⊆
- * {updated_by, updated_at, version}", which is what it used to be. That older,
- * pre-0017 rule folded 3,803 of 24,954 real rows when only 151 were genuine
- * phantoms. Two things it swallowed, both of which are real history:
+ *  1. **stamp-then-delete.** `stampedDelete` writes the DELETER's id into
+ *     `updated_by` and then deletes the row, so the trigger records an UPDATE
+ *     immediately before the DELETE. Since migration 0017 `stamp_row()` skips
+ *     the `updated_at`/`version` bump when the sole difference is attribution,
+ *     so that pre-stamp's diff is precisely `{updated_by}`. Pure artefact of
+ *     how we delete; the DELETE row beside it carries the same information.
+ *  2. **`ON DELETE SET NULL` on `updated_by`.** All 30 audited tables point
+ *     `updated_by` at `users.id` with that referential action, and Postgres
+ *     applies it as an internal UPDATE. So deleting one user rewrites
+ *     `updated_by → NULL` on every row they last touched — rows that SURVIVE,
+ *     across up to 30 tables, one audit row each. That is real history: it is
+ *     the record of a deleted user's footprint, and "what did the user I just
+ *     deleted have their hands on?" is exactly what a forensic reader opens
+ *     this viewer to ask.
+ *
+ * **The discriminator is the after-image's `updated_by`.** Cause (1) always
+ * writes an actor id, never NULL — `stampedDelete` takes `actorId: number`.
+ * Cause (2) always writes NULL; that is what SET NULL means. So requiring the
+ * after value to be present and non-null separates them by their cause, not by
+ * a shape they share. The value is already carried here by
+ * {@link changedFields} as the `updated_by` change's `after`, which IS the
+ * after-image's `updated_by` — nothing is re-derived, and the predicate stays
+ * pure and client-safe.
+ *
+ * Verified end-to-end against the live triggers in audit-behavior.test.ts:
+ * create a user, have them author a row, delete the user → the row survives and
+ * its `{updated_by}` audit entry has `after.updated_by === null`.
+ *
+ * Two further shapes are deliberately NOT folded, for the same reason — a
+ * shared shape is not a shared cause:
  *
  *  - **A bumped `version`.** Post-0017 `stamp_row` only bumps it when a
  *    non-attribution column changed, so a bumped version is Postgres ASSERTING
- *    that a real edit happened. Folding those hid 1,842 rows.
- *  - **An EMPTY diff.** Identical images do not mean "nothing happened"; they
- *    mean every changed column was redacted out of both images by
- *    `audit_row()` — i.e. a password / aadhar / pan change. 1,713 rows, and
- *    the single highest-signal event type in the log. An empty diff is never
- *    folded; see {@link AuditEntry.isRedactedOnly}.
+ *    that a real edit happened. The pre-0017 rule ("diff ⊆ {updated_by,
+ *    updated_at, version}") hid 1,842 such rows.
+ *  - **An EMPTY diff** — two identical row images. This used to be documented
+ *    here as "every changed column was redacted out of both images, i.e. a
+ *    password / aadhar / pan change, the single highest-signal event type in
+ *    the log". That was the same shape-for-cause mistake, and it is false. A
+ *    redacted change is seen UNREDACTED by `stamp_row()` (a BEFORE trigger on
+ *    the real row), so it bumps `version` and lands as `{updated_at, version}`,
+ *    not as an empty diff — pinned end-to-end against the live trigger in
+ *    audit-log.test.ts. What an empty diff actually is: a write that set a row
+ *    to the values it already held. The log agrees on both counts — of its
+ *    2,083 empty diffs, 1,459 (70%) are on tables with no redactable column at
+ *    all (user_roles alone has 899), and the oldest of them postdates the
+ *    newest pre-0017 row, because before 0017 `stamp_row` bumped `version` on
+ *    every UPDATE and an empty diff was not producible. Never folded; see
+ *    {@link isRedactedOnlyUpdate}, which excludes it for the same reason.
  *
  * This is a PRESENTATION flag, not a filter: `listAuditEntries` still returns
  * every row and the SQL never excludes any. The raw log must stay complete and
@@ -257,9 +292,16 @@ export function changedFields(before: unknown, after: unknown): FieldChange[] {
  */
 export function isStampOnlyUpdate(op: AuditOp, changes: FieldChange[]): boolean {
   if (op !== "UPDATE") return false;
-  // An empty diff is a fully-redacted change, not an absence of one.
-  if (changes.length === 0) return false;
-  return changes.every((c) => c.key === "updated_by");
+  // Exactly one changed key, and it is the stamp. An empty diff is a no-op
+  // write, not an absent one, and is never folded.
+  if (changes.length !== 1) return false;
+  const [stamp] = changes;
+  if (stamp.key !== "updated_by") return false;
+  // The after-image's updated_by. An id ⇒ a deliberate pre-delete stamp; NULL ⇒
+  // the ON DELETE SET NULL side effect on a row that is still there. `undefined`
+  // means the key left the after image entirely (a schema migration) — also not
+  // a stamp, so also not folded.
+  return stamp.after !== null && stamp.after !== undefined;
 }
 
 /**

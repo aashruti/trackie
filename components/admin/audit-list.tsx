@@ -240,13 +240,14 @@ export function AuditList({
   hiddenStampOnly?: number;
 }) {
   if (entries.length === 0) {
-    // A whole page CAN fold to nothing — `?table=payments&op=UPDATE` is
-    // reachable from the dropdowns alone and does exactly that: 6 rows match
-    // and all 6 are phantom pre-delete stamps. Saying "no entries match these
-    // filters" there is simply false. (The example used to be
-    // `?table=user_roles&op=UPDATE`, which was true under the old, far wider
-    // fold rule; under the narrowed `diff === {updated_by}` rule that page
-    // folds only 4 of its 50 rows.)
+    // A whole page CAN fold to nothing, so "no entries match these filters"
+    // would be false there and this branch has to exist. The counts move every
+    // time the fold rule narrows, so no filter is cited as a standing example:
+    // `?table=payments&op=UPDATE` matched 6 rows and folded 6 of 6 under the
+    // shape-only rule, but folds 3 of 6 now that a `{updated_by}` row whose
+    // after-image is NULL is recognised as an ON DELETE SET NULL side effect
+    // rather than a pre-delete stamp. Every row still folded here is a genuine
+    // pre-delete stamp, which is what the copy below says.
     if (hiddenStampOnly > 0) {
       return (
         <p className="px-5 py-10 text-center text-sm text-text-secondary">

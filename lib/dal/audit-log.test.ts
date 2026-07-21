@@ -55,7 +55,7 @@ const fx = {
   tblIds: [] as number[],
   /** ids of the three NTBL rows: [null-actor, actorA, null-actor]. */
   ntblIds: [] as number[],
-  /** ids of the four FTBL rows: [phantom, versionBumped, redacted, realEdit]. */
+  /** ids of the five FTBL rows: [phantom, versionBumped, noop, realEdit, setNull]. */
   foldIds: [] as number[],
   /** ids of the three TZTBL rows: [prevDay 23:00, day 00:30, day 23:30]. */
   tzIds: [] as number[],
@@ -185,6 +185,17 @@ beforeAll(async () => {
         tableName: FTBL, op: "UPDATE" as const, rowId: "7", actorId: fx.actorB,
         at: new Date("2026-07-04T00:00:00Z"),
         before: fBase, after: img({ id: 7, version: 6, updated_by: fx.actorB, amount: 999 }),
+      },
+      // 5. The ON DELETE SET NULL side effect: the SAME `{updated_by}` shape as
+      // (1), but the after-image value is NULL rather than a deleter's id, and
+      // no actor (nobody "did" it — Postgres did, while erasing a user). One
+      // such row per record that user last touched, across up to 30 tables, and
+      // every one of those rows SURVIVES. Real history, and the reason the fold
+      // rule cannot be keyed on the diff's shape alone.
+      {
+        tableName: FTBL, op: "UPDATE" as const, rowId: "7", actorId: null,
+        at: new Date("2026-07-05T00:00:00Z"),
+        before: fBase, after: img({ id: 7, version: 5, updated_by: null }),
       },
     ])
     .returning({ id: auditLog.id });
@@ -455,13 +466,14 @@ describe("listAuditEntries — isStampOnly", () => {
     expect(byId.get(fx.tblIds[3])!.isStampOnly).toBe(false);
   });
 
-  it("folds only the genuine phantom, and never a redacted or version-bumped change", async () => {
+  it("folds only the genuine phantom, and never a redacted, version-bumped or SET NULL change", async () => {
     // The whole B1/B2 fix in one assertion set. The old rule (diff ⊆
-    // {updated_by, updated_at, version}) folded three of these four; only the
-    // first is noise.
+    // {updated_by, updated_at, version}) folded three of these five, and the
+    // shape-only `diff === {updated_by}` rule that replaced it folded two.
+    // Only the first is noise.
     const { entries } = await listAuditEntries(SUPER, { tableName: FTBL });
     const byId = new Map(entries.map((e) => [e.id, e]));
-    const [phantom, bumped, noop, realEdit] = fx.foldIds.map((id) => byId.get(id)!);
+    const [phantom, bumped, noop, realEdit, setNull] = fx.foldIds.map((id) => byId.get(id)!);
 
     expect(phantom.isStampOnly).toBe(true);
     expect(phantom.isRedactedOnly).toBe(false);
@@ -485,7 +497,16 @@ describe("listAuditEntries — isStampOnly", () => {
     expect(realEdit.isRedactedOnly).toBe(false);
     expect(realEdit.isPreGuardStamp).toBe(false);
 
-    // Exactly one of the four is foldable — the viewer hides one row, not three.
+    // The SET NULL side effect: byte-for-byte the phantom's diff shape, and not
+    // folded, because its after-image says NULL rather than a deleter's id.
+    expect(setNull.changedFields.map((c) => c.key)).toEqual(["updated_by"]);
+    expect(setNull.changedFields[0].after).toBeNull();
+    expect(phantom.changedFields.map((c) => c.key)).toEqual(setNull.changedFields.map((c) => c.key));
+    expect(setNull.isStampOnly).toBe(false);
+    expect(setNull.isRedactedOnly).toBe(false);
+    expect(setNull.isPreGuardStamp).toBe(false);
+
+    // Exactly one of the five is foldable — the viewer hides one row, not three.
     expect(entries.filter((e) => e.isStampOnly)).toHaveLength(1);
   });
 
@@ -622,8 +643,27 @@ describe("changedFields — pure diff", () => {
 });
 
 describe("isStampOnlyUpdate — pure", () => {
-  it("is true ONLY for updated_by alone — the genuine stamped-delete phantom", () => {
+  it("is true ONLY for updated_by alone AND a non-null after — the genuine stamped-delete phantom", () => {
     expect(isStampOnlyUpdate("UPDATE", [{ key: "updated_by", before: 1, after: 2 }])).toBe(true);
+  });
+
+  it("is FALSE when after.updated_by is NULL — that is ON DELETE SET NULL, not a stamp", () => {
+    // Same SHAPE, different CAUSE. `updated_by` is ON DELETE SET NULL to
+    // users.id on all 30 audited tables, so deleting one user rewrites it to
+    // NULL on every row they last touched — rows that SURVIVE. Folding those
+    // hides a deleted user's whole footprint across the database and badges it
+    // as delete noise. A genuine pre-delete stamp writes the deleter's ID and
+    // is never null; that is the entire discriminator. Driven through the live
+    // triggers in audit-behavior.test.ts.
+    expect(isStampOnlyUpdate("UPDATE", [{ key: "updated_by", before: 42, after: null }])).toBe(false);
+  });
+
+  it("is FALSE when updated_by left the after image entirely", () => {
+    // `undefined` is changedFields' marker for an absent key (a schema
+    // migration, not a stamp) — also not the phantom.
+    expect(isStampOnlyUpdate("UPDATE", [{ key: "updated_by", before: 42, after: undefined }])).toBe(
+      false,
+    );
   });
 
   it("is FALSE for an empty diff — that is a redacted change, not an absent one", () => {
@@ -798,5 +838,27 @@ describe("AUDIT_REDACTED_COLUMNS", () => {
       Object.entries(AUDIT_REDACTED_COLUMNS).map(([t, cols]) => [t, [...cols].sort()]),
     );
     expect(Object.fromEntries(actual)).toEqual(Object.fromEntries(expected));
+  });
+
+  it("matches the column names audit_row() actually strips", async () => {
+    // The test above pins the map to the SCHEMA; this one pins it to the
+    // TRIGGER. Both are needed, and neither implies the other: a migration that
+    // teaches audit_row() to strip a fourth column (say `bank_account`) would
+    // leave the schema assertion passing — the column exists and is simply not
+    // in the map — while the viewer silently under-reports what can be hidden.
+    // Read out of pg_proc so the assertion is about the function the database is
+    // RUNNING, not about the .sql file we believe it ran.
+    const result = await db.execute(sql`select prosrc from pg_proc where proname = 'audit_row'`);
+    const found = (Array.isArray(result) ? result : (result as { rows: unknown[] }).rows) as Array<{
+      prosrc: string;
+    }>;
+    expect(found, "audit_row() must exist — a wrong DB must not pass vacuously").toHaveLength(1);
+
+    // Every `- 'col'` in the body is a jsonb key deletion, i.e. a redaction.
+    const stripped = [...found[0].prosrc.matchAll(/-\s*'([a-z_]+)'/g)].map((m) => m[1]);
+    expect(stripped.length).toBeGreaterThan(0);
+
+    const declared = new Set(Object.values(AUDIT_REDACTED_COLUMNS).flat());
+    expect([...new Set(stripped)].sort()).toEqual([...declared].sort());
   });
 });
