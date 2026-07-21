@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq, gte, isNotNull, isNull, lte, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull, sql, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { auditLog, users } from "@/lib/db/schema";
 import { AUDIT_ACTOR_NONE, type AuditActorFilter } from "@/lib/audit-view";
@@ -44,10 +44,26 @@ export interface AuditFilters {
    */
   actorId?: AuditActorFilter;
   op?: AuditOp;
-  /** Inclusive lower bound on `at`. */
-  from?: Date;
-  /** Inclusive upper bound on `at`. */
-  to?: Date;
+  /**
+   * Inclusive lower bound, as a plain `YYYY-MM-DD` calendar day — NOT a Date.
+   *
+   * `audit_log.at` is `timestamp without time zone` holding the DATABASE's
+   * local wall clock. A JS `Date` cannot express that: drizzle binds one via
+   * `.toISOString()`, i.e. in UTC, so `new Date("2026-07-20T00:00:00.000")`
+   * (Node-local midnight) arrives as `2026-07-19 18:30:00` at an Asia/Kolkata
+   * database, and the filter quietly returns the wrong day — measured here,
+   * 5,732 rows for "20 Jul" when 14,518 occurred, plus 5.5h of the 19th
+   * wrongly included. The skew vanishes wherever Node's TZ happens to equal
+   * the DB's (Vercel/Neon are both UTC), which is exactly what kept it latent
+   * in production.
+   *
+   * So the bound travels as the calendar day the reader actually picked and is
+   * compared against `at::date` in SQL, where "the day" means the same thing on
+   * both sides. See {@link buildWhere}.
+   */
+  from?: string;
+  /** Inclusive upper bound, as a plain `YYYY-MM-DD` calendar day. See {@link AuditFilters.from}. */
+  to?: string;
 }
 
 export interface FieldChange {
@@ -85,6 +101,19 @@ export interface AuditEntry {
    * before each DELETE. Presentation hint only — see {@link isStampOnlyUpdate}.
    */
   isStampOnly: boolean;
+  /**
+   * True for an UPDATE whose only VISIBLE change is attribution, but which the
+   * database stamped as a real edit — meaning the column that changed is one
+   * `audit_row()` redacts (`password_hash`, `aadhar`, `pan`). A password change
+   * lands here. See {@link isRedactedOnlyUpdate} for why this is inferable.
+   *
+   * This is the opposite of noise: the value is (rightly) unrecoverable, but
+   * the EVENT — someone changed a credential or a regulated identifier on this
+   * row, at this time — is the highest-signal thing the log records. The viewer
+   * must say so rather than render a bare `updated_at`/`version` diff, and must
+   * never fold it away.
+   */
+  isRedactedOnly: boolean;
 }
 
 export interface AuditPage {
@@ -97,12 +126,6 @@ export interface AuditPage {
 }
 
 export const AUDIT_PAGE_SIZE = 50;
-
-/**
- * Columns that carry attribution/bookkeeping rather than user-meaningful data.
- * A change confined to these is not an edit anyone asked for.
- */
-const ATTRIBUTION_KEYS = new Set(["updated_by", "updated_at", "version"]);
 
 /** Structural equality for JSON values (jsonb round-trips as fresh objects, so `===` is useless). */
 function jsonEqual(a: unknown, b: unknown): boolean {
@@ -185,12 +208,28 @@ export function changedFields(before: unknown, after: unknown): FieldChange[] {
 }
 
 /**
- * Is this entry the phantom half of a stamp-then-delete pair?
+ * Is this entry the phantom half of a stamp-then-delete pair — and NOTHING else?
  *
  * `stampedDelete` sets `updated_by` on a row and then deletes it, so every
- * delete produces an UPDATE audit row (touching only updated_by, plus the
- * updated_at/version the triggers bump) immediately before the DELETE row. A
- * bill deletion writes 6 rows where a human cares about 3.
+ * delete produces an UPDATE audit row immediately before the DELETE row. That
+ * single artefact is the only thing worth folding, and since migration 0017 it
+ * is exactly identifiable: `stamp_row()` now SKIPS the updated_at/version bump
+ * when the sole difference is attribution, so the pre-stamp's diff is precisely
+ * `{updated_by}`.
+ *
+ * The rule is therefore `diff === {updated_by}`, and deliberately not "diff ⊆
+ * {updated_by, updated_at, version}", which is what it used to be. That older,
+ * pre-0017 rule folded 3,803 of 24,954 real rows when only 151 were genuine
+ * phantoms. Two things it swallowed, both of which are real history:
+ *
+ *  - **A bumped `version`.** Post-0017 `stamp_row` only bumps it when a
+ *    non-attribution column changed, so a bumped version is Postgres ASSERTING
+ *    that a real edit happened. Folding those hid 1,842 rows.
+ *  - **An EMPTY diff.** Identical images do not mean "nothing happened"; they
+ *    mean every changed column was redacted out of both images by
+ *    `audit_row()` — i.e. a password / aadhar / pan change. 1,713 rows, and
+ *    the single highest-signal event type in the log. An empty diff is never
+ *    folded; see {@link AuditEntry.isRedactedOnly}.
  *
  * This is a PRESENTATION flag, not a filter: `listAuditEntries` still returns
  * every row and the SQL never excludes any. The raw log must stay complete and
@@ -201,7 +240,47 @@ export function changedFields(before: unknown, after: unknown): FieldChange[] {
  */
 export function isStampOnlyUpdate(op: AuditOp, changes: FieldChange[]): boolean {
   if (op !== "UPDATE") return false;
-  return changes.every((c) => ATTRIBUTION_KEYS.has(c.key));
+  // An empty diff is a fully-redacted change, not an absence of one.
+  if (changes.length === 0) return false;
+  return changes.every((c) => c.key === "updated_by");
+}
+
+/**
+ * Columns carrying attribution/bookkeeping rather than user-meaningful data.
+ */
+const ATTRIBUTION_KEYS = new Set(["updated_by", "updated_at", "version"]);
+
+/**
+ * An UPDATE that changed ONLY columns the trigger redacts — i.e. a credential
+ * or regulated-identifier change. See {@link AuditEntry.isRedactedOnly}.
+ *
+ * How this is knowable despite the value being stripped, and it is worth being
+ * precise because it is the crux of the bug this replaced:
+ *
+ * `stamp_row()` is a BEFORE trigger on the REAL row, so it sees password_hash
+ * and friends unredacted, and since 0017 it bumps `updated_at`/`version` only
+ * when a non-attribution column actually changed. `audit_row()` then strips the
+ * secret from both images but leaves that bump in place. So an audit row whose
+ * visible diff is attribution-only YET carries a version/updated_at bump is
+ * Postgres testifying: a real column changed, and it is one you are not allowed
+ * to see. Verified end-to-end against the live trigger in audit-log.test.ts —
+ * `UPDATE users SET password_hash = …` lands as exactly `{updated_at, version}`.
+ *
+ * On the real log that is 1,939 rows (1,842 `{updated_at, version}` plus 97
+ * that also moved `updated_by`), every one of which the old fold rule hid and
+ * badged "attribution only".
+ *
+ * An EMPTY diff is deliberately NOT included. It is a genuinely different and
+ * weaker signal: with 0017 in place a redacted change always bumps the version,
+ * so two identical images mean no non-attribution column moved at all — a
+ * no-op write far more often than a redaction. It is never folded either, but
+ * the viewer describes it for what it is rather than overclaiming.
+ */
+export function isRedactedOnlyUpdate(op: AuditOp, changes: FieldChange[]): boolean {
+  if (op !== "UPDATE") return false;
+  if (changes.length === 0) return false;
+  if (!changes.every((c) => ATTRIBUTION_KEYS.has(c.key))) return false;
+  return changes.some((c) => c.key === "version" || c.key === "updated_at");
 }
 
 function buildWhere(filters: AuditFilters): SQL | undefined {
@@ -215,8 +294,12 @@ function buildWhere(filters: AuditFilters): SQL | undefined {
     );
   }
   if (filters.op) clauses.push(eq(auditLog.op, filters.op));
-  if (filters.from) clauses.push(gte(auditLog.at, filters.from));
-  if (filters.to) clauses.push(lte(auditLog.at, filters.to));
+  // Compared as CALENDAR DAYS, in the database's own terms, never as JS Dates —
+  // see AuditFilters.from for why binding a Date here is silently wrong. Both
+  // sides are cast to `date`, so the bound means the day the reader picked and
+  // `to` covers that whole day without needing a 23:59:59.999 fudge.
+  if (filters.from) clauses.push(sql`${auditLog.at}::date >= ${filters.from}::date`);
+  if (filters.to) clauses.push(sql`${auditLog.at}::date <= ${filters.to}::date`);
   if (clauses.length === 0) return undefined;
   return and(...clauses);
 }
@@ -288,6 +371,7 @@ export async function listAuditEntries(
       after: asImage(r.after),
       changedFields: changes,
       isStampOnly: isStampOnlyUpdate(op, changes),
+      isRedactedOnly: isRedactedOnlyUpdate(op, changes),
     };
   });
 

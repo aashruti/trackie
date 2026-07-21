@@ -67,6 +67,21 @@ function ValueCell({ change, side }: { change: FieldChange; side: "before" | "af
 function Diff({ entry }: { entry: AuditEntry }) {
   const changes = entry.changedFields;
   if (changes.length === 0) {
+    // Two identical row images. Stated honestly rather than overclaimed: with
+    // migration 0017 in place a redacted change still bumps the version (that
+    // is what `isRedactedOnly` keys off), so an empty diff usually means the
+    // write genuinely moved nothing. Either way it is never folded away.
+    if (entry.op === "UPDATE") {
+      return (
+        <p className="border-t border-border-subtle bg-surface-sunken px-5 py-4 text-sm text-text-secondary">
+          The two stored row images are identical, so no column that this log can show was changed.
+          That is usually a write that set a row to the values it already held. Note that{" "}
+          <span className="font-mono">password_hash</span>, <span className="font-mono">aadhar</span>{" "}
+          and <span className="font-mono">pan</span> are stripped from both images before storage
+          and so can never appear here.
+        </p>
+      );
+    }
     return (
       <p className="px-5 py-4 text-sm text-text-secondary">
         No field differences recorded for this entry.
@@ -74,11 +89,29 @@ function Diff({ entry }: { entry: AuditEntry }) {
     );
   }
 
+  // A change confined to attribution columns, yet stamped by the database as a
+  // real edit — so the column that moved is one the trigger redacts. Lead with
+  // that, because the diff below (updated_at, version) does not say it.
+  const redactedNotice = entry.isRedactedOnly ? (
+    <p className="border-t border-border-subtle bg-surface-sunken px-5 pt-4 text-sm text-text-secondary">
+      Every column visible here is attribution, but the database bumped{" "}
+      <span className="font-mono">version</span> — which since migration 0017 happens only when a
+      real column changed. That column is therefore one the trigger redacts:{" "}
+      <span className="font-mono">password_hash</span>, <span className="font-mono">aadhar</span> or{" "}
+      <span className="font-mono">pan</span>. Its value is not recoverable from this log; the fact
+      that it changed, when, and by whom, is.
+    </p>
+  ) : null;
+
   const showBefore = entry.op !== "INSERT";
   const showAfter = entry.op !== "DELETE";
 
   return (
-    <div className="border-t border-border-subtle bg-surface-sunken px-5 py-4">
+    <>
+      {redactedNotice}
+      <div
+        className={`bg-surface-sunken px-5 py-4 ${redactedNotice ? "" : "border-t border-border-subtle"}`}
+      >
       <div className="mb-2 flex gap-3 text-[11px] font-semibold uppercase tracking-wider text-text-muted">
         <div className="w-48 shrink-0">Column</div>
         {showBefore && <div className="min-w-0 flex-1">{entry.op === "DELETE" ? "Erased value" : "Before"}</div>}
@@ -101,7 +134,8 @@ function Diff({ entry }: { entry: AuditEntry }) {
           </div>
         ))}
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -143,6 +177,13 @@ function Row({ entry }: { entry: AuditEntry }) {
             attribution only
           </span>
         )}
+        {entry.isRedactedOnly && (
+          // Loud, not muted: this is the highest-signal row shape in the log —
+          // "someone changed a credential or a regulated identifier here".
+          <span className="shrink-0 rounded-full border border-[var(--pending-border)] bg-[var(--pending-subtle)] px-2 py-0.5 text-[10px] font-medium text-[var(--pending-text)]">
+            redacted change
+          </span>
+        )}
         <span className="shrink-0 tabular text-[11px] text-text-muted">
           {entry.changedFields.length} {entry.changedFields.length === 1 ? "field" : "fields"}
         </span>
@@ -152,8 +193,34 @@ function Row({ entry }: { entry: AuditEntry }) {
   );
 }
 
-export function AuditList({ entries }: { entries: AuditEntry[] }) {
+export function AuditList({
+  entries,
+  hiddenStampOnly = 0,
+}: {
+  entries: AuditEntry[];
+  /**
+   * How many entries this page dropped as stamp-only phantoms. Needed here and
+   * not only in the pager: "nothing matched" and "everything that matched was
+   * folded away" are different facts, and the page used to assert the first
+   * while the pager simultaneously reported the second.
+   */
+  hiddenStampOnly?: number;
+}) {
   if (entries.length === 0) {
+    // A whole page CAN fold to nothing — `?table=user_roles&op=UPDATE` is
+    // reachable from the dropdowns alone and does exactly that. Saying "no
+    // entries match these filters" there is simply false: 50 matched.
+    if (hiddenStampOnly > 0) {
+      return (
+        <p className="px-5 py-10 text-center text-sm text-text-secondary">
+          All {hiddenStampOnly} {hiddenStampOnly === 1 ? "entry" : "entries"} on this page{" "}
+          {hiddenStampOnly === 1 ? "was" : "were"} folded away as attribution-only stamps (the
+          phantom update written just before a delete). Use{" "}
+          <span className="font-medium text-text-primary">Show attribution-only changes</span> above
+          to see them.
+        </p>
+      );
+    }
     return (
       <p className="px-5 py-10 text-center text-sm text-text-secondary">
         No audit entries match these filters.

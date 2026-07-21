@@ -1,0 +1,24 @@
+-- Indexes for the /admin/audit feed's filtered pages.
+--
+-- The feed orders by `id DESC` (see listAuditEntries: `id` is the bigserial PK,
+-- audit rows are append-only, so id order and `at` order agree and ordering by
+-- the PK avoids sorting 20k+ rows on every unfiltered page load).
+--
+-- But 0016's two indexes are (table_name, at) and (actor_id, at). Neither can
+-- serve `WHERE table_name = ? ORDER BY id DESC`: the ordering column is not in
+-- the index, so Postgres walks the PK backwards and discards everything that
+-- fails the filter. Measured on 24,954 rows: a filtered page removed 22,938
+-- rows by filter and touched 13,455 buffers to return 51. That is fine at
+-- today's size and O(table) forever after — an append-only log only grows.
+--
+-- These two put the ordering column IN the index, so a filtered page becomes a
+-- bounded index scan that stops after 51 rows.
+--
+-- A new migration rather than an edit to 0016/0017: both are already recorded
+-- as applied, and drizzle skips a migration whose tag is in
+-- __drizzle_migrations regardless of whether the file's content later changed.
+-- Anything that must reach an already-migrated database needs its own file.
+--
+-- IF NOT EXISTS on both, so re-running this is a no-op.
+CREATE INDEX IF NOT EXISTS "audit_log_table_id_idx" ON "audit_log" ("table_name","id" DESC);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "audit_log_actor_id_idx" ON "audit_log" ("actor_id","id" DESC);

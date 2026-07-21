@@ -45,11 +45,14 @@ function parseFilters(sp: Params): AuditFilterValues {
 
   if (sp.op && (OPS as string[]).includes(sp.op)) filters.op = sp.op as AuditOp;
 
-  // Dates arrive as YYYY-MM-DD from <input type="date">. `from` is the start of
-  // that day and `to` its LAST instant — a bare `to` of midnight would silently
-  // exclude everything that happened on the day the reader asked for.
-  if (sp.from && ISO_DATE.test(sp.from)) filters.from = new Date(`${sp.from}T00:00:00.000`);
-  if (sp.to && ISO_DATE.test(sp.to)) filters.to = new Date(`${sp.to}T23:59:59.999`);
+  // Dates arrive as YYYY-MM-DD from <input type="date"> and are passed STRAIGHT
+  // THROUGH as calendar days — deliberately never widened into a JS Date here.
+  // `audit_log.at` is `timestamp without time zone` in DB-local wall clock, and
+  // a Date bound by drizzle is serialised in UTC, so building one in Node-local
+  // time shifted the bound by the TZ offset and dropped most of the requested
+  // day. The DAL compares `at::date` instead; see AuditFilters.from.
+  if (sp.from && ISO_DATE.test(sp.from)) filters.from = sp.from;
+  if (sp.to && ISO_DATE.test(sp.to)) filters.to = sp.to;
 
   return filters;
 }
@@ -117,15 +120,17 @@ export default async function AuditLogPage({ searchParams }: { searchParams: Pro
           <p className="mt-1.5 text-xs text-text-muted">
             Secrets and identity numbers (<span className="font-mono">password_hash</span>,{" "}
             <span className="font-mono">aadhar</span>, <span className="font-mono">pan</span>) are
-            stripped by the trigger before a row image is stored, so they never appear below —
-            including when they did change.
+            stripped by the trigger before a row image is stored, so their values never appear
+            below. The change itself still does: an update that touched only those columns is listed
+            and badged <span className="font-medium text-text-secondary">redacted change</span>,
+            because the database stamps the row as edited even though the value is stripped.
           </p>
         </div>
 
         <AuditFilters options={options} showStampOnly={showStampOnly} />
 
         <Card>
-          <AuditList entries={visible} />
+          <AuditList entries={visible} hiddenStampOnly={hiddenStampOnly} />
           <AuditPager
             page={feed.page}
             hasMore={feed.hasMore}
