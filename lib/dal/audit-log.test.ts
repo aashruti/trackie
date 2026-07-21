@@ -781,6 +781,35 @@ describe("isRedactedOnlyUpdate — pure", () => {
     expect(isRedactedOnlyUpdate("users", "INSERT", bump)).toBe(false);
     expect(isRedactedOnlyUpdate("users", "DELETE", bump)).toBe(false);
   });
+
+  it("does not treat an updated_at-only diff as a version bump", () => {
+    // `version` is the whole inference: stamp_row() bumps it only when a
+    // non-attribution column actually differs, so it is Postgres testifying
+    // that a real (here, redacted) column moved. `updated_at` testifies to
+    // nothing of the kind — a write that moved only the timestamp moved no
+    // column at all, and the guard never fired. Accepting `version ||
+    // updated_at` let the meaningless shape borrow the meaningful one's badge
+    // and tell a reader a credential had changed on the strength of a clock.
+    const touchedAt: FieldChange[] = [{ key: "updated_at", before: "t1", after: "t2" }];
+    expect(isRedactedOnlyUpdate("users", "UPDATE", touchedAt)).toBe(false);
+    expect(isRedactedOnlyUpdate("employee_profiles", "UPDATE", touchedAt)).toBe(false);
+    expect(isPreGuardStampUpdate("invoices", "UPDATE", touchedAt)).toBe(false);
+
+    // Same with the actor stamped alongside — still no version, still not a bump.
+    const touchedAtWithActor: FieldChange[] = [
+      ...touchedAt,
+      { key: "updated_by", before: 1, after: 2 },
+    ];
+    expect(isRedactedOnlyUpdate("users", "UPDATE", touchedAtWithActor)).toBe(false);
+    expect(isPreGuardStampUpdate("invoices", "UPDATE", touchedAtWithActor)).toBe(false);
+
+    // The control: add the version back and both classifications return, so
+    // this test pins the `updated_at` clause specifically rather than merely
+    // observing that the predicates are hard to satisfy.
+    const withVersion: FieldChange[] = [...touchedAt, { key: "version", before: 1, after: 2 }];
+    expect(isRedactedOnlyUpdate("users", "UPDATE", withVersion)).toBe(true);
+    expect(isPreGuardStampUpdate("invoices", "UPDATE", withVersion)).toBe(true);
+  });
 });
 
 describe("isPreGuardStampUpdate — pure", () => {

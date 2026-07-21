@@ -63,14 +63,23 @@ describe("AuditList — the bare version bump", () => {
     expect(html).not.toContain(">pan<");
   });
 
-  it("describes it honestly instead — an unexplained bump, nothing hidden", () => {
+  it("describes what was observed and does not assert what caused it", () => {
     const html = render({ tableName: "invoices", isPreGuardStamp: true });
 
     expect(html).toContain("without recording a change to any other column");
-    expect(html).toContain("Nothing was hidden");
     expect(html).toContain("stamp_row()");
     // The honest note names the table it is talking about.
     expect(html).toContain("invoices");
+
+    // Two claims this panel used to make that it could not back, and may not
+    // make again. "Nothing was hidden" assumes the stored images are the whole
+    // row; "since 0017 this shape is no longer produced" is a claim about the
+    // future inferred from a max(at) over the rows that happen to exist today.
+    expect(html).not.toContain("Nothing was hidden");
+    expect(html).not.toContain("no longer produced");
+    // It offers the readings as consistent-with, never as the explanation.
+    expect(html).toContain("consistent with");
+    expect(html).toContain("does not record why");
   });
 
   it("still makes the credential claim where it is TRUE — on users", () => {
@@ -91,6 +100,38 @@ describe("AuditList — the bare version bump", () => {
     expect(html).toContain("aadhar");
     expect(html).toContain(">pan<");
     expect(html).not.toContain("password_hash");
+  });
+});
+
+describe("AuditList — a page that folded entirely", () => {
+  const folded = () =>
+    renderToStaticMarkup(createElement(AuditList, { entries: [], hiddenStampOnly: 3 }));
+
+  it("does not assert that the folded rows preceded a delete", () => {
+    // The rows folded here are `{updated_by}`-only updates. A delete's
+    // pre-stamp produces that, and so does a save that changed nothing else —
+    // 80 rows in the local log carry the shape and are never followed by a
+    // DELETE at all. Saying "the phantom update written just before a delete"
+    // asserts a deletion that, for those, never happened.
+    const html = folded();
+    expect(html).not.toContain("just before a delete");
+    expect(html).not.toContain("phantom");
+  });
+
+  it("reports the observation and names both readings", () => {
+    const html = folded();
+    expect(html).toContain("updated_by");
+    expect(html).toContain("cannot tell the two apart");
+    expect(html).toContain("Show attribution-only changes");
+    expect(html).toContain("3");
+  });
+
+  it("still distinguishes an empty page from a fully folded one", () => {
+    const nothingMatched = renderToStaticMarkup(
+      createElement(AuditList, { entries: [], hiddenStampOnly: 0 }),
+    );
+    expect(nothingMatched).toContain("No audit entries match these filters");
+    expect(nothingMatched).not.toContain("folded away");
   });
 });
 

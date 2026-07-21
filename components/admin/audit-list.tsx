@@ -126,13 +126,15 @@ function Diff({ entry }: { entry: AuditEntry }) {
   ) : entry.isPreGuardStamp ? (
     <p className="border-t border-border-subtle bg-surface-sunken px-5 pt-4 text-sm text-text-secondary">
       Every column visible here is attribution: the database moved{" "}
-      <span className="font-mono">version</span> without recording a change to any other column.
-      Nothing was hidden — <span className="font-mono">{entry.tableName}</span> has no column the
-      trigger redacts. This is the signature of the pre-0017{" "}
+      <span className="font-mono">version</span> without recording a change to any other column. On{" "}
+      <span className="font-mono">{entry.tableName}</span> there is no column the trigger redacts, so
+      the reading used on <span className="font-mono">users</span> and{" "}
+      <span className="font-mono">employee_profiles</span> — that the changed column was one stripped
+      from these images — does not apply here. That is consistent with the pre-0017{" "}
       <span className="font-mono">stamp_row()</span>, which bumped{" "}
       <span className="font-mono">version</span> and <span className="font-mono">updated_at</span> on
-      every update, including ones that touched only attribution. Since migration 0017 added the
-      guard, this shape is no longer produced.
+      every update including attribution-only ones, and equally with any write that moved something
+      this log does not store. The entry records that the version moved; it does not record why.
     </p>
   ) : null;
 
@@ -206,7 +208,14 @@ function Row({ entry }: { entry: AuditEntry }) {
           {actor.text}
         </span>
         {entry.isStampOnly && (
-          <span className="shrink-0 rounded-full bg-[var(--neutral-status-subtle)] px-2 py-0.5 text-[10px] font-medium text-text-muted">
+          // "attribution only" describes the diff and stops there. The badge
+          // deliberately does not name a cause: this exact row is written both
+          // by the stamp-then-delete idiom and by a save that changed nothing
+          // else, and one row cannot tell them apart.
+          <span
+            title="The only column recorded as changed is updated_by. That is what a delete's pre-stamp looks like, and also what a save that changed nothing else looks like — this entry alone cannot distinguish them."
+            className="shrink-0 rounded-full bg-[var(--neutral-status-subtle)] px-2 py-0.5 text-[10px] font-medium text-text-muted"
+          >
             attribution only
           </span>
         )}
@@ -241,19 +250,23 @@ export function AuditList({
 }) {
   if (entries.length === 0) {
     // A whole page CAN fold to nothing, so "no entries match these filters"
-    // would be false there and this branch has to exist. The counts move every
-    // time the fold rule narrows, so no filter is cited as a standing example:
-    // `?table=payments&op=UPDATE` matched 6 rows and folded 6 of 6 under the
-    // shape-only rule, but folds 3 of 6 now that a `{updated_by}` row whose
-    // after-image is NULL is recognised as an ON DELETE SET NULL side effect
-    // rather than a pre-delete stamp. Every row still folded here is a genuine
-    // pre-delete stamp, which is what the copy below says.
+    // would be false there and this branch has to exist.
+    //
+    // What the copy may say is bounded by what one row can prove. It used to
+    // gloss these as "the phantom update written just before a delete" — an
+    // assertion that a deletion happened, on rows where frequently none did: a
+    // save that changes nothing but stamps the actor produces a byte-identical
+    // entry, and 80 of the 205 such rows in the local log are never followed by
+    // a DELETE at all. So the sentence reports the observation (only attribution
+    // was recorded as changing) and names both readings without choosing.
     if (hiddenStampOnly > 0) {
       return (
         <p className="px-5 py-10 text-center text-sm text-text-secondary">
           All {hiddenStampOnly} {hiddenStampOnly === 1 ? "entry" : "entries"} on this page{" "}
-          {hiddenStampOnly === 1 ? "was" : "were"} folded away as attribution-only stamps (the
-          phantom update written just before a delete). Use{" "}
+          {hiddenStampOnly === 1 ? "was" : "were"} folded away: the only column recorded as changed
+          was <span className="font-mono">updated_by</span>. That is what a delete&rsquo;s pre-stamp
+          looks like, and equally what a save that changed nothing else looks like — the log cannot
+          tell the two apart. Use{" "}
           <span className="font-medium text-text-primary">Show attribution-only changes</span> above
           to see them.
         </p>

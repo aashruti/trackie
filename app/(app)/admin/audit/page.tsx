@@ -115,7 +115,17 @@ export default async function AuditLogPage({ searchParams }: { searchParams: Pro
           <h2 className="text-xl font-semibold tracking-tight text-text-primary">Audit log</h2>
           <p className="mt-0.5 text-sm text-text-secondary">
             Every insert, update and delete recorded by the database triggers, newest first. Expand
-            an entry for its changed-field diff.
+            an entry for its changed-field diff.{" "}
+            {showStampOnly ? (
+              <>Attribution-only changes are being shown.</>
+            ) : (
+              <>
+                Updates whose only recorded change is{" "}
+                <span className="font-mono">updated_by</span> are folded away by default; tick{" "}
+                <span className="font-medium text-text-primary">Show attribution-only changes</span>{" "}
+                to include them.
+              </>
+            )}
           </p>
           <p className="mt-1.5 text-xs text-text-muted">
             Secrets and identity numbers (<span className="font-mono">password_hash</span>,{" "}
