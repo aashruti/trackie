@@ -272,8 +272,9 @@ export function PricingMaster({
                               key={`${inv.invoiceId}:${b.enrollmentYear}`}
                               className="border-b border-border-subtle bg-surface-sunken/50 align-top last:border-0"
                             >
-                              <td />
-                              <td className="py-1.5 pl-8 pr-3 text-xs text-text-secondary">
+                              {/* Batch label spans the empty account column too —
+                                  squeezed into the stream column alone it wrapped badly. */}
+                              <td colSpan={2} className="py-1.5 pl-8 pr-3 text-xs text-text-secondary">
                                 {yos ? (
                                   <>
                                     <span className="font-medium text-text-primary">{yos}</span>{" "}
