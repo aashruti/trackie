@@ -7,7 +7,7 @@ import { CATEGORY_LABEL, type ReportCategory } from "@/lib/money/report-view";
 // CATEGORY_LABEL (total over the enum) never misses — no fallback needed.
 function streamLabel(category: ReportCategory, semester: string) {
   const base = CATEGORY_LABEL[category];
-  return semester === "none" ? base : `${base} (${semester === "1" ? "1st" : "2nd"} sem)`;
+  return semester === "none" ? base : `${base} (${semester === "1" ? "Odd" : "Even"} sem)`;
 }
 
 function cell(v: unknown): string {

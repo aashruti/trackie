@@ -97,7 +97,7 @@ export function TodayPanel({
                       Category enum, so a value outside CATEGORY_LABEL is possible
                       in principle — keep the runtime fallback. */}
                   {CATEGORY_LABEL[inv.category as ReportCategory] ?? inv.category}
-                  {inv.semester !== "none" ? ` · ${inv.semester === "1" ? "1st" : "2nd"} sem` : ""}
+                  {inv.semester !== "none" ? ` · ${inv.semester === "1" ? "Odd" : "Even"} sem` : ""}
                 </div>
               </div>
               <span className="tabular shrink-0 text-[11px] font-semibold text-[var(--negative-text)]">

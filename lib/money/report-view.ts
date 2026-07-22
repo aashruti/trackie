@@ -37,7 +37,7 @@ export const CATEGORY_LABEL: Record<ReportCategory, string> = {
  */
 export function streamLabel(category: string, semester: string): string {
   const base = CATEGORY_LABEL[category as ReportCategory] ?? category;
-  return semester === "none" ? base : `${base} · ${semester === "1" ? "1st" : "2nd"} sem`;
+  return semester === "none" ? base : `${base} · ${semester === "1" ? "Odd" : "Even"} sem`;
 }
 
 /** Every field here is Σ over bills — that is what makes subset filtering valid. */

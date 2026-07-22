@@ -19,7 +19,7 @@ function title(inv: InvoiceComputed) {
   // inv.category is already typed Category, so CATEGORY_LABEL (total over the
   // enum) never misses — no fallback needed.
   const base = CATEGORY_LABEL[inv.category];
-  return inv.semester === "none" ? base : `${base} · ${inv.semester === "1" ? "1st" : "2nd"} sem`;
+  return inv.semester === "none" ? base : `${base} · ${inv.semester === "1" ? "Odd" : "Even"} sem`;
 }
 
 function Line({
