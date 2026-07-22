@@ -92,8 +92,12 @@ fields dropped.
 NOT carried into the target year (graduating batches). An old invoice left with no batches and no
 promoted intake is not created at all. The wizard exposes this as a per-batch "×" (passes out)
 toggle with undo. The promoted intake is *displayed* under the Old students row it will join
-(fresh intake stays alone on the New students row); accounts with an intake but no same-semester
-old invoice keep the promoted input on the new row.
+(fresh intake stays alone on the New students row). Accounts with a `new` intake but no source
+Old invoice for that semester still get a synthesized Old students row hosting the promoted batch
+(amended 2026-07-23 — the DAL already creates that invoice; the wizard now shows it as its own
+row rather than cramming the promoted input onto New). Batches render newest-first (promoted
+FY26–27 at top, oldest at bottom), via `batchLabelDesc` in `lib/fy.ts`, on both the wizard and
+`/pricing`.
 
 **Wizard UI** (`components/year/rollover-wizard.tsx`): becomes a pure counts screen —
 "Roll over student counts to FY27–28". Projected billing/margin tiles and columns are **removed**

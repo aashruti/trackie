@@ -3,13 +3,29 @@
 import { useCallback, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardHeader } from "@/components/ui/card";
-import { prevFyLabel } from "@/lib/fy";
+import { batchLabelDesc, prevFyLabel } from "@/lib/fy";
 import { rolloverAction } from "@/app/(app)/new-year/actions";
 import type { RolloverEdits, RolloverPlanRow } from "@/lib/dal/rollover";
-import { streamLabel } from "@/lib/money/report-view";
 
 const countInputCls =
   "tabular w-16 rounded-md border border-border-strong bg-surface px-2 py-1 text-right text-sm outline-none focus:ring-2 focus:ring-[var(--ring)]";
+
+const semLabel = (s: string) => (s === "none" ? "" : ` · ${s === "1" ? "1st" : "2nd"} sem`);
+const semOrder = (s: string) => (s === "none" ? 0 : parseInt(s, 10));
+
+/** One target-year "Old students · sem" row: the source old invoice (if any)
+ *  plus every same-semester `new` intake that promotes into it. */
+interface OldDisplayRow {
+  semester: string;
+  sourceOld?: RolloverPlanRow;
+  promotedFrom: RolloverPlanRow[];
+}
+interface AccountGroup {
+  accountId: number;
+  accountName: string;
+  news: RolloverPlanRow[]; // fresh-intake rows
+  olds: OldDisplayRow[];
+}
 
 export function RolloverWizard({
   fromYear,
@@ -51,73 +67,75 @@ export function RolloverWizard({
 
   const prevBatchLabel = useMemo(() => prevFyLabel(fromYear), [fromYear]);
 
-  // The promoted intake is DISPLAYED under the old-students row it will join
-  // (that row previews the target-year invoice); `new` rows show only the
-  // fresh intake. An intake with no same-semester old row keeps its promoted
-  // input on the new row — the rollover creates that old invoice.
-  const newBySlot = useMemo(() => {
-    const m = new Map<string, RolloverPlanRow[]>();
+  // Group source invoices by account and synthesize the target-year Old rows.
+  // Every `new` intake promotes into an old invoice of its semester (the DAL
+  // creates one if none exists), so an account with only `new` streams still
+  // gets a proper Old students row here — not the intake crammed onto New.
+  const groups = useMemo<AccountGroup[]>(() => {
+    const order: number[] = [];
+    const map = new Map<number, { name: string; news: RolloverPlanRow[]; olds: RolloverPlanRow[] }>();
     for (const r of rows) {
-      if (r.category !== "new") continue;
-      const k = `${r.accountId}:${r.semester}`;
-      m.set(k, [...(m.get(k) ?? []), r]);
+      if (!map.has(r.accountId)) {
+        map.set(r.accountId, { name: r.accountName, news: [], olds: [] });
+        order.push(r.accountId);
+      }
+      const g = map.get(r.accountId)!;
+      (r.category === "new" ? g.news : g.olds).push(r);
     }
-    return m;
-  }, [rows]);
-  const oldSlots = useMemo(() => {
-    const s = new Set<string>();
-    for (const r of rows) if (r.category === "old") s.add(`${r.accountId}:${r.semester}`);
-    return s;
+    return order.map((id) => {
+      const g = map.get(id)!;
+      const oldBySem = new Map(g.olds.map((o) => [o.semester, o]));
+      const sems = new Set<string>([...g.olds.map((o) => o.semester), ...g.news.map((n) => n.semester)]);
+      const olds: OldDisplayRow[] = [...sems]
+        .sort((a, b) => semOrder(a) - semOrder(b))
+        .map((semester) => ({
+          semester,
+          sourceOld: oldBySem.get(semester),
+          promotedFrom: g.news.filter((n) => n.semester === semester),
+        }));
+      return {
+        accountId: id,
+        accountName: g.name,
+        news: [...g.news].sort((a, b) => semOrder(a.semester) - semOrder(b.semester)),
+        olds,
+      };
+    });
   }, [rows]);
 
+  const freshOf = (n: RolloverPlanRow) => scalarCounts[n.invoiceId] ?? n.students;
+  const promotedOf = (n: RolloverPlanRow) => promotedCounts[n.invoiceId] ?? n.students;
   const isPassedOut = (invoiceId: number, label: string) => passedOut[invoiceId]?.[label] === true;
+  const carriedOf = (o: RolloverPlanRow, label: string, orig: number) =>
+    isPassedOut(o.invoiceId, label) ? 0 : (cohortCounts[o.invoiceId]?.[label] ?? orig);
+
   function togglePassOut(invoiceId: number, label: string) {
-    setPassedOut((p) => ({
-      ...p,
-      [invoiceId]: { ...p[invoiceId], [label]: !p[invoiceId]?.[label] },
-    }));
+    setPassedOut((p) => ({ ...p, [invoiceId]: { ...p[invoiceId], [label]: !p[invoiceId]?.[label] } }));
   }
 
-  // An old row's target-year total: carried batches (minus passed-out) plus
-  // the promoted intakes attached to it.
   const oldRowTotal = useCallback(
-    (r: RolloverPlanRow) => {
-      const carried =
-        r.cohorts.length > 0
-          ? r.cohorts.reduce(
-              (a, c) =>
-                a +
-                (isPassedOut(r.invoiceId, c.enrollmentYear)
-                  ? 0
-                  : (cohortCounts[r.invoiceId]?.[c.enrollmentYear] ?? c.count)),
-              0,
-            )
-          : (scalarCounts[r.invoiceId] ?? r.students);
-      const promoted = (newBySlot.get(`${r.accountId}:${r.semester}`) ?? []).reduce(
-        (a, n) => a + (promotedCounts[n.invoiceId] ?? n.students),
-        0,
-      );
-      return carried + promoted;
+    (o: OldDisplayRow) => {
+      let t = o.promotedFrom.reduce((a, n) => a + promotedOf(n), 0);
+      if (o.sourceOld) {
+        t +=
+          o.sourceOld.cohorts.length > 0
+            ? o.sourceOld.cohorts.reduce((a, c) => a + carriedOf(o.sourceOld!, c.enrollmentYear, c.count), 0)
+            : (scalarCounts[o.sourceOld.invoiceId] ?? o.sourceOld.students);
+      }
+      return t;
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [cohortCounts, scalarCounts, promotedCounts, passedOut, newBySlot],
+    [promotedCounts, cohortCounts, scalarCounts, passedOut],
   );
 
   const totalStudents = useMemo(() => {
     let total = 0;
-    for (const r of rows) {
-      if (r.category === "old") {
-        total += oldRowTotal(r);
-      } else {
-        // fresh intake; orphan intakes also add their promoted count here
-        total += scalarCounts[r.invoiceId] ?? r.students;
-        if (!oldSlots.has(`${r.accountId}:${r.semester}`)) {
-          total += promotedCounts[r.invoiceId] ?? r.students;
-        }
-      }
+    for (const g of groups) {
+      for (const n of g.news) total += freshOf(n);
+      for (const o of g.olds) total += oldRowTotal(o);
     }
     return total;
-  }, [rows, oldRowTotal, scalarCounts, promotedCounts, oldSlots]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups, scalarCounts, oldRowTotal]);
 
   function create() {
     setError(null);
@@ -172,9 +190,7 @@ export function RolloverWizard({
   if (done) {
     return (
       <Card className="p-6">
-        <h3 className="text-base font-semibold text-text-primary">
-          {done.to} created as Draft ✓
-        </h3>
+        <h3 className="text-base font-semibold text-text-primary">{done.to} created as Draft ✓</h3>
         <p className="mt-1 text-sm text-text-secondary">
           {done.created} draft invoices across {done.accounts} accounts carry {done.from}&apos;s student
           counts. The {done.from} intake is now a returning batch. Prices start blank — set them on the
@@ -236,156 +252,168 @@ export function RolloverWizard({
           title={`Student counts → ${toYear}`}
           subtitle={`counts only · the ${fromYear} intake joins Old students as a batch · × marks a batch that passes out · prices are set afterwards on Pricing master`}
         />
-        <div className="max-h-[460px] overflow-auto">
+        <div className="max-h-[520px] overflow-auto">
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-surface-sunken">
               <tr className="text-left text-xs text-text-muted">
-                <th className="px-5 py-2.5 font-medium">Account</th>
-                <th className="px-3 py-2.5 font-medium">Stream</th>
+                <th className="px-5 py-2.5 font-medium">Stream</th>
                 <th className="px-5 py-2.5 text-right font-medium">Student counts for {toYear}</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => {
-                const isOld = r.category === "old";
-                const attachedNew = isOld ? (newBySlot.get(`${r.accountId}:${r.semester}`) ?? []) : [];
-                const orphanIntake =
-                  r.category === "new" && !oldSlots.has(`${r.accountId}:${r.semester}`);
-                return (
-                  <tr key={r.invoiceId} className="border-b border-border-subtle last:border-0 align-top">
-                    <td className="px-5 py-2 font-medium text-text-primary">{r.accountName}</td>
-                    <td className="px-3 py-2 text-text-secondary">{streamLabel(r.category, r.semester)}</td>
-                    <td className="px-5 py-2 text-right">
-                      {isOld ? (
-                        <div className="flex flex-col items-end gap-1">
-                          {r.cohorts.map((ch) =>
-                            isPassedOut(r.invoiceId, ch.enrollmentYear) ? (
-                              <div key={ch.enrollmentYear} className="flex items-center justify-end gap-1.5">
-                                <span className="text-[10px] text-text-muted line-through">
-                                  {ch.enrollmentYear}
-                                </span>
-                                <span className="text-[10px] italic text-[var(--negative-text)]">
-                                  passes out
-                                </span>
-                                <button
-                                  onClick={() => togglePassOut(r.invoiceId, ch.enrollmentYear)}
-                                  aria-label={`Keep batch ${ch.enrollmentYear} of ${r.accountName}`}
-                                  className="rounded-md border border-border-strong px-1.5 py-0.5 text-[10px] font-medium text-text-secondary hover:bg-surface-hover"
-                                >
-                                  undo
-                                </button>
-                              </div>
-                            ) : (
-                              <div key={ch.enrollmentYear} className="flex items-center justify-end gap-1.5">
-                                <span className="text-[10px] text-text-muted">{ch.enrollmentYear}</span>
-                                <input
-                                  type="number" min={0}
-                                  value={cohortCounts[r.invoiceId]?.[ch.enrollmentYear] ?? ch.count}
-                                  onChange={(e) =>
-                                    setCohortCounts((p) => ({
-                                      ...p,
-                                      [r.invoiceId]: {
-                                        ...p[r.invoiceId],
-                                        [ch.enrollmentYear]: Math.max(0, parseInt(e.target.value, 10) || 0),
-                                      },
-                                    }))
-                                  }
-                                  aria-label={`${r.accountName} batch ${ch.enrollmentYear} count`}
-                                  className={countInputCls}
-                                />
-                                <button
-                                  onClick={() => togglePassOut(r.invoiceId, ch.enrollmentYear)}
-                                  aria-label={`Mark batch ${ch.enrollmentYear} of ${r.accountName} as passed out`}
-                                  title="Batch passes out — not carried into the new year"
-                                  className="rounded-md border border-border-strong px-1.5 py-0.5 text-[10px] font-medium text-[var(--negative-text)] hover:bg-surface-hover"
-                                >
-                                  ×
-                                </button>
-                              </div>
-                            ),
-                          )}
-                          {r.cohorts.length === 0 && (
-                            <div className="flex items-center justify-end gap-1.5">
-                              <span className="text-[10px] text-text-muted">
-                                becomes batch {prevBatchLabel}
-                              </span>
-                              <input
-                                type="number" min={0}
-                                value={scalarCounts[r.invoiceId] ?? r.students}
-                                onChange={(e) =>
-                                  setScalarCounts((p) => ({
-                                    ...p,
-                                    [r.invoiceId]: Math.max(0, parseInt(e.target.value, 10) || 0),
-                                  }))
-                                }
-                                aria-label={`${r.accountName} carried student count`}
-                                className={countInputCls}
-                              />
-                            </div>
-                          )}
-                          {attachedNew.map((n) => (
-                            <div key={n.invoiceId} className="flex items-center justify-end gap-1.5">
-                              <span className="text-[10px] font-medium text-[var(--positive-text)]">
-                                {fromYear} · new intake joins
-                              </span>
-                              <input
-                                type="number" min={0}
-                                value={promotedCounts[n.invoiceId] ?? n.students}
-                                onChange={(e) =>
-                                  setPromotedCounts((p) => ({
-                                    ...p,
-                                    [n.invoiceId]: Math.max(0, parseInt(e.target.value, 10) || 0),
-                                  }))
-                                }
-                                aria-label={`${r.accountName} promoted batch count`}
-                                className={countInputCls}
-                              />
-                            </div>
-                          ))}
-                          <span className="text-[10px] text-text-muted">total {oldRowTotal(r)}</span>
-                        </div>
-                      ) : (
-                        <div className="flex flex-col items-end gap-1.5">
-                          {orphanIntake && (
-                            <div className="flex items-center justify-end gap-1.5">
-                              <span className="text-[10px] font-medium text-[var(--positive-text)]">
-                                promoted → old batch {fromYear}
-                              </span>
-                              <input
-                                type="number" min={0}
-                                value={promotedCounts[r.invoiceId] ?? r.students}
-                                onChange={(e) =>
-                                  setPromotedCounts((p) => ({
-                                    ...p,
-                                    [r.invoiceId]: Math.max(0, parseInt(e.target.value, 10) || 0),
-                                  }))
-                                }
-                                aria-label={`${r.accountName} promoted batch count`}
-                                className={countInputCls}
-                              />
-                            </div>
-                          )}
-                          <div className="flex items-center justify-end gap-1.5">
-                            <span className="text-[10px] text-text-muted">fresh intake {toYear}</span>
-                            <input
-                              type="number" min={0}
-                              value={scalarCounts[r.invoiceId] ?? r.students}
-                              onChange={(e) =>
-                                setScalarCounts((p) => ({
-                                  ...p,
-                                  [r.invoiceId]: Math.max(0, parseInt(e.target.value, 10) || 0),
-                                }))
-                              }
-                              aria-label={`${r.accountName} fresh intake count`}
-                              className={countInputCls}
-                            />
-                          </div>
-                        </div>
-                      )}
+              {groups.map((g) => (
+                <FragmentGroup key={g.accountId}>
+                  <tr className="border-b border-border-subtle bg-surface-sunken">
+                    <td colSpan={2} className="px-5 py-2 text-sm font-semibold text-text-primary">
+                      {g.accountName}
                     </td>
                   </tr>
-                );
-              })}
+
+                  {/* New students first (newest — fresh intake for the target year). */}
+                  {g.news.map((n) => (
+                    <tr key={`n-${n.invoiceId}`} className="border-b border-border-subtle align-top">
+                      <td className="px-5 py-2">
+                        <span className="rounded bg-[var(--positive-subtle)] px-1.5 py-0.5 text-xs font-medium text-[var(--positive-text)]">
+                          New students{semLabel(n.semester)}
+                        </span>
+                      </td>
+                      <td className="px-5 py-2 text-right">
+                        <label className="flex items-center justify-end gap-1.5">
+                          <span className="text-[10px] text-text-muted">fresh intake {toYear}</span>
+                          <input
+                            type="number"
+                            min={0}
+                            value={scalarCounts[n.invoiceId] ?? n.students}
+                            onChange={(e) =>
+                              setScalarCounts((p) => ({
+                                ...p,
+                                [n.invoiceId]: Math.max(0, parseInt(e.target.value, 10) || 0),
+                              }))
+                            }
+                            aria-label={`${g.accountName} fresh intake count`}
+                            className={countInputCls}
+                          />
+                        </label>
+                      </td>
+                    </tr>
+                  ))}
+
+                  {/* Old students — carried batches + the promoted intake, newest on top. */}
+                  {g.olds.map((o) => {
+                    const key = o.sourceOld?.invoiceId ?? `syn-${o.semester}`;
+                    const batches = o.sourceOld
+                      ? [...o.sourceOld.cohorts].sort((a, b) =>
+                          batchLabelDesc(a.enrollmentYear, b.enrollmentYear),
+                        )
+                      : [];
+                    return (
+                      <tr key={`o-${key}`} className="border-b border-border-subtle align-top">
+                        <td className="px-5 py-2">
+                          <span className="rounded bg-[var(--info-subtle)] px-1.5 py-0.5 text-xs font-medium text-[var(--info-text)]">
+                            Old students{semLabel(o.semester)}
+                          </span>
+                        </td>
+                        <td className="px-5 py-2 text-right">
+                          <div className="flex flex-col items-end gap-1.5">
+                            {/* Promoted intake(s) — the newest batch, on top. */}
+                            {o.promotedFrom.map((n) => (
+                              <label key={`p-${n.invoiceId}`} className="flex items-center justify-end gap-1.5">
+                                <span className="text-[10px] font-medium text-[var(--positive-text)]">
+                                  {fromYear} · new intake joins
+                                </span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={promotedCounts[n.invoiceId] ?? n.students}
+                                  onChange={(e) =>
+                                    setPromotedCounts((p) => ({
+                                      ...p,
+                                      [n.invoiceId]: Math.max(0, parseInt(e.target.value, 10) || 0),
+                                    }))
+                                  }
+                                  aria-label={`${g.accountName} promoted batch count`}
+                                  className={countInputCls}
+                                />
+                              </label>
+                            ))}
+
+                            {/* Carried batches, newest → oldest. */}
+                            {batches.map((ch) =>
+                              isPassedOut(o.sourceOld!.invoiceId, ch.enrollmentYear) ? (
+                                <div key={ch.enrollmentYear} className="flex items-center justify-end gap-1.5">
+                                  <span className="text-[10px] text-text-muted line-through">
+                                    {ch.enrollmentYear}
+                                  </span>
+                                  <span className="text-[10px] italic text-[var(--negative-text)]">
+                                    passes out
+                                  </span>
+                                  <button
+                                    onClick={() => togglePassOut(o.sourceOld!.invoiceId, ch.enrollmentYear)}
+                                    aria-label={`Keep batch ${ch.enrollmentYear} of ${g.accountName}`}
+                                    className="rounded-md border border-border-strong px-1.5 py-0.5 text-[10px] font-medium text-text-secondary hover:bg-surface-hover"
+                                  >
+                                    undo
+                                  </button>
+                                </div>
+                              ) : (
+                                <div key={ch.enrollmentYear} className="flex items-center justify-end gap-1.5">
+                                  <span className="text-[10px] text-text-muted">{ch.enrollmentYear}</span>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    value={cohortCounts[o.sourceOld!.invoiceId]?.[ch.enrollmentYear] ?? ch.count}
+                                    onChange={(e) =>
+                                      setCohortCounts((p) => ({
+                                        ...p,
+                                        [o.sourceOld!.invoiceId]: {
+                                          ...p[o.sourceOld!.invoiceId],
+                                          [ch.enrollmentYear]: Math.max(0, parseInt(e.target.value, 10) || 0),
+                                        },
+                                      }))
+                                    }
+                                    aria-label={`${g.accountName} batch ${ch.enrollmentYear} count`}
+                                    className={countInputCls}
+                                  />
+                                  <button
+                                    onClick={() => togglePassOut(o.sourceOld!.invoiceId, ch.enrollmentYear)}
+                                    aria-label={`Mark batch ${ch.enrollmentYear} of ${g.accountName} as passed out`}
+                                    title="Batch passes out — not carried into the new year"
+                                    className="rounded-md border border-border-strong px-1.5 py-0.5 text-[10px] font-medium text-[var(--negative-text)] hover:bg-surface-hover"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              ),
+                            )}
+
+                            {/* Scalar (cohort-less) old invoice → single carried batch. */}
+                            {o.sourceOld && o.sourceOld.cohorts.length === 0 && (
+                              <label className="flex items-center justify-end gap-1.5">
+                                <span className="text-[10px] text-text-muted">becomes batch {prevBatchLabel}</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={scalarCounts[o.sourceOld.invoiceId] ?? o.sourceOld.students}
+                                  onChange={(e) =>
+                                    setScalarCounts((p) => ({
+                                      ...p,
+                                      [o.sourceOld!.invoiceId]: Math.max(0, parseInt(e.target.value, 10) || 0),
+                                    }))
+                                  }
+                                  aria-label={`${g.accountName} carried student count`}
+                                  className={countInputCls}
+                                />
+                              </label>
+                            )}
+
+                            <span className="text-[10px] text-text-muted">total {oldRowTotal(o)}</span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </FragmentGroup>
+              ))}
             </tbody>
           </table>
         </div>
@@ -395,8 +423,8 @@ export function RolloverWizard({
 
       <div className="flex items-center justify-between">
         <p className="text-xs text-text-muted">
-          Creates draft invoices for {rows.length} student streams. Advance bills are not carried —
-          create them when needed. {fromYear} stays untouched.
+          Carries {fromYear}&apos;s student counts into {toYear} as <strong>Draft</strong>. Advance bills
+          are not carried — create them when needed. {fromYear} stays untouched.
         </p>
         <button
           onClick={create}
@@ -408,4 +436,9 @@ export function RolloverWizard({
       </div>
     </div>
   );
+}
+
+/** Table bodies can't take a keyed <Fragment> with a ref, so a tiny wrapper. */
+function FragmentGroup({ children }: { children: React.ReactNode }) {
+  return <>{children}</>;
 }
