@@ -27,7 +27,29 @@ export interface InvoiceEdit {
 }
 
 const num = (v: number | undefined, min = 0) =>
-  v == null ? undefined : Math.max(min, v);
+  v == null || !Number.isFinite(v) ? undefined : Math.max(min, v);
+
+/**
+ * Merge cohort rows that share a batch label — label normalization can fold
+ * two spellings of the same intake year (e.g. "2024-25" and "FY24-25") into
+ * one canonical label, and the UI keys batches by label, so duplicates must
+ * never reach the DB. Counts sum; the first non-null price wins.
+ */
+export function mergeCohortRows<T extends { enrollmentYear: string; count: number; priceToUni: string | null; priceToDatagami: string | null }>(
+  rows: T[],
+): T[] {
+  const byLabel = new Map<string, T>();
+  for (const r of rows) {
+    const prev = byLabel.get(r.enrollmentYear);
+    if (!prev) byLabel.set(r.enrollmentYear, { ...r });
+    else {
+      prev.count += r.count;
+      prev.priceToUni = prev.priceToUni ?? r.priceToUni;
+      prev.priceToDatagami = prev.priceToDatagami ?? r.priceToDatagami;
+    }
+  }
+  return [...byLabel.values()];
+}
 
 /**
  * Update an invoice's numbers. Enforces `canEdit` for the owning account.
@@ -103,14 +125,16 @@ export async function setCohorts(
 
   const price = (v: number | null | undefined) =>
     v == null || v <= 0 ? null : String(Math.max(0, v));
-  const clean = list
-    .map((c) => ({
-      enrollmentYear: c.enrollmentYear.trim(),
-      count: Math.max(0, Math.floor(c.count)),
-      priceToUni: price(c.priceToUni),
-      priceToDatagami: price(c.priceToDatagami),
-    }))
-    .filter((c) => c.enrollmentYear.length > 0);
+  const clean = mergeCohortRows(
+    list
+      .map((c) => ({
+        enrollmentYear: c.enrollmentYear.trim(),
+        count: Math.max(0, Math.floor(c.count)),
+        priceToUni: price(c.priceToUni),
+        priceToDatagami: price(c.priceToDatagami),
+      }))
+      .filter((c) => c.enrollmentYear.length > 0),
+  );
   const total = clean.reduce((a, c) => a + c.count, 0);
 
   await stampedDeleteWhere(cohorts, eq(cohorts.invoiceId, invoiceId), user.id);

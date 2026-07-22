@@ -134,6 +134,13 @@
       "when": 1784018900000,
       "tag": "0019_fy_batch_labels",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1784019000000,
+      "tag": "0020_merge_duplicate_batches",
+      "breakpoints": true
     }
   ]
 }
