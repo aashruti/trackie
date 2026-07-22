@@ -8,14 +8,9 @@ import { StatusBadge } from "@/components/ui/badge";
 import { computeInvoice } from "@/lib/money/compute";
 import type { Category, Semester, Status } from "@/lib/money/types";
 import { yearOfStudy } from "@/lib/fy";
-import { CATEGORY_LABEL, type ReportCategory } from "@/lib/money/report-view";
+import { streamLabel } from "@/lib/money/report-view";
 import { savePricingAction, type PricingEdit } from "@/app/(app)/pricing/actions";
 import type { PricingAccountRow, PricingBatch, PricingInvoiceRow } from "@/lib/dal/pricing-master";
-
-function streamLabel(inv: PricingInvoiceRow) {
-  const base = CATEGORY_LABEL[inv.category as ReportCategory] ?? inv.category;
-  return inv.semester === "none" ? base : `${base} · ${inv.semester === "1" ? "1st" : "2nd"} sem`;
-}
 
 /** Sparse per-invoice edits; display = edit ?? server value. Cleared on save. */
 interface InvoiceEdits {
@@ -113,13 +108,18 @@ export function PricingMaster({
     setSavedMsg(null);
     if (!payload.length) return;
     startTransition(async () => {
-      const res = await savePricingAction(payload);
-      if (res.ok) {
-        setEdits({});
-        setSavedMsg(`Saved ${res.saved} invoice${res.saved === 1 ? "" : "s"}`);
-        router.refresh();
-      } else {
-        setError(res.error);
+      try {
+        const res = await savePricingAction(payload);
+        if (res.ok) {
+          setEdits({});
+          setSavedMsg(`Saved ${res.saved} invoice${res.saved === 1 ? "" : "s"}`);
+          router.refresh();
+        } else {
+          setError(res.error);
+        }
+      } catch (e) {
+        // Transport/auth failures throw rather than returning {ok:false}.
+        setError(e instanceof Error ? e.message : "Save failed");
       }
     });
   }
@@ -186,21 +186,21 @@ export function PricingMaster({
                           <td className="px-5 py-2 font-medium text-text-primary">
                             {invIdx === 0 ? acc.accountName : ""}
                           </td>
-                          <td className="px-3 py-2 text-text-secondary">{streamLabel(inv)}</td>
+                          <td className="px-3 py-2 text-text-secondary">{streamLabel(inv.category, inv.semester)}</td>
                           <td className="px-3 py-2 text-right">
                             {isAdvance ? (
                               <span className="text-text-muted">—</span>
                             ) : scalarStudents ? (
                               canType ? (
                                 <input
-                                  type="number"
+                                  type="number" min={0}
                                   value={e?.students ?? inv.students}
                                   onChange={(ev) =>
                                     patch(inv.invoiceId, {
-                                      students: parseInt(ev.target.value, 10) || 0,
+                                      students: Math.max(0, parseInt(ev.target.value, 10) || 0),
                                     })
                                   }
-                                  aria-label={`${acc.accountName} ${streamLabel(inv)} students`}
+                                  aria-label={`${acc.accountName} ${streamLabel(inv.category, inv.semester)} students`}
                                   className={`${cellCls} w-20 ${
                                     e?.students != null && e.students !== inv.students
                                       ? dirtyCls
@@ -217,14 +217,14 @@ export function PricingMaster({
                           <td className="px-3 py-2 text-right">
                             {canType ? (
                               <input
-                                type="number"
+                                type="number" min={0}
                                 value={e?.priceToUni ?? inv.priceToUni}
                                 onChange={(ev) =>
                                   patch(inv.invoiceId, {
-                                    priceToUni: parseFloat(ev.target.value) || 0,
+                                    priceToUni: Math.max(0, parseFloat(ev.target.value) || 0),
                                   })
                                 }
-                                aria-label={`${acc.accountName} ${streamLabel(inv)} price to uni`}
+                                aria-label={`${acc.accountName} ${streamLabel(inv.category, inv.semester)} price to uni`}
                                 className={`${cellCls} ${
                                   e?.priceToUni != null && e.priceToUni !== inv.priceToUni
                                     ? dirtyCls
@@ -238,14 +238,14 @@ export function PricingMaster({
                           <td className="px-3 py-2 text-right">
                             {canType ? (
                               <input
-                                type="number"
+                                type="number" min={0}
                                 value={e?.priceToDatagami ?? inv.priceToDatagami}
                                 onChange={(ev) =>
                                   patch(inv.invoiceId, {
-                                    priceToDatagami: parseFloat(ev.target.value) || 0,
+                                    priceToDatagami: Math.max(0, parseFloat(ev.target.value) || 0),
                                   })
                                 }
-                                aria-label={`${acc.accountName} ${streamLabel(inv)} price to Datagami`}
+                                aria-label={`${acc.accountName} ${streamLabel(inv.category, inv.semester)} price to Datagami`}
                                 className={`${cellCls} ${
                                   e?.priceToDatagami != null &&
                                   e.priceToDatagami !== inv.priceToDatagami
@@ -289,14 +289,14 @@ export function PricingMaster({
                               <td className="px-3 py-1.5 text-right">
                                 {canType ? (
                                   <input
-                                    type="number"
+                                    type="number" min={0}
                                     value={b.count}
                                     onChange={(ev) =>
                                       patchBatch(inv, bi, {
-                                        count: parseInt(ev.target.value, 10) || 0,
+                                        count: Math.max(0, parseInt(ev.target.value, 10) || 0),
                                       })
                                     }
-                                    aria-label={`Batch ${b.enrollmentYear} count`}
+                                    aria-label={`${acc.accountName} batch ${b.enrollmentYear} count`}
                                     className={`${cellCls} w-20 ${
                                       orig && b.count !== orig.count ? dirtyCls : cleanCls
                                     }`}
@@ -308,7 +308,7 @@ export function PricingMaster({
                               <td className="px-3 py-1.5 text-right">
                                 {canType ? (
                                   <input
-                                    type="number"
+                                    type="number" min={0}
                                     value={b.priceToUni ?? ""}
                                     placeholder="invoice"
                                     onChange={(ev) =>
@@ -316,10 +316,10 @@ export function PricingMaster({
                                         priceToUni:
                                           ev.target.value === ""
                                             ? null
-                                            : parseFloat(ev.target.value) || 0,
+                                            : Math.max(0, parseFloat(ev.target.value) || 0),
                                       })
                                     }
-                                    aria-label={`Batch ${b.enrollmentYear} price to uni`}
+                                    aria-label={`${acc.accountName} batch ${b.enrollmentYear} price to uni`}
                                     className={`${cellCls} ${
                                       orig && b.priceToUni !== orig.priceToUni ? dirtyCls : cleanCls
                                     }`}
@@ -331,7 +331,7 @@ export function PricingMaster({
                               <td className="px-3 py-1.5 text-right">
                                 {canType ? (
                                   <input
-                                    type="number"
+                                    type="number" min={0}
                                     value={b.priceToDatagami ?? ""}
                                     placeholder="invoice"
                                     onChange={(ev) =>
@@ -339,10 +339,10 @@ export function PricingMaster({
                                         priceToDatagami:
                                           ev.target.value === ""
                                             ? null
-                                            : parseFloat(ev.target.value) || 0,
+                                            : Math.max(0, parseFloat(ev.target.value) || 0),
                                       })
                                     }
-                                    aria-label={`Batch ${b.enrollmentYear} price to Datagami`}
+                                    aria-label={`${acc.accountName} batch ${b.enrollmentYear} price to Datagami`}
                                     className={`${cellCls} ${
                                       orig && b.priceToDatagami !== orig.priceToDatagami
                                         ? dirtyCls
@@ -386,7 +386,11 @@ export function PricingMaster({
           disabled={pending || payload.length === 0}
           className="rounded-md bg-primary px-5 py-2 text-sm font-medium text-primary-fg hover:opacity-90 disabled:opacity-50"
         >
-          {pending ? "Saving…" : `Save ${payload.length || ""} change${payload.length === 1 ? "" : "s"}`}
+          {pending
+            ? "Saving…"
+            : payload.length
+              ? `Save ${payload.length} change${payload.length === 1 ? "" : "s"}`
+              : "Save changes"}
         </button>
       </div>
     </div>

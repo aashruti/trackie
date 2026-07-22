@@ -30,6 +30,16 @@ export const CATEGORY_LABEL: Record<ReportCategory, string> = {
   new: "New students",
 };
 
+/**
+ * "Old students · 1st sem" style label for an invoice stream. Takes plain
+ * strings because DAL row types carry category/semester untyped; unknown
+ * categories fall back to the raw value.
+ */
+export function streamLabel(category: string, semester: string): string {
+  const base = CATEGORY_LABEL[category as ReportCategory] ?? category;
+  return semester === "none" ? base : `${base} · ${semester === "1" ? "1st" : "2nd"} sem`;
+}
+
 /** Every field here is Σ over bills — that is what makes subset filtering valid. */
 export interface ReportMetrics {
   students: number;

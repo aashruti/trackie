@@ -45,14 +45,13 @@ export async function getPricingMaster(
   user: SessionUser,
   yearLabel: string,
 ): Promise<PricingAccountRow[]> {
-  const [year] = await db
-    .select()
-    .from(academicYears)
-    .where(eq(academicYears.label, yearLabel))
-    .limit(1);
+  // Year lookup and assignment scoping are independent — parallelise (house rule).
+  const [[year], assigned] = await Promise.all([
+    db.select().from(academicYears).where(eq(academicYears.label, yearLabel)).limit(1),
+    user.roles.includes("super-admin") ? Promise.resolve([]) : assignedIds(user.id),
+  ]);
   if (!year) return [];
 
-  const assigned = user.roles.includes("super-admin") ? [] : await assignedIds(user.id);
   const scope = scopeAccountIds(user, assigned);
   const accRows = await db
     .select({ id: accounts.id, name: accounts.name })

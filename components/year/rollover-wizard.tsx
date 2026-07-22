@@ -6,14 +6,7 @@ import { Card, CardHeader } from "@/components/ui/card";
 import { prevFyLabel } from "@/lib/fy";
 import { rolloverAction } from "@/app/(app)/new-year/actions";
 import type { RolloverEdits, RolloverPlanRow } from "@/lib/dal/rollover";
-import { CATEGORY_LABEL, type ReportCategory } from "@/lib/money/report-view";
-
-// RolloverPlanRow.category is DAL-typed as plain string, not the Category enum
-// (see lib/dal/rollover.ts), so keep the runtime fallback.
-function streamLabel(r: RolloverPlanRow) {
-  const base = CATEGORY_LABEL[r.category as ReportCategory] ?? r.category;
-  return r.semester === "none" ? base : `${base} · ${r.semester === "1" ? "1st" : "2nd"} sem`;
-}
+import { streamLabel } from "@/lib/money/report-view";
 
 export function RolloverWizard({
   fromYear,
@@ -205,7 +198,7 @@ export function RolloverWizard({
                 return (
                   <tr key={r.invoiceId} className="border-b border-border-subtle last:border-0 align-top">
                     <td className="px-5 py-2 font-medium text-text-primary">{r.accountName}</td>
-                    <td className="px-3 py-2 text-text-secondary">{streamLabel(r)}</td>
+                    <td className="px-3 py-2 text-text-secondary">{streamLabel(r.category, r.semester)}</td>
                     <td className="px-5 py-2 text-right">
                       {hasCohorts ? (
                         <div className="flex flex-col items-end gap-1">
@@ -213,18 +206,18 @@ export function RolloverWizard({
                             <label key={ch.enrollmentYear} className="flex items-center justify-end gap-1.5">
                               <span className="text-[10px] text-text-muted">{ch.enrollmentYear}</span>
                               <input
-                                type="number"
+                                type="number" min={0}
                                 value={cohortCounts[r.invoiceId]?.[ch.enrollmentYear] ?? ch.count}
                                 onChange={(e) =>
                                   setCohortCounts((p) => ({
                                     ...p,
                                     [r.invoiceId]: {
                                       ...p[r.invoiceId],
-                                      [ch.enrollmentYear]: parseInt(e.target.value, 10) || 0,
+                                      [ch.enrollmentYear]: Math.max(0, parseInt(e.target.value, 10) || 0),
                                     },
                                   }))
                                 }
-                                aria-label={`Batch ${ch.enrollmentYear} count`}
+                                aria-label={`${r.accountName} batch ${ch.enrollmentYear} count`}
                                 className="tabular w-16 rounded-md border border-border-strong bg-surface px-2 py-1 text-right text-sm outline-none focus:ring-2 focus:ring-[var(--ring)]"
                               />
                             </label>
@@ -236,30 +229,30 @@ export function RolloverWizard({
                           <label className="flex items-center justify-end gap-1.5">
                             <span className="text-[10px] text-text-muted">promoted → batch {fromYear}</span>
                             <input
-                              type="number"
+                              type="number" min={0}
                               value={promotedCounts[r.invoiceId] ?? r.students}
                               onChange={(e) =>
                                 setPromotedCounts((p) => ({
                                   ...p,
-                                  [r.invoiceId]: parseInt(e.target.value, 10) || 0,
+                                  [r.invoiceId]: Math.max(0, parseInt(e.target.value, 10) || 0),
                                 }))
                               }
-                              aria-label="Promoted batch count"
+                              aria-label={`${r.accountName} promoted batch count`}
                               className="tabular w-20 rounded-md border border-border-strong bg-surface px-2 py-1 text-right text-sm outline-none focus:ring-2 focus:ring-[var(--ring)]"
                             />
                           </label>
                           <label className="flex items-center justify-end gap-1.5">
                             <span className="text-[10px] text-text-muted">fresh intake</span>
                             <input
-                              type="number"
+                              type="number" min={0}
                               value={scalarCounts[r.invoiceId] ?? r.students}
                               onChange={(e) =>
                                 setScalarCounts((p) => ({
                                   ...p,
-                                  [r.invoiceId]: parseInt(e.target.value, 10) || 0,
+                                  [r.invoiceId]: Math.max(0, parseInt(e.target.value, 10) || 0),
                                 }))
                               }
-                              aria-label="Fresh intake count"
+                              aria-label={`${r.accountName} fresh intake count`}
                               className="tabular w-20 rounded-md border border-border-strong bg-surface px-2 py-1 text-right text-sm outline-none focus:ring-2 focus:ring-[var(--ring)]"
                             />
                           </label>
@@ -267,15 +260,15 @@ export function RolloverWizard({
                       ) : (
                         <div className="flex flex-col items-end gap-1">
                           <input
-                            type="number"
+                            type="number" min={0}
                             value={scalarCounts[r.invoiceId] ?? r.students}
                             onChange={(e) =>
                               setScalarCounts((p) => ({
                                 ...p,
-                                [r.invoiceId]: parseInt(e.target.value, 10) || 0,
+                                [r.invoiceId]: Math.max(0, parseInt(e.target.value, 10) || 0),
                               }))
                             }
-                            aria-label="Carried student count"
+                            aria-label={`${r.accountName} carried student count`}
                             className="tabular w-20 rounded-md border border-border-strong bg-surface px-2 py-1 text-right text-sm outline-none focus:ring-2 focus:ring-[var(--ring)]"
                           />
                           <span className="text-[10px] text-text-muted">becomes batch {prevBatchLabel}</span>

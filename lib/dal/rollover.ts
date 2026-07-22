@@ -133,19 +133,15 @@ export async function rolloverYear(
   toYearLabel: string,
   edits: RolloverEdits = {},
 ): Promise<RolloverResult> {
-  const [fromYear] = await db
-    .select()
-    .from(academicYears)
-    .where(eq(academicYears.label, fromYearLabel))
-    .limit(1);
+  // The two year lookups are independent — parallelise (house rule).
+  const [[fromYear], [toYearRow]] = await Promise.all([
+    db.select().from(academicYears).where(eq(academicYears.label, fromYearLabel)).limit(1),
+    db.select().from(academicYears).where(eq(academicYears.label, toYearLabel)).limit(1),
+  ]);
   if (!fromYear) throw new Error(`Source year ${fromYearLabel} not found`);
 
   // Create target year if missing.
-  let [toYear] = await db
-    .select()
-    .from(academicYears)
-    .where(eq(academicYears.label, toYearLabel))
-    .limit(1);
+  let toYear = toYearRow;
   if (!toYear) {
     [toYear] = await db
       .insert(academicYears)
@@ -199,7 +195,7 @@ export async function rolloverYear(
   }
 
   const count = (v: number | undefined, fallback: number) =>
-    v != null ? Math.max(0, Math.floor(v)) : fallback;
+    v != null && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : fallback;
 
   // Pure JS from here: build the target-year invoice plans per account.
   interface Plan {
@@ -272,6 +268,10 @@ export async function rolloverYear(
   if (plans.length) {
     // Two bulk inserts. Postgres preserves VALUES order in RETURNING, so
     // created[i] corresponds to plans[i].
+    // NOT atomic (neon-http has no transactions — see user-admin.ts): a crash
+    // between the inserts leaves cohort-less old invoices, and the idempotent
+    // skip then blocks a re-run for those accounts. Recovery: super-admin
+    // deleteYear (the sanctioned rollover undo), then roll over again.
     const created = await db
       .insert(invoices)
       .values(
