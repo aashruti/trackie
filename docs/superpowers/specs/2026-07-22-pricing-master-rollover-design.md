@@ -24,10 +24,15 @@ Pain points this design addresses:
 2. **Batch naming convention**: a batch is labeled exactly with its intake year's label, in the DB's
    existing year format — `FY26–27` (no space, en-dash). Existing labels are migrated.
 3. **Master screen scope**: prices + counts, including per-batch rows for old invoices.
-4. **Counts-only rollover** (amendment): rollover copies **student counts only**. No billing details
-   are carried — no prices (invoice-level or per-batch), no GST/TDS overrides, no `advanceAdj`, and
-   **advance streams are not cloned at all**. Bills are created/raised as and when needed; new-year
-   prices are entered on the master pricing screen.
+4. **Rollover carries counts + prices** (amended 2026-07-23): rollover copies student counts **and
+   pre-fills last year's prices as editable defaults** — invoice `priceToUni`/`priceToDatagami`,
+   `gstRate`/`tdsRate`, and each carried batch's locked price all carry forward; the promoted batch
+   inherits its source new-intake's price. Only the *year-specific billing actions* stay reset:
+   invoices are Draft with `invoiceDate` null, `advanceAdj` resets to 0, and **advance streams are
+   not cloned at all**. Bills are raised as and when needed; the accounts team adjusts the
+   pre-filled prices on the master pricing screen.
+   (Originally counts-only with prices blank; changed after the browser walkthrough — re-entering
+   every price by hand was the friction the master screen was meant to remove.)
 
 ## Part 1 — FY helpers (`lib/fy.ts`, new, client-safe)
 

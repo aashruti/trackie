@@ -10,7 +10,7 @@ import type { RolloverEdits, RolloverPlanRow } from "@/lib/dal/rollover";
 const countInputCls =
   "tabular w-16 rounded-md border border-border-strong bg-surface px-2 py-1 text-right text-sm outline-none focus:ring-2 focus:ring-[var(--ring)]";
 
-const semLabel = (s: string) => (s === "none" ? "" : ` · ${s === "1" ? "1st" : "2nd"} sem`);
+const semLabel = (s: string) => (s === "none" ? "" : ` · ${s === "1" ? "Odd" : "Even"} sem`);
 const semOrder = (s: string) => (s === "none" ? 0 : parseInt(s, 10));
 
 /** One target-year "Old students · sem" row: the source old invoice (if any)
@@ -193,8 +193,9 @@ export function RolloverWizard({
         <h3 className="text-base font-semibold text-text-primary">{done.to} created as Draft ✓</h3>
         <p className="mt-1 text-sm text-text-secondary">
           {done.created} draft invoices across {done.accounts} accounts carry {done.from}&apos;s student
-          counts. The {done.from} intake is now a returning batch. Prices start blank — set them on the
-          Pricing master screen; bills are raised as and when needed. {done.from} is unchanged.
+          counts. The {done.from} intake is now a returning batch. Last year&apos;s prices carry forward as
+          defaults — adjust them on the Pricing master screen; bills are raised as and when needed.{" "}
+          {done.from} is unchanged.
         </p>
         <div className="mt-4 flex gap-2">
           <button
@@ -250,7 +251,7 @@ export function RolloverWizard({
       <Card>
         <CardHeader
           title={`Student counts → ${toYear}`}
-          subtitle={`counts only · the ${fromYear} intake joins Old students as a batch · × marks a batch that passes out · prices are set afterwards on Pricing master`}
+          subtitle={`edit counts · the ${fromYear} intake joins Old students as a batch · × marks a batch that passes out · last year's prices carry as defaults (adjust on Pricing master)`}
         />
         <div className="max-h-[520px] overflow-auto">
           <table className="w-full text-sm">

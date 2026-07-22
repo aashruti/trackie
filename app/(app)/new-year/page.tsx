@@ -37,8 +37,8 @@ export default async function NewYearPage() {
           </h2>
           <p className="mt-0.5 text-sm text-text-secondary">
             Carry {plan.fromYear}&apos;s student counts forward as Draft invoices — the {plan.fromYear}{" "}
-            intake becomes a returning batch. Prices and bills are not copied; set new-year prices on
-            the Pricing master screen. Prior years are fully retained.
+            intake becomes a returning batch. Last year&apos;s prices carry forward as editable defaults
+            on the Pricing master screen; bills are raised as needed. Prior years are fully retained.
           </p>
         </div>
         <RolloverWizard

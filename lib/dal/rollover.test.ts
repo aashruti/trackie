@@ -69,8 +69,8 @@ async function cleanupAudit({
   }
 }
 
-describe("rolloverYear — counts-only + promotion", () => {
-  it("clones counts as Draft, promotes the new intake, and carries no billing details", async () => {
+describe("rolloverYear — counts + carried prices + promotion", () => {
+  it("clones counts as Draft, promotes the new intake, and carries prices forward", async () => {
     const { db } = await import("@/lib/db/client");
     const { invoices, cohorts, academicYears } = await import("@/lib/db/schema");
     const { eq, inArray } = await import("drizzle-orm");
@@ -93,28 +93,31 @@ describe("rolloverYear — counts-only + promotion", () => {
       ? await db.select().from(cohorts).where(inArray(cohorts.invoiceId, created.map((r) => r.id)))
       : [];
 
-    // Counts-only: draft, no advance streams, no billing details, no batch prices.
+    // Draft, no advance streams; year-specific billing (advanceAdj / dates) resets.
     expect(created.every((r) => r.status === "draft")).toBe(true);
     expect(created.some((r) => r.category === "advance")).toBe(false);
     for (const r of created) {
-      expect(Number(r.priceToUni)).toBe(0);
-      expect(Number(r.priceToDatagami)).toBe(0);
       expect(Number(r.advanceAdj)).toBe(0);
       expect(r.invoiceDate).toBeNull();
       expect(r.createdBy).toBe(SUPER.id);
       expect(r.updatedBy).toBe(SUPER.id);
     }
-    for (const c of createdCohorts) {
-      expect(c.priceToUni).toBeNull();
-      expect(c.priceToDatagami).toBeNull();
-      expect(c.createdBy).toBe(SUPER.id);
-      expect(c.updatedBy).toBe(SUPER.id);
-    }
+    expect(createdCohorts.every((c) => c.createdBy === SUPER.id && c.updatedBy === SUPER.id)).toBe(true);
 
-    // Promotion: every source `new` intake became a batch named FROM on the
-    // same account+semester old invoice, plus a fresh `new` row (estimate =
-    // last year's intake).
+    // Prices carry forward: the fresh-intake `new` invoice keeps its source
+    // per-student prices + GST/TDS (not reset to 0).
     for (const n of srcNew) {
+      const fresh = created.find(
+        (r) => r.accountId === n.accountId && r.category === "new" && r.semester === n.semester,
+      );
+      expect(fresh?.students).toBe(n.students);
+      expect(Number(fresh!.priceToUni)).toBe(Number(n.priceToUni));
+      expect(Number(fresh!.priceToDatagami)).toBe(Number(n.priceToDatagami));
+      expect(Number(fresh!.gstRate)).toBe(Number(n.gstRate));
+      expect(Number(fresh!.tdsRate)).toBe(Number(n.tdsRate));
+
+      // Promotion: the intake becomes a batch named FROM on the same
+      // account+semester old invoice, carrying the intake's price.
       const oldClone = created.find(
         (r) => r.accountId === n.accountId && r.category === "old" && r.semester === n.semester,
       );
@@ -122,12 +125,25 @@ describe("rolloverYear — counts-only + promotion", () => {
       const batches = createdCohorts.filter((c) => c.invoiceId === oldClone!.id);
       const promoted = batches.find((c) => c.enrollmentYear === FROM);
       expect(promoted?.count).toBe(n.students);
+      expect(Number(promoted!.priceToUni)).toBe(Number(n.priceToUni));
+      expect(Number(promoted!.priceToDatagami)).toBe(Number(n.priceToDatagami));
       expect(oldClone!.students).toBe(batches.reduce((a, c) => a + c.count, 0));
+    }
 
-      const fresh = created.find(
-        (r) => r.accountId === n.accountId && r.category === "new" && r.semester === n.semester,
-      );
-      expect(fresh?.students).toBe(n.students);
+    // A cohort-driven source old invoice carries each batch's locked price.
+    const srcOldWithLockedBatch = srcInvoices.find((r) => r.category === "old");
+    if (srcOldWithLockedBatch) {
+      const srcBatches = await db.select().from(cohorts).where(eq(cohorts.invoiceId, srcOldWithLockedBatch.id));
+      const priced = srcBatches.find((b) => b.priceToUni != null);
+      if (priced) {
+        const clonedOld = created.find(
+          (r) => r.accountId === srcOldWithLockedBatch.accountId && r.category === "old" && r.semester === srcOldWithLockedBatch.semester,
+        );
+        const clonedBatch = createdCohorts.find(
+          (c) => c.invoiceId === clonedOld!.id && c.enrollmentYear === priced.enrollmentYear,
+        );
+        expect(Number(clonedBatch!.priceToUni)).toBe(Number(priced.priceToUni));
+      }
     }
   });
 

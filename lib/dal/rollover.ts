@@ -198,12 +198,26 @@ export async function rolloverYear(
     v != null && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : fallback;
 
   // Pure JS from here: build the target-year invoice plans per account.
+  // Prices carry forward as editable defaults (last year's prices pre-fill the
+  // new year — the accounts team adjusts only what changed). Only the *billing
+  // actions* stay year-specific: invoices are Draft with no dates, advanceAdj
+  // resets to 0, and advance streams are not cloned. Bills are raised as needed.
+  interface PlanBatch {
+    enrollmentYear: string;
+    count: number;
+    priceToUni: string | null; // per-batch locked price; null → invoice price
+    priceToDatagami: string | null;
+  }
   interface Plan {
     accountId: number;
     category: "old" | "new";
     semester: (typeof srcRows)[number]["semester"];
     students: number;
-    batches: RolloverCohort[];
+    priceToUni: string;
+    priceToDatagami: string;
+    gstRate: string;
+    tdsRate: string;
+    batches: PlanBatch[];
   }
   const plans: Plan[] = [];
   for (const accountId of editable) {
@@ -215,39 +229,72 @@ export async function rolloverYear(
     if (!src.length) continue;
 
     const accountPlans: Plan[] = [];
-    // Old invoices: carry batches (counts only). A cohort-less old invoice's
-    // scalar count becomes a catch-all batch so the promoted batch can join it.
+    // Old invoices: carry batches (counts + per-batch prices). A cohort-less old
+    // invoice's scalar count becomes a catch-all batch (price null → the carried
+    // invoice price) so the promoted batch can join it.
     for (const s of src.filter((r) => r.category === "old")) {
       const srcC = cohortsByInvoice.get(s.id) ?? [];
-      let batches: RolloverCohort[];
+      let batches: PlanBatch[];
       if (srcC.length) {
         const covr = edits.cohortCounts?.[s.id];
         batches = srcC
           .map((c) => ({
             enrollmentYear: c.enrollmentYear,
             count: count(covr?.[c.enrollmentYear], c.count),
+            priceToUni: c.priceToUni,
+            priceToDatagami: c.priceToDatagami,
           }))
           // A batch zeroed in the wizard has passed out — it is not carried.
           .filter((b) => b.count > 0);
       } else {
         const carried = count(edits.scalarCounts?.[s.id], s.students);
-        batches = carried > 0 ? [{ enrollmentYear: prevFyLabel(fromYearLabel), count: carried }] : [];
+        batches =
+          carried > 0
+            ? [{ enrollmentYear: prevFyLabel(fromYearLabel), count: carried, priceToUni: null, priceToDatagami: null }]
+            : [];
       }
-      accountPlans.push({ accountId, category: "old", semester: s.semester, students: 0, batches });
+      accountPlans.push({
+        accountId,
+        category: "old",
+        semester: s.semester,
+        students: 0,
+        priceToUni: s.priceToUni,
+        priceToDatagami: s.priceToDatagami,
+        gstRate: s.gstRate,
+        tdsRate: s.tdsRate,
+        batches,
+      });
     }
     // New invoices: promote the intake into the same-semester old invoice
-    // (created if absent), then start a fresh intake row.
+    // (created if absent, priced from this intake), then start a fresh intake row.
     for (const n of src.filter((r) => r.category === "new")) {
       const promoted = count(edits.promotedCounts?.[n.id], n.students);
       if (promoted > 0) {
         let target = accountPlans.find((p) => p.category === "old" && p.semester === n.semester);
         if (!target) {
-          target = { accountId, category: "old", semester: n.semester, students: 0, batches: [] };
+          target = {
+            accountId,
+            category: "old",
+            semester: n.semester,
+            students: 0,
+            priceToUni: n.priceToUni,
+            priceToDatagami: n.priceToDatagami,
+            gstRate: n.gstRate,
+            tdsRate: n.tdsRate,
+            batches: [],
+          };
           accountPlans.push(target);
         }
         const existing = target.batches.find((b) => b.enrollmentYear === fromYearLabel);
+        // The promoted batch carries the intake's own per-student price.
         if (existing) existing.count += promoted; // duplicate `new` streams merge
-        else target.batches.push({ enrollmentYear: fromYearLabel, count: promoted });
+        else
+          target.batches.push({
+            enrollmentYear: fromYearLabel,
+            count: promoted,
+            priceToUni: n.priceToUni,
+            priceToDatagami: n.priceToDatagami,
+          });
       }
 
       accountPlans.push({
@@ -255,10 +302,14 @@ export async function rolloverYear(
         category: "new",
         semester: n.semester,
         students: count(edits.scalarCounts?.[n.id], n.students),
+        priceToUni: n.priceToUni,
+        priceToDatagami: n.priceToDatagami,
+        gstRate: n.gstRate,
+        tdsRate: n.tdsRate,
         batches: [],
       });
     }
-    // `advance` streams are deliberately not cloned (counts-only rollover).
+    // `advance` streams are deliberately not cloned.
 
     // Cohort-driven invoices keep students = Σ batch counts (engine's basis).
     for (const p of accountPlans) {
@@ -290,7 +341,11 @@ export async function rolloverYear(
           category: p.category,
           semester: p.semester,
           students: p.students,
-          // Counts-only: prices/GST/TDS/advanceAdj take their schema defaults.
+          // Pricing config carries forward; year-specific billing does not.
+          priceToUni: p.priceToUni,
+          priceToDatagami: p.priceToDatagami,
+          gstRate: p.gstRate,
+          tdsRate: p.tdsRate,
           invoiceDate: null,
           status: "draft" as const,
           createdBy: user.id,
@@ -305,8 +360,8 @@ export async function rolloverYear(
         invoiceId: created[i].id,
         enrollmentYear: b.enrollmentYear,
         count: b.count,
-        priceToUni: null,
-        priceToDatagami: null,
+        priceToUni: b.priceToUni,
+        priceToDatagami: b.priceToDatagami,
         createdBy: user.id,
         updatedBy: user.id,
       })),
