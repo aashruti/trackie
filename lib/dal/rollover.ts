@@ -222,10 +222,13 @@ export async function rolloverYear(
       let batches: RolloverCohort[];
       if (srcC.length) {
         const covr = edits.cohortCounts?.[s.id];
-        batches = srcC.map((c) => ({
-          enrollmentYear: c.enrollmentYear,
-          count: count(covr?.[c.enrollmentYear], c.count),
-        }));
+        batches = srcC
+          .map((c) => ({
+            enrollmentYear: c.enrollmentYear,
+            count: count(covr?.[c.enrollmentYear], c.count),
+          }))
+          // A batch zeroed in the wizard has passed out — it is not carried.
+          .filter((b) => b.count > 0);
       } else {
         const carried = count(edits.scalarCounts?.[s.id], s.students);
         batches = carried > 0 ? [{ enrollmentYear: prevFyLabel(fromYearLabel), count: carried }] : [];
@@ -236,14 +239,16 @@ export async function rolloverYear(
     // (created if absent), then start a fresh intake row.
     for (const n of src.filter((r) => r.category === "new")) {
       const promoted = count(edits.promotedCounts?.[n.id], n.students);
-      let target = accountPlans.find((p) => p.category === "old" && p.semester === n.semester);
-      if (!target) {
-        target = { accountId, category: "old", semester: n.semester, students: 0, batches: [] };
-        accountPlans.push(target);
+      if (promoted > 0) {
+        let target = accountPlans.find((p) => p.category === "old" && p.semester === n.semester);
+        if (!target) {
+          target = { accountId, category: "old", semester: n.semester, students: 0, batches: [] };
+          accountPlans.push(target);
+        }
+        const existing = target.batches.find((b) => b.enrollmentYear === fromYearLabel);
+        if (existing) existing.count += promoted; // duplicate `new` streams merge
+        else target.batches.push({ enrollmentYear: fromYearLabel, count: promoted });
       }
-      const existing = target.batches.find((b) => b.enrollmentYear === fromYearLabel);
-      if (existing) existing.count += promoted; // duplicate `new` streams merge
-      else target.batches.push({ enrollmentYear: fromYearLabel, count: promoted });
 
       accountPlans.push({
         accountId,
@@ -259,8 +264,12 @@ export async function rolloverYear(
     for (const p of accountPlans) {
       if (p.batches.length) p.students = p.batches.reduce((a, b) => a + b.count, 0);
     }
-    if (accountPlans.length) {
-      plans.push(...accountPlans);
+    // An old invoice whose batches ALL passed out (and gained no promotion)
+    // carries nothing — creating it would just be clutter. `new` invoices are
+    // always created, as the placeholder the fresh intake is entered into.
+    const carried = accountPlans.filter((p) => p.category === "new" || p.batches.length > 0);
+    if (carried.length) {
+      plans.push(...carried);
       result.accountsRolled++;
     }
   }

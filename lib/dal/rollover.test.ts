@@ -313,3 +313,110 @@ describe("rolloverYear structural edges (temp account)", () => {
     });
   });
 });
+
+describe("rolloverYear drops passed-out batches", () => {
+  const DROP = "FY95–DROP";
+  let tempAccountId: number | null = null;
+  let tempSourceInvoiceIds: number[] = [];
+
+  it("a batch zeroed in the edits is not carried; an old invoice left empty is not created", async () => {
+    const { db } = await import("@/lib/db/client");
+    const { accounts, oems, invoices, cohorts, academicYears } = await import("@/lib/db/schema");
+    const { and, eq, inArray } = await import("drizzle-orm");
+
+    // Temp account:
+    //  - old (none) with two batches [FY24–25: 20, FY25–26: 30] + new (none) 10
+    //    → dropping FY24–25 keeps FY25–26 and gains the promoted batch.
+    //  - old (sem 1) with a single batch [FY22–23: 8], no sem-1 intake
+    //    → dropping its only batch must not create the sem-1 old invoice at all.
+    const [oem] = await db.select().from(oems).limit(1);
+    const [acc] = await db
+      .insert(accounts)
+      .values({
+        name: "ZZ Passout Test University",
+        type: "university",
+        oemId: oem.id,
+        createdBy: SUPER.id,
+        updatedBy: SUPER.id,
+      })
+      .returning();
+    tempAccountId = acc.id;
+    const [fromYear] = await db.select().from(academicYears).where(eq(academicYears.label, FROM));
+    const mk = (category: "old" | "new", semester: "none" | "1", students: number) => ({
+      accountId: acc.id,
+      yearId: fromYear.id,
+      category,
+      semester,
+      students,
+      status: "draft" as const,
+      createdBy: SUPER.id,
+      updatedBy: SUPER.id,
+    });
+    const [oldNone, newNone, oldOne] = await db
+      .insert(invoices)
+      .values([mk("old", "none", 50), mk("new", "none", 10), mk("old", "1", 8)])
+      .returning();
+    tempSourceInvoiceIds = [oldNone.id, newNone.id, oldOne.id];
+    await db.insert(cohorts).values([
+      { invoiceId: oldNone.id, enrollmentYear: "FY24–25", count: 20, createdBy: SUPER.id, updatedBy: SUPER.id },
+      { invoiceId: oldNone.id, enrollmentYear: "FY25–26", count: 30, createdBy: SUPER.id, updatedBy: SUPER.id },
+      { invoiceId: oldOne.id, enrollmentYear: "FY22–23", count: 8, createdBy: SUPER.id, updatedBy: SUPER.id },
+    ]);
+
+    await rolloverYear(SUPER, FROM, DROP, {
+      cohortCounts: {
+        [oldNone.id]: { "FY24–25": 0 }, // this batch passes out
+        [oldOne.id]: { "FY22–23": 0 }, // sole batch passes out → invoice vanishes
+      },
+    });
+
+    const [toYear] = await db.select().from(academicYears).where(eq(academicYears.label, DROP));
+    const created = await db
+      .select()
+      .from(invoices)
+      .where(and(eq(invoices.yearId, toYear.id), eq(invoices.accountId, acc.id)));
+    const createdCohorts = created.length
+      ? await db.select().from(cohorts).where(inArray(cohorts.invoiceId, created.map((r) => r.id)))
+      : [];
+
+    // old (none): FY24–25 gone; FY25–26 carried; promoted FY26–27 joined.
+    const oldClone = created.find((r) => r.category === "old" && r.semester === "none");
+    expect(oldClone).toBeDefined();
+    const batches = createdCohorts.filter((c) => c.invoiceId === oldClone!.id);
+    expect(batches.find((c) => c.enrollmentYear === "FY24–25")).toBeUndefined();
+    expect(batches.find((c) => c.enrollmentYear === "FY25–26")?.count).toBe(30);
+    expect(batches.find((c) => c.enrollmentYear === FROM)?.count).toBe(10);
+    expect(oldClone!.students).toBe(40);
+
+    // old (sem 1): its only batch passed out and nothing promotes into it → not created.
+    expect(created.find((r) => r.category === "old" && r.semester === "1")).toBeUndefined();
+
+    // fresh intake still created.
+    expect(created.find((r) => r.category === "new" && r.semester === "none")?.students).toBe(10);
+  });
+
+  afterAll(async () => {
+    const { db } = await import("@/lib/db/client");
+    const { accounts, invoices, cohorts } = await import("@/lib/db/schema");
+    const { eq, inArray } = await import("drizzle-orm");
+
+    const ids = await snapshotYearIds(DROP);
+    await deleteYear(SUPER, DROP);
+
+    let srcCohortIds: number[] = [];
+    if (tempSourceInvoiceIds.length) {
+      srcCohortIds = (
+        await db.select({ id: cohorts.id }).from(cohorts).where(inArray(cohorts.invoiceId, tempSourceInvoiceIds))
+      ).map((r) => r.id);
+      await db.delete(invoices).where(inArray(invoices.id, tempSourceInvoiceIds)); // cascades cohorts
+    }
+    if (tempAccountId != null) await db.delete(accounts).where(eq(accounts.id, tempAccountId));
+
+    await cleanupAudit({
+      yearId: ids.yearId,
+      invoiceIds: [...ids.invoiceIds, ...tempSourceInvoiceIds],
+      cohortIds: [...ids.cohortIds, ...srcCohortIds],
+      accountIds: tempAccountId != null ? [tempAccountId] : [],
+    });
+  });
+});

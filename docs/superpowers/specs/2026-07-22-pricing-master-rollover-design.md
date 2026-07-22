@@ -88,6 +88,13 @@ Edge cases:
 `{invoiceId, accountId, accountName, category, semester, students, cohorts: {label, count}[]}` — price
 fields dropped.
 
+**Passed-out batches** (amended 2026-07-23): a batch whose count reaches 0 in the wizard edits is
+NOT carried into the target year (graduating batches). An old invoice left with no batches and no
+promoted intake is not created at all. The wizard exposes this as a per-batch "×" (passes out)
+toggle with undo. The promoted intake is *displayed* under the Old students row it will join
+(fresh intake stays alone on the New students row); accounts with an intake but no same-semester
+old invoice keep the promoted input on the new row.
+
 **Wizard UI** (`components/year/rollover-wizard.tsx`): becomes a pure counts screen —
 "Roll over student counts to FY27–28". Projected billing/margin tiles and columns are **removed**
 (no prices carried, they'd all read ₹0 and mislead). Old rows list carried batches plus the promoted
@@ -104,7 +111,9 @@ master screen to set the new year's prices.
   invoices, one `inArray` for cohorts; group in JS. Each row carries `editable` (via `canEdit` +
   `assignedIds`); non-editable accounts render read-only.
 - **UI**: `components/pricing/pricing-master.tsx` (client). One table for the top-bar-selected year,
-  grouped by account; one row per stream; old invoices expand into per-batch sub-rows. Editable cells:
+  grouped by account; one row per stream; old invoices expand into per-batch sub-rows. Layout
+  (amended 2026-07-23): each account renders as a full-width group-header row with its streams
+  beneath — New students first — and streams carry colour-coded chips (green = new, blue = old). Editable cells:
   scalar count (new invoices), per-batch counts + locked prices (old invoices), invoice-level
   `priceToUni`/`priceToDatagami` everywhere editable. Advance bills do NOT appear (amended
   2026-07-22 during browser review: an advance's "price" is a lump billing amount, not student
