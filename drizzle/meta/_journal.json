@@ -120,6 +120,13 @@
       "when": 1784018700000,
       "tag": "0017_stamp_row_attribution_guard",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1784018800000,
+      "tag": "0018_audit_log_feed_indexes",
+      "breakpoints": true
     }
   ]
 }

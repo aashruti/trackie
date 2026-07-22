@@ -1,8 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { db } from "@/lib/db/client";
 import { accounts, auditLog, invoices, leadFollowups, leads, oems, payments, users } from "@/lib/db/schema";
+import { AuditList } from "@/components/admin/audit-list";
 import { stampedDelete } from "./audit";
+import { changedFields, isStampOnlyUpdate, listAuditEntries } from "./audit-log";
 import { createLead, setLeadStage } from "./leads";
 import { createInvoice } from "./account-admin";
 import type { SessionUser } from "./authz";
@@ -32,6 +36,14 @@ let DELETER: SessionUser;
 const RUN = String(Date.now()).slice(-9);
 const fx = { deleterUserId: 0, oemId: 0, accountId: 0 };
 const cleanup = { leadId: 0, invoiceId: 0, paymentId: 0 };
+/** oems / users / accounts rows the fold-discrimination tests create, purged in afterAll. */
+const foldCleanup = {
+  oemIds: [] as number[],
+  userIds: [] as number[],
+  accountIds: [] as number[],
+  invoiceIds: [] as number[],
+  paymentIds: [] as number[],
+};
 
 async function auditRowsFor(tableName: string, rowId: number) {
   return db
@@ -72,6 +84,17 @@ afterAll(async () => {
   // (stampedDelete), so these are just safety nets for a failed assertion.
   if (cleanup.leadId) await db.delete(leads).where(eq(leads.id, cleanup.leadId));
   if (cleanup.invoiceId) await db.delete(invoices).where(eq(invoices.id, cleanup.invoiceId)); // cascades any surviving payment
+  // STRICT CHILD-BEFORE-PARENT ORDER, and it has to run before the shared
+  // fixtures below: the precision test's invoice hangs off fx.accountId, which
+  // fx cleanup then deletes. These rows SURVIVE their tests by design — the
+  // SET NULL oem, the no-op-save account, the high-precision payment all exist
+  // to show something that is still there — so none of them self-clean.
+  for (const id of foldCleanup.paymentIds) await db.delete(payments).where(eq(payments.id, id));
+  for (const id of foldCleanup.invoiceIds) await db.delete(invoices).where(eq(invoices.id, id));
+  for (const id of foldCleanup.accountIds) await db.delete(accounts).where(eq(accounts.id, id));
+  for (const id of foldCleanup.oemIds) await db.delete(oems).where(eq(oems.id, id));
+  for (const id of foldCleanup.userIds) await db.delete(users).where(eq(users.id, id));
+
   await db.delete(accounts).where(eq(accounts.id, fx.accountId));
   await db.delete(oems).where(eq(oems.id, fx.oemId));
   await db.delete(users).where(eq(users.id, fx.deleterUserId));
@@ -87,6 +110,11 @@ afterAll(async () => {
   if (cleanup.leadId) scopes.push(["leads", cleanup.leadId]);
   if (cleanup.invoiceId) scopes.push(["invoices", cleanup.invoiceId]);
   if (cleanup.paymentId) scopes.push(["payments", cleanup.paymentId]);
+  for (const id of foldCleanup.oemIds) scopes.push(["oems", id]);
+  for (const id of foldCleanup.userIds) scopes.push(["users", id]);
+  for (const id of foldCleanup.accountIds) scopes.push(["accounts", id]);
+  for (const id of foldCleanup.invoiceIds) scopes.push(["invoices", id]);
+  for (const id of foldCleanup.paymentIds) scopes.push(["payments", id]);
   for (const [tableName, rowId] of scopes) {
     await db.delete(auditLog).where(and(eq(auditLog.tableName, tableName), eq(auditLog.rowId, String(rowId))));
   }
@@ -245,5 +273,253 @@ describe("audit-behavior — cascade delete: stampedDelete(invoices) carries the
     // — proves this is actually reading the pre-stamp, not just always
     // reading created_by or some other stale field.
     expect(paymentDelete[0].actorId).not.toBe(CREATOR.id);
+  });
+});
+
+/**
+ * The two CAUSES that both produce a `{updated_by}`-only UPDATE — driven
+ * through the live triggers, because the whole question is what the database
+ * actually writes, not what a synthetic fixture asserts it writes.
+ *
+ *  1. `stampedDelete`'s pre-stamp: a deliberate write of the DELETER's id,
+ *     immediately before the row vanishes. Noise; foldable.
+ *  2. `ON DELETE SET NULL` on `updated_by`: Postgres rewriting the column to
+ *     NULL on every SURVIVING row the deleted user last touched. Real history;
+ *     never foldable.
+ *
+ * Same diff shape, opposite meanings. `isStampOnlyUpdate` must separate them on
+ * the after-image value (a stamp is an id, SET NULL is null) — a rule keyed on
+ * shape alone folds (2) and so hides a deleted user's footprint across the
+ * database under a badge that says "delete noise".
+ */
+describe("audit-behavior — a {updated_by} diff has two causes, and only one is foldable", () => {
+  /** The changed-key diff of an audit row, as the viewer computes it. */
+  function diffOf(row: { before: unknown; after: unknown }) {
+    return changedFields(row.before, row.after);
+  }
+
+  it("ON DELETE SET NULL: the trail left on a SURVIVING row is NOT folded", async () => {
+    const [author] = await db
+      .insert(users)
+      .values({
+        name: `AuditFold Author ${RUN}`,
+        email: `audit-fold-author-${RUN}@test.local`,
+        passwordHash: "x",
+        role: "sales",
+      })
+      .returning({ id: users.id });
+    foldCleanup.userIds.push(author.id);
+
+    // An oem this user authored and last touched. Nothing else references them,
+    // so the only thing their deletion can do to this row is SET NULL.
+    const [oem] = await db
+      .insert(oems)
+      .values({ name: `AuditFoldOEM-${RUN}`, createdBy: author.id, updatedBy: author.id })
+      .returning({ id: oems.id });
+    foldCleanup.oemIds.push(oem.id);
+
+    await db.delete(users).where(eq(users.id, author.id));
+
+    // The premise of the whole test: the oem is still here. Deleting a user
+    // does not delete what they touched — it only unlinks them from it.
+    const [survivor] = await db.select().from(oems).where(eq(oems.id, oem.id));
+    expect(survivor, "the oem must survive its author's deletion").toBeDefined();
+    expect(survivor.updatedBy).toBeNull();
+
+    const updates = (await auditRowsFor("oems", oem.id)).filter((r) => r.op === "UPDATE");
+    // Postgres applies each referential action as its own UPDATE — one per FK —
+    // so created_by and updated_by arrive as two separate audit rows.
+    const shapes = updates.map((r) => diffOf(r).map((c) => c.key));
+    expect(shapes).toContainEqual(["created_by"]);
+    expect(shapes).toContainEqual(["updated_by"]);
+
+    const setNullRow = updates.find((r) => {
+      const d = diffOf(r);
+      return d.length === 1 && d[0].key === "updated_by";
+    })!;
+    expect(setNullRow, "the SET NULL side effect must produce a {updated_by} row").toBeDefined();
+    // The discriminator, straight off the row the trigger stored.
+    expect((setNullRow.after as Record<string, unknown>).updated_by).toBeNull();
+    expect((setNullRow.before as Record<string, unknown>).updated_by).toBe(author.id);
+
+    // The assertion this test exists for. Under the shape-only rule this is
+    // `true`, and the viewer hides the fact that a just-deleted user's name was
+    // on this row — one such row per record they last touched, across up to 30
+    // tables, which is precisely what a forensic reader comes looking for.
+    expect(isStampOnlyUpdate("UPDATE", diffOf(setNullRow))).toBe(false);
+  });
+
+  it("stamp-then-delete: the genuine phantom IS still folded", async () => {
+    const [oem] = await db
+      .insert(oems)
+      .values({ name: `AuditFoldPhantom-${RUN}`, createdBy: CREATOR.id, updatedBy: CREATOR.id })
+      .returning({ id: oems.id });
+    foldCleanup.oemIds.push(oem.id);
+
+    await stampedDelete(oems, oem.id, DELETER.id);
+    expect(await db.select().from(oems).where(eq(oems.id, oem.id))).toHaveLength(0);
+
+    const rows = await auditRowsFor("oems", oem.id);
+    const updates = rows.filter((r) => r.op === "UPDATE");
+    expect(updates).toHaveLength(1);
+    const phantom = updates[0];
+
+    // Identical SHAPE to the SET NULL row above…
+    expect(diffOf(phantom).map((c) => c.key)).toEqual(["updated_by"]);
+    // …and a different CAUSE, visible only in the after-image: a real id, the
+    // deleter's, written on purpose. Never NULL — stampedDelete writes an actor.
+    expect((phantom.after as Record<string, unknown>).updated_by).toBe(DELETER.id);
+    expect(isStampOnlyUpdate("UPDATE", diffOf(phantom))).toBe(true);
+
+    // And it really is the delete's phantom: the DELETE row follows it.
+    expect(rows.filter((r) => r.op === "DELETE")).toHaveLength(1);
+  });
+
+  /**
+   * THE THIRD CAUSE — the one four review rounds of narrowing never caught,
+   * because it is not distinguishable by any property of the row.
+   *
+   * A save that changes nothing but stamps the actor. 0017's guard withholds
+   * the version bump precisely because the only difference is attribution, so
+   * the trigger writes a `{updated_by}` diff carrying a REAL actor id: byte for
+   * byte the shape of the pre-delete stamp above, from a row nobody deleted.
+   * ~205 such rows exist in the local log, 80 of them never followed by a
+   * DELETE at all.
+   *
+   * The fold stays (it is still attribution churn, and suppressing it by
+   * default is worth it). What must not survive is the COPY that told the
+   * reader a deletion had happened — hence the rendering assertions.
+   */
+  it("a no-op save that only stamps the actor is folded, and nothing claims a delete", async () => {
+    const [acc] = await db
+      .insert(accounts)
+      .values({
+        name: `AuditFoldNoop-${RUN}`,
+        oemId: fx.oemId,
+        city: "Pune",
+        createdBy: CREATOR.id,
+        updatedBy: CREATOR.id,
+      })
+      .returning({ id: accounts.id });
+    foldCleanup.accountIds.push(acc.id);
+
+    // The live problem, verbatim: a write that sets a column to itself and
+    // stamps the actor. Raw SQL because this is about what the DATABASE does
+    // with such a statement, and routing it through a DAL helper would only
+    // test the helper.
+    await db.execute(
+      sql`UPDATE accounts SET city = city, updated_by = ${EDITOR.id} WHERE id = ${acc.id}`,
+    );
+
+    // The row is still here, and was never deleted. This is the premise the old
+    // copy contradicted out loud.
+    expect(await db.select().from(accounts).where(eq(accounts.id, acc.id))).toHaveLength(1);
+    const all = await auditRowsFor("accounts", acc.id);
+    expect(all.filter((r) => r.op === "DELETE"), "nothing deleted this row").toHaveLength(0);
+
+    const updates = all.filter((r) => r.op === "UPDATE");
+    expect(updates).toHaveLength(1);
+    const noop = updates[0];
+    // Indistinguishable from the stamp-then-delete phantom: same single key,
+    // same kind of real actor id in the after image.
+    expect(diffOf(noop).map((c) => c.key)).toEqual(["updated_by"]);
+    expect((noop.after as Record<string, unknown>).updated_by).toBe(EDITOR.id);
+    expect((noop.after as Record<string, unknown>).version).toBe(1); // 0017 withheld the bump
+
+    // Still folded — that is the deliberate decision, and it is about noise,
+    // not about cause.
+    expect(isStampOnlyUpdate("UPDATE", diffOf(noop))).toBe(true);
+
+    // Read it back through the real DAL path so the entry under test is the one
+    // the page would actually render.
+    const feed = await listAuditEntries(CREATOR, { tableName: "accounts", op: "UPDATE" });
+    const entry = feed.entries.find((e) => e.rowId === String(acc.id));
+    expect(entry, "the no-op save must appear in the feed").toBeDefined();
+    expect(entry!.isStampOnly).toBe(true);
+
+    // The assertion this test exists for. Neither the badge on the row nor the
+    // sentence shown when a page folds entirely may assert a deletion.
+    const shown = renderToStaticMarkup(createElement(AuditList, { entries: [entry!] }));
+    const foldedAway = renderToStaticMarkup(
+      createElement(AuditList, { entries: [], hiddenStampOnly: 1 }),
+    );
+    for (const html of [shown, foldedAway]) {
+      expect(html).not.toContain("just before a delete");
+      expect(html).not.toContain("phantom");
+      expect(html).not.toMatch(/written just before/);
+    }
+    // …and the honest framing is actually present, not merely the lie absent.
+    expect(foldedAway).toContain("cannot tell the two apart");
+  });
+});
+
+/**
+ * A change Postgres can see and `JSON.parse` cannot.
+ *
+ * `postgres` parses jsonb into JS values, so two `numeric` values differing only
+ * beyond 2^53 arrive as the same double and a REAL column change evaporates
+ * from a JS-computed diff. What is left behind is `{updated_at, version}` — the
+ * attribution-bump shape — on `payments`, a table with no redactable column, so
+ * the viewer would have badged a genuine money edit as an unexplained
+ * pre-0017 stamp and told the reader no other column changed.
+ *
+ * Fails against the JS implementation, which is the point: swap
+ * `fieldChangesForKeys(…, r.changedKeys)` back to `changedFields(r.before,
+ * r.after)` in listAuditEntries and `amount` disappears from this diff.
+ */
+describe("audit-behavior — a high-precision numeric change survives into the diff", () => {
+  it("lists `amount` as changed when the two values differ only past 2^53", async () => {
+    const inv = await createInvoice(CREATOR, fx.accountId, "FY26–27", {
+      category: "new",
+      semester: "none",
+      students: 1,
+      priceToUni: 1,
+      priceToDatagami: 1,
+      gstRate: 0.18,
+      tdsRate: 0.1,
+      status: "draft",
+    });
+    foldCleanup.invoiceIds.push(inv.id);
+
+    const [pay] = await db
+      .insert(payments)
+      .values({
+        invoiceId: inv.id,
+        direction: "receipt",
+        paidOn: "2026-07-21",
+        amount: "12345678901234567890",
+        mode: "RTGS",
+        ref: `AuditPrecision-${RUN}`,
+        createdBy: CREATOR.id,
+        updatedBy: CREATOR.id,
+      })
+      .returning({ id: payments.id });
+    foldCleanup.paymentIds.push(pay.id);
+
+    // …891. Distinct in Postgres, identical as a JS double.
+    await db
+      .update(payments)
+      .set({ amount: "12345678901234567891", updatedBy: EDITOR.id })
+      .where(eq(payments.id, pay.id));
+
+    const feed = await listAuditEntries(CREATOR, { tableName: "payments", op: "UPDATE" });
+    const entry = feed.entries.find((e) => e.rowId === String(pay.id));
+    expect(entry, "the amount edit must appear in the feed").toBeDefined();
+
+    const keys = entry!.changedFields.map((c) => c.key);
+    // The assertion. Under a JS-parsed diff this array is
+    // ["updated_at", "updated_by", "version"] — no `amount`.
+    expect(keys).toContain("amount");
+
+    // The values still render as the collapsed double, which is honest about
+    // what survived parsing — but the KEY is present, so the change is not
+    // silently absent from the log.
+    const amount = entry!.changedFields.find((c) => c.key === "amount")!;
+    expect(amount.before).toBeDefined();
+    expect(amount.after).toBeDefined();
+
+    // And the harm the miss would have caused: with `amount` gone the diff is
+    // attribution-only WITH a version bump, i.e. the pre-0017 stamp shape.
+    expect(entry!.isPreGuardStamp, "a real money edit must not read as a bare bump").toBe(false);
   });
 });

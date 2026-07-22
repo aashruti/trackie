@@ -18,6 +18,7 @@ const FINANCE_BASE: Item[] = [
 
 const ADMIN: Item[] = [
   { label: "Users & access", href: "/admin/users", icon: "M16 14a4 4 0 10-8 0M12 7a3 3 0 110 6 3 3 0 010-6M3 20a6 6 0 0118 0" },
+  { label: "Audit log", href: "/admin/audit", icon: "M9 4H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-3M9 4a2 2 0 002 2h2a2 2 0 002-2M9 4a2 2 0 012-2h2a2 2 0 012 2M8 12h8M8 16h5" },
 ];
 
 const WORKSPACE: Item[] = [
