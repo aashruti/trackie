@@ -294,7 +294,8 @@ export function RolloverWizard({
 
       <div className="flex items-center justify-between">
         <p className="text-xs text-text-muted">
-          Creates {rows.length} invoices as <strong>Draft</strong>. {fromYear} stays untouched.
+          Creates draft invoices for {rows.length} student streams. Advance bills are not carried —
+          create them when needed. {fromYear} stays untouched.
         </p>
         <button
           onClick={create}
