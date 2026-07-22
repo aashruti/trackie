@@ -2,13 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth/config";
-import { rolloverYear } from "@/lib/dal/rollover";
+import { rolloverYear, type RolloverEdits } from "@/lib/dal/rollover";
 
 export async function rolloverAction(
   fromYearLabel: string,
   toYearLabel: string,
-  countOverrides: Record<number, number>,
-  cohortOverrides: Record<number, Record<string, number>> = {},
+  edits: RolloverEdits = {},
 ) {
   const session = await auth();
   if (!session?.user) throw new Error("Not authenticated");
@@ -22,8 +21,7 @@ export async function rolloverAction(
     { id: Number(session.user.id), roles: session.user.roles },
     fromYearLabel,
     toYearLabel,
-    countOverrides,
-    cohortOverrides,
+    edits,
   );
   revalidatePath("/", "layout");
   return result;

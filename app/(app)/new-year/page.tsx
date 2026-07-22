@@ -1,14 +1,13 @@
 import { auth } from "@/lib/auth/config";
 import { Topbar } from "@/components/shell/topbar";
-import { getCurrentYear, listYears } from "@/lib/dal/years";
+import { getYearContext } from "@/lib/dal/years";
 import { getRolloverPlan } from "@/lib/dal/rollover";
 import { RolloverWizard } from "@/components/year/rollover-wizard";
 
 export default async function NewYearPage() {
   const session = await auth();
   const user = session!.user;
-  const YEAR = await getCurrentYear();
-  const years = (await listYears()).map((y) => y.label);
+  const { currentYear: YEAR, years } = await getYearContext();
 
   if (!user.roles.includes("super-admin") && !user.roles.includes("sales")) {
     return (
@@ -37,8 +36,9 @@ export default async function NewYearPage() {
             Roll over to a new academic year
           </h2>
           <p className="mt-0.5 text-sm text-text-secondary">
-            Clone {plan.fromYear}&apos;s structure forward as Draft invoices. Prior
-            years are fully retained — nothing is overwritten.
+            Carry {plan.fromYear}&apos;s student counts forward as Draft invoices — the {plan.fromYear}{" "}
+            intake becomes a returning batch. Prices and bills are not copied; set new-year prices on
+            the Pricing master screen. Prior years are fully retained.
           </p>
         </div>
         <RolloverWizard
