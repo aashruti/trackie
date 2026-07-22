@@ -33,7 +33,8 @@ export interface PricingAccountRow {
   invoices: PricingInvoiceRow[];
 }
 
-const CATEGORY_ORDER: Record<string, number> = { old: 0, new: 1 };
+// New students first — matches the accounts team's reading order on /pricing.
+const CATEGORY_ORDER: Record<string, number> = { new: 0, old: 1 };
 
 /**
  * Every visible account's invoices (+batches) for a year, for the /pricing

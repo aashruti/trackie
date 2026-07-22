@@ -24,6 +24,11 @@ const cellCls =
   "tabular w-24 rounded-md border bg-surface px-2 py-1 text-right text-sm outline-none focus:ring-2 focus:ring-[var(--ring)]";
 const cleanCls = "border-border-strong";
 const dirtyCls = "border-[var(--primary-border)] bg-[var(--primary-subtle)]";
+// Colour-coded stream chips: green = fresh intake, blue = returning batches.
+const STREAM_CHIP: Record<string, string> = {
+  new: "bg-[var(--positive-subtle)] text-[var(--positive-text)]",
+  old: "bg-[var(--info-subtle)] text-[var(--info-text)]",
+};
 
 export function PricingMaster({
   rows,
@@ -144,8 +149,7 @@ export function PricingMaster({
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-10 bg-surface-sunken">
               <tr className="text-left text-xs text-text-muted">
-                <th className="px-5 py-2.5 font-medium">Account</th>
-                <th className="px-3 py-2.5 font-medium">Stream / batch</th>
+                <th className="px-5 py-2.5 font-medium">Stream / batch</th>
                 <th className="px-3 py-2.5 text-right font-medium">Students</th>
                 <th className="px-3 py-2.5 text-right font-medium">Price / uni</th>
                 <th className="px-3 py-2.5 text-right font-medium">Price / Datagami</th>
@@ -157,7 +161,16 @@ export function PricingMaster({
             <tbody>
               {filtered.map((acc) => (
                 <Fragment key={acc.accountId}>
-                  {acc.invoices.map((inv, invIdx) => {
+                  {/* Account group header — streams render beneath it. */}
+                  <tr className="border-b border-border-subtle bg-surface-sunken">
+                    <td colSpan={7} className="px-5 py-2 text-sm font-semibold text-text-primary">
+                      {acc.accountName}
+                      {!acc.editable && (
+                        <span className="ml-2 text-xs font-normal text-text-muted">read-only</span>
+                      )}
+                    </td>
+                  </tr>
+                  {acc.invoices.map((inv) => {
                     const d = merged(inv);
                     const computed = computeInvoice({
                       category: inv.category as Category,
@@ -182,10 +195,15 @@ export function PricingMaster({
                     return (
                       <Fragment key={inv.invoiceId}>
                         <tr className="border-b border-border-subtle align-top last:border-0">
-                          <td className="px-5 py-2 font-medium text-text-primary">
-                            {invIdx === 0 ? acc.accountName : ""}
+                          <td className="px-5 py-2">
+                            <span
+                              className={`rounded px-1.5 py-0.5 text-xs font-medium ${
+                                STREAM_CHIP[inv.category] ?? "text-text-secondary"
+                              }`}
+                            >
+                              {streamLabel(inv.category, inv.semester)}
+                            </span>
                           </td>
-                          <td className="px-3 py-2 text-text-secondary">{streamLabel(inv.category, inv.semester)}</td>
                           <td className="px-3 py-2 text-right">
                             {scalarStudents ? (
                               canType ? (
@@ -272,9 +290,7 @@ export function PricingMaster({
                               key={`${inv.invoiceId}:${b.enrollmentYear}`}
                               className="border-b border-border-subtle bg-surface-sunken/50 align-top last:border-0"
                             >
-                              {/* Batch label spans the empty account column too —
-                                  squeezed into the stream column alone it wrapped badly. */}
-                              <td colSpan={2} className="py-1.5 pl-8 pr-3 text-xs text-text-secondary">
+                              <td className="py-1.5 pl-8 pr-3 text-xs text-text-secondary">
                                 {yos ? (
                                   <>
                                     <span className="font-medium text-text-primary">{yos}</span>{" "}
