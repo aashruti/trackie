@@ -5,6 +5,7 @@ import { academicYears, accounts, invoices, cohorts, payments } from "@/lib/db/s
 import { canEdit, type SessionUser } from "./authz";
 import { assignedIds } from "./accounts";
 import { stampedDelete, stampedDeleteWhere } from "./audit";
+import { nextFyLabel } from "@/lib/fy";
 
 export interface RolloverCohort {
   enrollmentYear: string;
@@ -34,15 +35,6 @@ export interface RolloverPlan {
   fromYear: string;
   suggestedToYear: string;
   rows: RolloverPlanRow[];
-}
-
-/** Next "FYxx–yy" label after the given one (e.g. FY26–27 → FY27–28). */
-function nextFyLabel(label: string): string {
-  const m = label.match(/(\d{2})\D+(\d{2})/);
-  if (!m) return label + " (next)";
-  const a = (parseInt(m[1], 10) + 1) % 100;
-  const b = (parseInt(m[2], 10) + 1) % 100;
-  return `FY${String(a).padStart(2, "0")}–${String(b).padStart(2, "0")}`;
 }
 
 /** Editable per-invoice rows for the rollover wizard (carried-forward values). */

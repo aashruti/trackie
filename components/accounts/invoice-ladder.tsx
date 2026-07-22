@@ -13,6 +13,7 @@ import type { Direction, PaymentEntry } from "@/lib/dal/payments";
 import { fmtDay, isOverdue } from "@/lib/dates";
 import { fmt } from "@/lib/money/format";
 import { CATEGORY_LABEL } from "@/lib/money/report-view";
+import { yearOfStudy } from "@/lib/fy";
 
 function title(inv: InvoiceComputed) {
   // inv.category is already typed Category, so CATEGORY_LABEL (total over the
@@ -53,23 +54,6 @@ export type LadderInvoice = InvoiceComputed & {
   invoiceDate: string | null;
   dueDate: string | null;
 };
-
-function startYear(label: string): number | null {
-  const m = label.match(/(\d{4})|(?:FY)?(\d{2})\D/);
-  if (m?.[1]) return parseInt(m[1], 10);
-  if (m?.[2]) return 2000 + parseInt(m[2], 10);
-  return null;
-}
-
-function yearOfStudy(enrollmentYear: string, currentYear: string): string | null {
-  const enroll = startYear(enrollmentYear);
-  const cur = startYear(currentYear);
-  if (enroll == null || cur == null) return null;
-  const n = cur - enroll + 1;
-  if (n < 1) return null;
-  const ord = ["", "1st", "2nd", "3rd", "4th", "5th", "6th", "7th"][n] ?? `${n}th`;
-  return `${ord} year`;
-}
 
 export function InvoiceLadder({
   inv,
