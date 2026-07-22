@@ -193,7 +193,7 @@ export interface BillDeletionPreview {
    *
    * Present to identify the bill: there is no unique constraint on
    * (account_id, year_id, category, semester), so two bills can share the
-   * "Old · 1st sem" label the dialog shows and nothing else would tell them
+   * "Old · Odd sem" label the dialog shows and nothing else would tell them
    * apart.
    */
   billedAmount: number;

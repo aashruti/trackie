@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { updateCohortsAction } from "@/app/(app)/accounts/[id]/actions";
+import { normalizeBatchLabel } from "@/lib/fy";
 
 interface Row {
   enrollmentYear: string;
@@ -48,7 +49,9 @@ export function CohortEditor({
         await updateCohortsAction(
           accountId,
           invoiceId,
-          rows.filter((r) => r.enrollmentYear.trim()),
+          rows
+            .filter((r) => r.enrollmentYear.trim())
+            .map((r) => ({ ...r, enrollmentYear: normalizeBatchLabel(r.enrollmentYear) })),
         );
         onClose();
       } catch (e) {
@@ -77,7 +80,7 @@ export function CohortEditor({
             <input
               value={r.enrollmentYear}
               onChange={(e) => update(i, { enrollmentYear: e.target.value })}
-              placeholder="2024-25"
+              placeholder="FY24–25"
               className={`w-28 ${inputCls}`}
               aria-label="Enrollment year"
             />

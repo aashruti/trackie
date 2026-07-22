@@ -11,6 +11,7 @@ type Item = { label: string; href: string; icon: string; soon?: boolean; locked?
 const FINANCE_BASE: Item[] = [
   { label: "Dashboard", href: "/dashboard", icon: "M3 12l9-9 9 9M5 10v10h14V10" },
   { label: "Accounts", href: "/accounts", icon: "M4 7h16M4 12h16M4 17h10" },
+  { label: "Pricing master", href: "/pricing", icon: "M3 3h8l10 10-8 8L3 13zM7.5 7.5h.01" },
   // Leads is spliced in here (with lock state) by Sidebar based on role.
   { label: "Reports", href: "/reports", icon: "M7 17V9M12 17V5M17 17v-6" },
   { label: "New year setup", href: "/new-year", icon: "M12 5v14M5 12h14" },
@@ -149,12 +150,12 @@ export function Sidebar({
   const showFinance = isSuper || roles.includes("sales");
   const showHr = isSuper || roles.includes("hr");
   const showDelivery = isSuper || roles.includes("delivery");
+  // Slices, not hardcoded indices: indexing silently dropped the tail item
+  // when FINANCE_BASE grew (review finding — "New year setup" vanished).
   const finance: Item[] = [
-    FINANCE_BASE[0],
-    FINANCE_BASE[1],
+    ...FINANCE_BASE.slice(0, 2),
     { label: "Leads", href: "/leads", icon: "M3 4h18l-7 8v6l-4 2v-8z" },
-    FINANCE_BASE[2],
-    FINANCE_BASE[3],
+    ...FINANCE_BASE.slice(2),
   ];
 
   const name = user?.name ?? "User";

@@ -27,7 +27,40 @@ export interface InvoiceEdit {
 }
 
 const num = (v: number | undefined, min = 0) =>
-  v == null ? undefined : Math.max(min, v);
+  v == null || !Number.isFinite(v) ? undefined : Math.max(min, v);
+
+/**
+ * Merge cohort rows that share a batch label AND price — label normalization can
+ * fold two spellings of one intake year (e.g. "2024-25" and "FY24-25") into a
+ * single label, and the UI keys batches by label, so same-label same-price rows
+ * must collapse (counts sum) before reaching the DB.
+ *
+ * Rows that share a label but carry DIFFERENT locked prices are left separate —
+ * they are money-bearing and merging them would silently drop a price. This
+ * mirrors migration 0020, which likewise merges only price-agreeing duplicates
+ * and leaves conflicting ones for manual resolution.
+ */
+export function mergeCohortRows<T extends { enrollmentYear: string; count: number; priceToUni: string | null; priceToDatagami: string | null }>(
+  rows: T[],
+): T[] {
+  const out: T[] = [];
+  // Key by label + exact price pair so only truly-identical batches merge.
+  // Fields are joined with the ASCII unit separator (0x1F), which can't occur
+  // in a (free-text) label or a numeric price string — so no field value can
+  // shift into the next and cause a spurious merge.
+  const byKey = new Map<string, T>();
+  for (const r of rows) {
+    const key = [r.enrollmentYear, r.priceToUni ?? "", r.priceToDatagami ?? ""].join(String.fromCharCode(31));
+    const prev = byKey.get(key);
+    if (prev) prev.count += r.count;
+    else {
+      const copy = { ...r };
+      byKey.set(key, copy);
+      out.push(copy); // preserve first-seen order
+    }
+  }
+  return out;
+}
 
 /**
  * Update an invoice's numbers. Enforces `canEdit` for the owning account.
@@ -37,6 +70,10 @@ export async function updateInvoice(
   user: SessionUser,
   invoiceId: number,
   edit: InvoiceEdit,
+  // Callers that update many invoices in one request (e.g. the /pricing bulk
+  // save) can pass the user's assigned account ids once, so each write doesn't
+  // re-query them. Ignored for super-admin (canEdit short-circuits).
+  assignedOverride?: number[],
 ): Promise<{ accountId: number }> {
   const [inv] = await db
     .select({ id: invoices.id, accountId: invoices.accountId })
@@ -45,7 +82,8 @@ export async function updateInvoice(
     .limit(1);
   if (!inv) throw new Error("Invoice not found");
 
-  const assigned = user.roles.includes("super-admin") ? [] : await assignedIds(user.id);
+  const assigned =
+    assignedOverride ?? (user.roles.includes("super-admin") ? [] : await assignedIds(user.id));
   if (!canEdit(user, inv.accountId, assigned)) {
     throw new Error("Not authorized to edit this account");
   }
@@ -91,6 +129,8 @@ export async function setCohorts(
   user: SessionUser,
   invoiceId: number,
   list: CohortInput[],
+  // See updateInvoice — pass once for a bulk request to avoid re-querying.
+  assignedOverride?: number[],
 ): Promise<{ accountId: number; total: number }> {
   const [inv] = await db
     .select({ id: invoices.id, accountId: invoices.accountId })
@@ -98,19 +138,22 @@ export async function setCohorts(
     .where(eq(invoices.id, invoiceId))
     .limit(1);
   if (!inv) throw new Error("Invoice not found");
-  const assigned = user.roles.includes("super-admin") ? [] : await assignedIds(user.id);
+  const assigned =
+    assignedOverride ?? (user.roles.includes("super-admin") ? [] : await assignedIds(user.id));
   if (!canEdit(user, inv.accountId, assigned)) throw new Error("Not authorized");
 
   const price = (v: number | null | undefined) =>
     v == null || v <= 0 ? null : String(Math.max(0, v));
-  const clean = list
-    .map((c) => ({
-      enrollmentYear: c.enrollmentYear.trim(),
-      count: Math.max(0, Math.floor(c.count)),
-      priceToUni: price(c.priceToUni),
-      priceToDatagami: price(c.priceToDatagami),
-    }))
-    .filter((c) => c.enrollmentYear.length > 0);
+  const clean = mergeCohortRows(
+    list
+      .map((c) => ({
+        enrollmentYear: c.enrollmentYear.trim(),
+        count: Math.max(0, Math.floor(c.count)),
+        priceToUni: price(c.priceToUni),
+        priceToDatagami: price(c.priceToDatagami),
+      }))
+      .filter((c) => c.enrollmentYear.length > 0),
+  );
   const total = clean.reduce((a, c) => a + c.count, 0);
 
   await stampedDeleteWhere(cohorts, eq(cohorts.invoiceId, invoiceId), user.id);

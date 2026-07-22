@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { updateInvoice, setCohorts } from "./mutations";
+import { updateInvoice, setCohorts, mergeCohortRows } from "./mutations";
 import { getAccountDetail } from "./account-detail";
 import { listAccountsForUser } from "./accounts";
 
@@ -102,5 +102,46 @@ describe("setCohorts", () => {
 
   afterAll(async () => {
     if (original) await setCohorts(SUPER, original.id, original.cohorts);
+  });
+});
+
+describe("mergeCohortRows", () => {
+  it("passes distinct labels through untouched", () => {
+    const rows = [
+      { enrollmentYear: "FY24–25", count: 10, priceToUni: "100", priceToDatagami: null },
+      { enrollmentYear: "FY25–26", count: 20, priceToUni: null, priceToDatagami: "50" },
+    ];
+    expect(mergeCohortRows(rows)).toEqual(rows);
+  });
+
+  it("merges same-label rows only when prices are identical (counts sum)", () => {
+    const merged = mergeCohortRows([
+      { enrollmentYear: "FY24–25", count: 10, priceToUni: "100", priceToDatagami: "70" },
+      { enrollmentYear: "FY24–25", count: 4, priceToUni: "100", priceToDatagami: "70" },
+      { enrollmentYear: "FY25–26", count: 1, priceToUni: null, priceToDatagami: null },
+    ]);
+    expect(merged).toEqual([
+      { enrollmentYear: "FY24–25", count: 14, priceToUni: "100", priceToDatagami: "70" },
+      { enrollmentYear: "FY25–26", count: 1, priceToUni: null, priceToDatagami: null },
+    ]);
+  });
+
+  it("keeps same-label rows with conflicting prices separate (no silent loss)", () => {
+    // Mirrors migration 0020: price-conflicting duplicates are money-bearing
+    // and must survive a save untouched, not collapse into one.
+    const rows = [
+      { enrollmentYear: "FY24–25", count: 10, priceToUni: null, priceToDatagami: "70" },
+      { enrollmentYear: "FY24–25", count: 4, priceToUni: "100", priceToDatagami: "80" },
+    ];
+    expect(mergeCohortRows(rows)).toEqual(rows);
+  });
+
+  it("does not mutate its input", () => {
+    const rows = [
+      { enrollmentYear: "FY24–25", count: 10, priceToUni: null, priceToDatagami: null },
+      { enrollmentYear: "FY24–25", count: 5, priceToUni: null, priceToDatagami: null },
+    ];
+    mergeCohortRows(rows);
+    expect(rows[0].count).toBe(10);
   });
 });

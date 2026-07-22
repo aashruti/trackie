@@ -59,7 +59,7 @@ export interface OemReport {
 // enum) never misses — no fallback needed.
 function streamLabel(category: ReportCategory, semester: string) {
   const base = CATEGORY_LABEL[category];
-  return semester === "none" ? base : `${base} (${semester === "1" ? "1st" : "2nd"} sem)`;
+  return semester === "none" ? base : `${base} (${semester === "1" ? "Odd" : "Even"} sem)`;
 }
 
 /** Consolidated report for one OEM: every account, every payment, and totals. */
