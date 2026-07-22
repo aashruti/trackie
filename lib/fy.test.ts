@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { batchStartYear, nextFyLabel, prevFyLabel, normalizeBatchLabel, yearOfStudy } from "./fy";
+import { batchLabelDesc, batchStartYear, nextFyLabel, prevFyLabel, normalizeBatchLabel, yearOfStudy } from "./fy";
 
 describe("normalizeBatchLabel", () => {
   it.each([
@@ -39,6 +39,19 @@ describe("nextFyLabel / prevFyLabel", () => {
   it("appends a marker for unparseable labels", () => {
     expect(nextFyLabel("weird")).toBe("weird (next)");
     expect(prevFyLabel("weird")).toBe("weird (prev)");
+  });
+});
+
+describe("batchLabelDesc", () => {
+  it("sorts newest batch first, unparseable labels last", () => {
+    const labels = ["FY23–24", "earlier", "FY25–26", "2024-25", "FY22–23"];
+    expect([...labels].sort(batchLabelDesc)).toEqual([
+      "FY25–26",
+      "2024-25",
+      "FY23–24",
+      "FY22–23",
+      "earlier",
+    ]);
   });
 });
 

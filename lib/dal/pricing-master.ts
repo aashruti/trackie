@@ -2,6 +2,7 @@ import "server-only";
 import { and, eq, inArray, ne } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { academicYears, accounts, cohorts, invoices } from "@/lib/db/schema";
+import { batchLabelDesc } from "@/lib/fy";
 import { canEdit, scopeAccountIds, type SessionUser } from "./authz";
 import { assignedIds } from "./accounts";
 
@@ -105,7 +106,7 @@ export async function getPricingMaster(
       advanceAdj: Number(r.advanceAdj),
       status: r.status,
       batches: (batchesByInvoice.get(r.id) ?? []).sort((a, b) =>
-        a.enrollmentYear.localeCompare(b.enrollmentYear),
+        batchLabelDesc(a.enrollmentYear, b.enrollmentYear),
       ),
     };
     const list = byAccount.get(r.accountId) ?? [];

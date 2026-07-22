@@ -44,6 +44,16 @@ export function normalizeBatchLabel(raw: string): string {
   return `FY${start}–${m[2]}`;
 }
 
+/** Sort comparator: newest batch first; unparseable labels sink to the bottom. */
+export function batchLabelDesc(a: string, b: string): number {
+  const ya = batchStartYear(a);
+  const yb = batchStartYear(b);
+  if (ya != null && yb != null && ya !== yb) return yb - ya;
+  if (ya == null && yb != null) return 1;
+  if (ya != null && yb == null) return -1;
+  return a.localeCompare(b);
+}
+
 /** Ordinal year of study for an enrollment batch in the current year, e.g. "3rd year". */
 export function yearOfStudy(enrollmentYear: string, currentYear: string): string | null {
   const enroll = batchStartYear(enrollmentYear);
