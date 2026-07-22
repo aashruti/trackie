@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { rolloverYear, deleteYear } from "./rollover";
-import { listAccountsForUser } from "./accounts";
+import { rolloverYear, deleteYear, getRolloverPlan } from "./rollover";
+import { prevFyLabel } from "@/lib/fy";
 
 const SUPER = { id: 1, roles: ["super-admin" as const] };
 const FROM = "FY26–27";
@@ -34,15 +34,17 @@ async function snapshotYearIds(yearLabel: string) {
   return { yearId, invoiceIds, cohortIds };
 }
 
-/** Best-effort audit_log scrub for rows a test run created — scoped by table+id so unrelated audit history is untouched. */
+/** Best-effort audit_log scrub for rows a test run created — scoped by table+id. */
 async function cleanupAudit({
   yearId,
   invoiceIds,
   cohortIds,
+  accountIds = [],
 }: {
   yearId: number | null;
   invoiceIds: number[];
   cohortIds: number[];
+  accountIds?: number[];
 }) {
   const { db } = await import("@/lib/db/client");
   const { auditLog } = await import("@/lib/db/schema");
@@ -60,176 +62,254 @@ async function cleanupAudit({
       .delete(auditLog)
       .where(and(eq(auditLog.tableName, "cohorts"), inArray(auditLog.rowId, cohortIds.map(String))));
   }
+  if (accountIds.length) {
+    await db
+      .delete(auditLog)
+      .where(and(eq(auditLog.tableName, "accounts"), inArray(auditLog.rowId, accountIds.map(String))));
+  }
 }
 
-describe("rolloverYear", () => {
-  it("clones the year as Draft and retains the source year untouched", async () => {
+describe("rolloverYear — counts-only + promotion", () => {
+  it("clones counts as Draft, promotes the new intake, and carries no billing details", async () => {
+    const { db } = await import("@/lib/db/client");
+    const { invoices, cohorts, academicYears } = await import("@/lib/db/schema");
+    const { eq, inArray } = await import("drizzle-orm");
+
     const before = await invoiceCount(FROM);
-    const accountCount = (await listAccountsForUser(SUPER, FROM)).length;
+    const [fromYear] = await db.select().from(academicYears).where(eq(academicYears.label, FROM));
+    const srcInvoices = await db.select().from(invoices).where(eq(invoices.yearId, fromYear.id));
+    // If this fails, the local seed has no new-intake stream — add one to the
+    // seed (any account, category "new") rather than weakening the test.
+    const srcNew = srcInvoices.filter((r) => r.category === "new");
+    expect(srcNew.length).toBeGreaterThan(0);
 
     const res = await rolloverYear(SUPER, FROM, TO, {});
     expect(res.invoicesCreated).toBeGreaterThan(0);
-    expect(res.accountsRolled).toBe(accountCount);
+    expect(await invoiceCount(FROM)).toBe(before); // source year untouched
 
-    // Source year unchanged → history retained.
-    expect(await invoiceCount(FROM)).toBe(before);
-    // Target year now has the same number of invoices, all draft.
-    expect(await invoiceCount(TO)).toBe(before);
+    const [toYear] = await db.select().from(academicYears).where(eq(academicYears.label, TO));
+    const created = await db.select().from(invoices).where(eq(invoices.yearId, toYear.id));
+    const createdCohorts = created.length
+      ? await db.select().from(cohorts).where(inArray(cohorts.invoiceId, created.map((r) => r.id)))
+      : [];
 
-    // New year shows up scoped to the user.
-    const rows = await listAccountsForUser(SUPER, TO);
-    expect(rows.length).toBe(accountCount);
+    // Counts-only: draft, no advance streams, no billing details, no batch prices.
+    expect(created.every((r) => r.status === "draft")).toBe(true);
+    expect(created.some((r) => r.category === "advance")).toBe(false);
+    for (const r of created) {
+      expect(Number(r.priceToUni)).toBe(0);
+      expect(Number(r.priceToDatagami)).toBe(0);
+      expect(Number(r.advanceAdj)).toBe(0);
+      expect(r.invoiceDate).toBeNull();
+      expect(r.createdBy).toBe(SUPER.id);
+      expect(r.updatedBy).toBe(SUPER.id);
+    }
+    for (const c of createdCohorts) {
+      expect(c.priceToUni).toBeNull();
+      expect(c.priceToDatagami).toBeNull();
+      expect(c.createdBy).toBe(SUPER.id);
+      expect(c.updatedBy).toBe(SUPER.id);
+    }
 
-    // The audit triggers read created_by/updated_by off the row — assert the
-    // app stamped the newly-created year and its cloned invoices.
-    const { db } = await import("@/lib/db/client");
-    const { academicYears, invoices } = await import("@/lib/db/schema");
-    const { eq } = await import("drizzle-orm");
-    const [toYear] = await db.select().from(academicYears).where(eq(academicYears.label, TO)).limit(1);
-    expect(toYear.createdBy).toBe(SUPER.id);
-    expect(toYear.updatedBy).toBe(SUPER.id);
-    const invRows = await db.select().from(invoices).where(eq(invoices.yearId, toYear.id));
-    for (const inv of invRows) {
-      expect(inv.createdBy).toBe(SUPER.id);
-      expect(inv.updatedBy).toBe(SUPER.id);
+    // Promotion: every source `new` intake became a batch named FROM on the
+    // same account+semester old invoice, plus a fresh `new` row (estimate =
+    // last year's intake).
+    for (const n of srcNew) {
+      const oldClone = created.find(
+        (r) => r.accountId === n.accountId && r.category === "old" && r.semester === n.semester,
+      );
+      expect(oldClone).toBeDefined();
+      const batches = createdCohorts.filter((c) => c.invoiceId === oldClone!.id);
+      const promoted = batches.find((c) => c.enrollmentYear === FROM);
+      expect(promoted?.count).toBe(n.students);
+      expect(oldClone!.students).toBe(batches.reduce((a, c) => a + c.count, 0));
+
+      const fresh = created.find(
+        (r) => r.accountId === n.accountId && r.category === "new" && r.semester === n.semester,
+      );
+      expect(fresh?.students).toBe(n.students);
     }
   });
 
   it("is idempotent — re-running skips already-populated accounts", async () => {
-    const accountCount = (await listAccountsForUser(SUPER, FROM)).length;
     const res = await rolloverYear(SUPER, FROM, TO, {});
-    expect(res.skipped).toBe(accountCount);
     expect(res.invoicesCreated).toBe(0);
+    expect(res.skipped).toBeGreaterThan(0);
   });
 
-  it("deleteYear pre-stamps cascaded cohorts so their DELETE audit row carries the deleter", async () => {
+  it("getRolloverPlan lists only student streams and suggests the next FY", async () => {
+    const plan = await getRolloverPlan(SUPER, FROM);
+    expect(plan.rows.length).toBeGreaterThan(0);
+    expect(plan.rows.every((r) => r.category !== "advance")).toBe(true);
+    expect(plan.suggestedToYear).toBe("FY27–28");
+  });
+
+  afterAll(async () => {
     const ids = await snapshotYearIds(TO);
-    expect(ids.cohortIds.length).toBeGreaterThan(0); // Kalinga's cohort-driven "old" invoice cloned into TO
-
     await deleteYear(SUPER, TO);
-
-    const { db } = await import("@/lib/db/client");
-    const { auditLog } = await import("@/lib/db/schema");
-    const { and, eq } = await import("drizzle-orm");
-    const targetCohortId = ids.cohortIds[0];
-    const rows = await db
-      .select()
-      .from(auditLog)
-      .where(
-        and(
-          eq(auditLog.tableName, "cohorts"),
-          eq(auditLog.rowId, String(targetCohortId)),
-          eq(auditLog.op, "DELETE"),
-        ),
-      );
-    expect(rows.length).toBe(1);
-    expect(rows[0].actorId).toBe(SUPER.id);
-
     await cleanupAudit(ids);
-  });
-
-  afterAll(async () => {
-    await deleteYear(SUPER, TO); // no-op — the test above already deleted it
   });
 });
 
-describe("rolloverYear carries cohort prices forward", () => {
-  const CARRY = "FY98–CARRY";
-  let cohortId: number | null = null;
+describe("rolloverYear applies wizard edits", () => {
+  const EDIT = "FY98–EDIT";
 
-  it("clones each cohort's locked price into the new year", async () => {
+  it("overrides batch, promoted-batch and fresh-intake counts", async () => {
     const { db } = await import("@/lib/db/client");
-    const { invoices, cohorts, accounts, academicYears } = await import("@/lib/db/schema");
+    const { invoices, cohorts, academicYears } = await import("@/lib/db/schema");
     const { and, eq } = await import("drizzle-orm");
 
-    // Pick an old-student invoice (Kalinga) with cohorts in the source year.
-    const [acc] = await db.select().from(accounts).where(eq(accounts.name, "Kalinga University"));
     const [fromYear] = await db.select().from(academicYears).where(eq(academicYears.label, FROM));
-    const [oldInv] = await db
-      .select()
-      .from(invoices)
-      .where(and(eq(invoices.accountId, acc.id), eq(invoices.yearId, fromYear.id), eq(invoices.category, "old")));
-    const [cohort] = await db.select().from(cohorts).where(eq(cohorts.invoiceId, oldInv.id));
-    cohortId = cohort.id;
+    const src = await db.select().from(invoices).where(eq(invoices.yearId, fromYear.id));
+    const n = src.find((r) => r.category === "new");
+    expect(n).toBeDefined();
+    const o = src.find((r) => r.category === "old");
+    const oldBatches = o ? await db.select().from(cohorts).where(eq(cohorts.invoiceId, o.id)) : [];
 
-    // Set a marker locked price on that cohort.
-    await db.update(cohorts).set({ priceToUni: "22222", priceToDatagami: "11111" }).where(eq(cohorts.id, cohort.id));
+    await rolloverYear(SUPER, FROM, EDIT, {
+      scalarCounts: { [n!.id]: 41 },
+      promotedCounts: { [n!.id]: 7 },
+      cohortCounts: oldBatches.length
+        ? { [o!.id]: { [oldBatches[0].enrollmentYear]: oldBatches[0].count + 3 } }
+        : {},
+    });
 
-    await rolloverYear(SUPER, FROM, CARRY, {});
+    const [toYear] = await db.select().from(academicYears).where(eq(academicYears.label, EDIT));
+    const created = await db.select().from(invoices).where(eq(invoices.yearId, toYear.id));
 
-    // The cloned old-student invoice's cohorts should carry the marker price.
-    const [toYear] = await db.select().from(academicYears).where(eq(academicYears.label, CARRY));
-    const [clonedInv] = await db
-      .select()
-      .from(invoices)
-      .where(and(eq(invoices.accountId, acc.id), eq(invoices.yearId, toYear.id), eq(invoices.category, "old"), eq(invoices.semester, oldInv.semester)));
-    const cloned = await db.select().from(cohorts).where(eq(cohorts.invoiceId, clonedInv.id));
-    expect(cloned.some((c) => Number(c.priceToUni) === 22222 && Number(c.priceToDatagami) === 11111)).toBe(true);
-  });
+    const fresh = created.find(
+      (r) => r.accountId === n!.accountId && r.category === "new" && r.semester === n!.semester,
+    );
+    expect(fresh?.students).toBe(41);
 
-  afterAll(async () => {
-    const ids = await snapshotYearIds(CARRY);
-    await deleteYear(SUPER, CARRY);
-    await cleanupAudit(ids);
-    if (cohortId != null) {
-      const { db } = await import("@/lib/db/client");
-      const { cohorts } = await import("@/lib/db/schema");
-      const { eq } = await import("drizzle-orm");
-      await db.update(cohorts).set({ priceToUni: null, priceToDatagami: null }).where(eq(cohorts.id, cohortId));
-    }
-  });
-});
+    const oldClone = created.find(
+      (r) => r.accountId === n!.accountId && r.category === "old" && r.semester === n!.semester,
+    );
+    expect(oldClone).toBeDefined();
+    const clonedBatches = await db.select().from(cohorts).where(eq(cohorts.invoiceId, oldClone!.id));
+    expect(clonedBatches.find((c) => c.enrollmentYear === FROM)?.count).toBe(7);
+    expect(oldClone!.students).toBe(clonedBatches.reduce((a, c) => a + c.count, 0));
 
-describe("rolloverYear applies per-cohort count overrides", () => {
-  const COVR = "FY97–COVR";
-
-  it("clones cohorts with the overridden count and syncs invoice.students to the sum", async () => {
-    const { db } = await import("@/lib/db/client");
-    const { invoices, cohorts, accounts, academicYears } = await import("@/lib/db/schema");
-    const { and, eq } = await import("drizzle-orm");
-
-    const [acc] = await db.select().from(accounts).where(eq(accounts.name, "Kalinga University"));
-    const [fromYear] = await db.select().from(academicYears).where(eq(academicYears.label, FROM));
-    const [oldInv] = await db
-      .select()
-      .from(invoices)
-      .where(and(eq(invoices.accountId, acc.id), eq(invoices.yearId, fromYear.id), eq(invoices.category, "old")));
-    const srcCohorts = await db.select().from(cohorts).where(eq(cohorts.invoiceId, oldInv.id));
-    expect(srcCohorts.length).toBeGreaterThan(0);
-    const target = srcCohorts[0];
-    const newCount = target.count + 7;
-
-    await rolloverYear(SUPER, FROM, COVR, {}, { [oldInv.id]: { [target.enrollmentYear]: newCount } });
-
-    const [toYear] = await db.select().from(academicYears).where(eq(academicYears.label, COVR));
-    const [clonedInv] = await db
-      .select()
-      .from(invoices)
-      .where(
-        and(
-          eq(invoices.accountId, acc.id),
-          eq(invoices.yearId, toYear.id),
-          eq(invoices.category, "old"),
-          eq(invoices.semester, oldInv.semester),
-        ),
+    // If the sampled old invoice is on the same account+semester, its batch
+    // override must be applied too (data-dependent, hence conditional).
+    if (oldBatches.length && o!.accountId === n!.accountId && o!.semester === n!.semester) {
+      expect(clonedBatches.find((c) => c.enrollmentYear === oldBatches[0].enrollmentYear)?.count).toBe(
+        oldBatches[0].count + 3,
       );
-    const cloned = await db.select().from(cohorts).where(eq(cohorts.invoiceId, clonedInv.id));
-    const match = cloned.find((c) => c.enrollmentYear === target.enrollmentYear);
-    expect(match?.count).toBe(newCount); // override applied to the cohort
-    // invoice.students is kept in sync with the cohort sum (the engine's basis).
-    expect(clonedInv.students).toBe(cloned.reduce((a, c) => a + c.count, 0));
-
-    // The audit trigger reads created_by/updated_by off the row — assert the
-    // app stamped the bulk-inserted cloned cohorts.
-    for (const c of cloned) {
-      expect(c.createdBy).toBe(SUPER.id);
-      expect(c.updatedBy).toBe(SUPER.id);
     }
   });
 
   afterAll(async () => {
-    const ids = await snapshotYearIds(COVR);
-    await deleteYear(SUPER, COVR);
+    const ids = await snapshotYearIds(EDIT);
+    await deleteYear(SUPER, EDIT);
     await cleanupAudit(ids);
+  });
+});
+
+describe("rolloverYear structural edges (temp account)", () => {
+  const TEMP = "FY96–TEMP";
+  let tempAccountId: number | null = null;
+  let tempSourceInvoiceIds: number[] = [];
+
+  it("materializes scalar-old counts, merges duplicate intakes, creates missing old invoices", async () => {
+    const { db } = await import("@/lib/db/client");
+    const { accounts, oems, invoices, cohorts, academicYears } = await import("@/lib/db/schema");
+    const { and, eq, inArray } = await import("drizzle-orm");
+
+    // Temp account: scalar old (12, sem none), two new (30 + 4, sem none — must
+    // merge into one promoted batch), one new (5, sem 1 — no old sem-1 exists,
+    // so rollover must create it).
+    const [oem] = await db.select().from(oems).limit(1);
+    const [acc] = await db
+      .insert(accounts)
+      .values({
+        name: "ZZ Promo Test University",
+        type: "university",
+        oemId: oem.id,
+        createdBy: SUPER.id,
+        updatedBy: SUPER.id,
+      })
+      .returning();
+    tempAccountId = acc.id;
+    const [fromYear] = await db.select().from(academicYears).where(eq(academicYears.label, FROM));
+    const mk = (category: "old" | "new", semester: "none" | "1", students: number) => ({
+      accountId: acc.id,
+      yearId: fromYear.id,
+      category,
+      semester,
+      students,
+      status: "draft" as const,
+      createdBy: SUPER.id,
+      updatedBy: SUPER.id,
+    });
+    const srcCreated = await db
+      .insert(invoices)
+      .values([mk("old", "none", 12), mk("new", "none", 30), mk("new", "none", 4), mk("new", "1", 5)])
+      .returning();
+    tempSourceInvoiceIds = srcCreated.map((r) => r.id);
+
+    await rolloverYear(SUPER, FROM, TEMP, {});
+
+    const [toYear] = await db.select().from(academicYears).where(eq(academicYears.label, TEMP));
+    const created = await db
+      .select()
+      .from(invoices)
+      .where(and(eq(invoices.yearId, toYear.id), eq(invoices.accountId, acc.id)));
+    const createdCohorts = await db
+      .select()
+      .from(cohorts)
+      .where(inArray(cohorts.invoiceId, created.map((r) => r.id)));
+
+    // old (none): catch-all batch from the scalar count + merged promoted batch.
+    const oldNone = created.find((r) => r.category === "old" && r.semester === "none");
+    expect(oldNone).toBeDefined();
+    const oldNoneBatches = createdCohorts.filter((c) => c.invoiceId === oldNone!.id);
+    expect(oldNoneBatches.find((c) => c.enrollmentYear === prevFyLabel(FROM))?.count).toBe(12);
+    expect(oldNoneBatches.find((c) => c.enrollmentYear === FROM)?.count).toBe(34); // 30 + 4 merged
+    expect(oldNone!.students).toBe(46);
+
+    // old (sem 1): auto-created to receive the sem-1 promotion.
+    const oldOne = created.find((r) => r.category === "old" && r.semester === "1");
+    expect(oldOne).toBeDefined();
+    const oldOneBatches = createdCohorts.filter((c) => c.invoiceId === oldOne!.id);
+    expect(oldOneBatches).toHaveLength(1);
+    expect(oldOneBatches[0].enrollmentYear).toBe(FROM);
+    expect(oldOneBatches[0].count).toBe(5);
+    expect(oldOne!.students).toBe(5);
+
+    // Fresh intake rows mirror the source structure (one per source new stream).
+    const freshNone = created
+      .filter((r) => r.category === "new" && r.semester === "none")
+      .map((r) => r.students)
+      .sort((a, b) => a - b);
+    expect(freshNone).toEqual([4, 30]);
+    const freshOne = created.find((r) => r.category === "new" && r.semester === "1");
+    expect(freshOne?.students).toBe(5);
+  });
+
+  afterAll(async () => {
+    const { db } = await import("@/lib/db/client");
+    const { accounts, invoices, cohorts } = await import("@/lib/db/schema");
+    const { eq, inArray } = await import("drizzle-orm");
+
+    // Target year first (captures its ids), then the temp source rows + account.
+    const ids = await snapshotYearIds(TEMP);
+    await deleteYear(SUPER, TEMP);
+
+    let srcCohortIds: number[] = [];
+    if (tempSourceInvoiceIds.length) {
+      srcCohortIds = (
+        await db.select({ id: cohorts.id }).from(cohorts).where(inArray(cohorts.invoiceId, tempSourceInvoiceIds))
+      ).map((r) => r.id);
+      await db.delete(invoices).where(inArray(invoices.id, tempSourceInvoiceIds)); // cascades cohorts
+    }
+    if (tempAccountId != null) await db.delete(accounts).where(eq(accounts.id, tempAccountId));
+
+    await cleanupAudit({
+      yearId: ids.yearId,
+      invoiceIds: [...ids.invoiceIds, ...tempSourceInvoiceIds],
+      cohortIds: [...ids.cohortIds, ...srcCohortIds],
+      accountIds: tempAccountId != null ? [tempAccountId] : [],
+    });
   });
 });

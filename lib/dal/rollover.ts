@@ -2,32 +2,25 @@ import "server-only";
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { academicYears, accounts, invoices, cohorts, payments } from "@/lib/db/schema";
+import { nextFyLabel, prevFyLabel } from "@/lib/fy";
 import { canEdit, type SessionUser } from "./authz";
 import { assignedIds } from "./accounts";
 import { stampedDelete, stampedDeleteWhere } from "./audit";
-import { nextFyLabel } from "@/lib/fy";
 
 export interface RolloverCohort {
   enrollmentYear: string;
   count: number;
-  priceToUni: number | null;
-  priceToDatagami: number | null;
 }
 
 export interface RolloverPlanRow {
   invoiceId: number;
   accountId: number;
   accountName: string;
-  category: string;
+  category: string; // "old" | "new" — advance streams are never rolled over
   semester: string;
   students: number;
-  priceToUni: number;
-  priceToDatagami: number;
-  gstRate: number;
-  tdsRate: number;
-  advanceAdj: number;
-  // When non-empty, this invoice's money is cohort-driven; the new-year count is
-  // edited per cohort (the scalar `students` is just their sum).
+  // Non-empty for cohort-driven old invoices; counts are edited per batch and
+  // the scalar `students` is just their sum.
   cohorts: RolloverCohort[];
 }
 
@@ -37,7 +30,21 @@ export interface RolloverPlan {
   rows: RolloverPlanRow[];
 }
 
-/** Editable per-invoice rows for the rollover wizard (carried-forward values). */
+/**
+ * Wizard edits for rolloverYear. All keys are SOURCE-year invoice ids.
+ * - scalarCounts: fresh-intake estimate for a `new` invoice, or the carried
+ *   count for a scalar (cohort-less) `old` invoice.
+ * - cohortCounts: per-batch counts for a cohort-driven `old` invoice.
+ * - promotedCounts: the promoted batch's count for a `new` invoice
+ *   (defaults to the source intake).
+ */
+export interface RolloverEdits {
+  scalarCounts?: Record<number, number>;
+  cohortCounts?: Record<number, Record<string, number>>;
+  promotedCounts?: Record<number, number>;
+}
+
+/** Editable per-invoice count rows for the rollover wizard. */
 export async function getRolloverPlan(
   user: SessionUser,
   fromYearLabel: string,
@@ -66,36 +73,27 @@ export async function getRolloverPlan(
         .from(invoices)
         .where(and(eq(invoices.yearId, fromYear.id), inArray(invoices.accountId, editableIds)))
     : [];
+  // Advance streams are not rolled over (counts-only), so the wizard never shows them.
+  const studentRows = invRows.filter((r) => r.category !== "advance");
 
-  // Load cohorts for these invoices so the wizard can edit per-batch counts.
-  const invIds = invRows.map((r) => r.id);
+  const invIds = studentRows.map((r) => r.id);
   const cohortRows = invIds.length
     ? await db.select().from(cohorts).where(inArray(cohorts.invoiceId, invIds))
     : [];
   const cohortsByInvoice = new Map<number, RolloverCohort[]>();
   for (const c of cohortRows) {
     const list = cohortsByInvoice.get(c.invoiceId) ?? [];
-    list.push({
-      enrollmentYear: c.enrollmentYear,
-      count: c.count,
-      priceToUni: c.priceToUni == null ? null : Number(c.priceToUni),
-      priceToDatagami: c.priceToDatagami == null ? null : Number(c.priceToDatagami),
-    });
+    list.push({ enrollmentYear: c.enrollmentYear, count: c.count });
     cohortsByInvoice.set(c.invoiceId, list);
   }
 
-  const rows: RolloverPlanRow[] = invRows.map((r) => ({
+  const rows: RolloverPlanRow[] = studentRows.map((r) => ({
     invoiceId: r.id,
     accountId: r.accountId,
     accountName: nameById.get(r.accountId) ?? "—",
     category: r.category,
     semester: r.semester,
     students: r.students,
-    priceToUni: Number(r.priceToUni),
-    priceToDatagami: Number(r.priceToDatagami),
-    gstRate: Number(r.gstRate),
-    tdsRate: Number(r.tdsRate),
-    advanceAdj: Number(r.advanceAdj),
     cohorts: cohortsByInvoice.get(r.id) ?? [],
   }));
   rows.sort((a, b) => a.accountName.localeCompare(b.accountName));
@@ -111,11 +109,21 @@ export interface RolloverResult {
 }
 
 /**
- * Roll a year forward into a new (Draft) year, retaining all prior-year data.
- * - Creates the target year if it doesn't exist.
- * - For each account the user can edit, clones its `from`-year invoices (+cohorts)
- *   into the target year with status `draft`, applying any edited student counts
- *   (countOverrides keyed by source invoice id).
+ * Roll a year's STUDENT COUNTS forward into a new (Draft) year.
+ *
+ * Counts-only by design (2026-07-22 spec): no billing details are carried —
+ * prices, GST/TDS, advance adjustments and dates all take their schema
+ * defaults, and `advance` streams are not cloned at all. New-year prices are
+ * entered on /pricing; bills are raised as and when needed.
+ *
+ * Batch lifecycle: the source year's `new` intake is PROMOTED into the target
+ * year's `old` invoice as a batch named after the source year (the old invoice
+ * is created if the account had none for that semester; duplicate `new`
+ * streams merge into one batch). A cohort-less `old` invoice's scalar count is
+ * materialized as a catch-all batch labeled with the year before the source
+ * year, so every target-year old invoice is batch-driven.
+ *
+ * - Creates the target year row if it doesn't exist.
  * - Skips an account if it already has target-year invoices (idempotent).
  * - The source year's rows are never modified.
  */
@@ -123,11 +131,7 @@ export async function rolloverYear(
   user: SessionUser,
   fromYearLabel: string,
   toYearLabel: string,
-  countOverrides: Record<number, number> = {},
-  // Per-cohort count overrides: invoiceId → { enrollmentYear → new count }.
-  // For cohort-driven invoices these (not the scalar countOverrides) adjust the
-  // money, and the invoice's `students` is synced to the resulting cohort sum.
-  cohortOverrides: Record<number, Record<string, number>> = {},
+  edits: RolloverEdits = {},
 ): Promise<RolloverResult> {
   const [fromYear] = await db
     .select()
@@ -162,90 +166,143 @@ export async function rolloverYear(
     invoicesCreated: 0,
     skipped: 0,
   };
+  if (!editable.length) return result;
 
-  for (const accountId of editable) {
-    // Skip if target year already populated for this account (idempotent).
-    const existing = await db
-      .select({ id: invoices.id })
+  // Batched reads (house no-N+1 rule): already-populated accounts, all source
+  // invoices, all source cohorts — 3 queries regardless of account count.
+  const [populatedRows, srcRows] = await Promise.all([
+    db
+      .select({ accountId: invoices.accountId })
       .from(invoices)
-      .where(and(eq(invoices.accountId, accountId), eq(invoices.yearId, toYear.id)))
-      .limit(1);
-    if (existing.length) {
+      .where(and(eq(invoices.yearId, toYear.id), inArray(invoices.accountId, editable))),
+    db
+      .select()
+      .from(invoices)
+      .where(and(eq(invoices.yearId, fromYear.id), inArray(invoices.accountId, editable))),
+  ]);
+  const populated = new Set(populatedRows.map((r) => r.accountId));
+  const srcByAccount = new Map<number, typeof srcRows>();
+  for (const s of srcRows) {
+    const list = srcByAccount.get(s.accountId) ?? [];
+    list.push(s);
+    srcByAccount.set(s.accountId, list);
+  }
+  const srcIds = srcRows.map((r) => r.id);
+  const cohortRows = srcIds.length
+    ? await db.select().from(cohorts).where(inArray(cohorts.invoiceId, srcIds))
+    : [];
+  const cohortsByInvoice = new Map<number, typeof cohortRows>();
+  for (const c of cohortRows) {
+    const list = cohortsByInvoice.get(c.invoiceId) ?? [];
+    list.push(c);
+    cohortsByInvoice.set(c.invoiceId, list);
+  }
+
+  const count = (v: number | undefined, fallback: number) =>
+    v != null ? Math.max(0, Math.floor(v)) : fallback;
+
+  // Pure JS from here: build the target-year invoice plans per account.
+  interface Plan {
+    accountId: number;
+    category: "old" | "new";
+    semester: (typeof srcRows)[number]["semester"];
+    students: number;
+    batches: RolloverCohort[];
+  }
+  const plans: Plan[] = [];
+  for (const accountId of editable) {
+    if (populated.has(accountId)) {
       result.skipped++;
       continue;
     }
+    const src = srcByAccount.get(accountId) ?? [];
+    if (!src.length) continue;
 
-    const src = await db
-      .select()
-      .from(invoices)
-      .where(and(eq(invoices.accountId, accountId), eq(invoices.yearId, fromYear.id)));
-    if (src.length === 0) continue;
+    const accountPlans: Plan[] = [];
+    // Old invoices: carry batches (counts only). A cohort-less old invoice's
+    // scalar count becomes a catch-all batch so the promoted batch can join it.
+    for (const s of src.filter((r) => r.category === "old")) {
+      const srcC = cohortsByInvoice.get(s.id) ?? [];
+      let batches: RolloverCohort[];
+      if (srcC.length) {
+        const covr = edits.cohortCounts?.[s.id];
+        batches = srcC.map((c) => ({
+          enrollmentYear: c.enrollmentYear,
+          count: count(covr?.[c.enrollmentYear], c.count),
+        }));
+      } else {
+        const carried = count(edits.scalarCounts?.[s.id], s.students);
+        batches = carried > 0 ? [{ enrollmentYear: prevFyLabel(fromYearLabel), count: carried }] : [];
+      }
+      accountPlans.push({ accountId, category: "old", semester: s.semester, students: 0, batches });
+    }
+    // New invoices: promote the intake into the same-semester old invoice
+    // (created if absent), then start a fresh intake row.
+    for (const n of src.filter((r) => r.category === "new")) {
+      const promoted = count(edits.promotedCounts?.[n.id], n.students);
+      let target = accountPlans.find((p) => p.category === "old" && p.semester === n.semester);
+      if (!target) {
+        target = { accountId, category: "old", semester: n.semester, students: 0, batches: [] };
+        accountPlans.push(target);
+      }
+      const existing = target.batches.find((b) => b.enrollmentYear === fromYearLabel);
+      if (existing) existing.count += promoted; // duplicate `new` streams merge
+      else target.batches.push({ enrollmentYear: fromYearLabel, count: promoted });
 
-    let rolledAny = false;
-    for (const s of src) {
-      // Clone cohorts, applying any per-batch count overrides.
-      const srcCohorts = await db
-        .select()
-        .from(cohorts)
-        .where(eq(cohorts.invoiceId, s.id));
-      const covr = cohortOverrides[s.id];
-      const clonedCohorts = srcCohorts.map((c) => ({
-        invoiceId: 0, // set after the invoice is created
-        enrollmentYear: c.enrollmentYear,
-        count:
-          covr && covr[c.enrollmentYear] != null
-            ? Math.max(0, Math.floor(covr[c.enrollmentYear]))
-            : c.count,
-        // Carry each cohort's locked price forward into the new year.
-        priceToUni: c.priceToUni,
-        priceToDatagami: c.priceToDatagami,
-      }));
+      accountPlans.push({
+        accountId,
+        category: "new",
+        semester: n.semester,
+        students: count(edits.scalarCounts?.[n.id], n.students),
+        batches: [],
+      });
+    }
+    // `advance` streams are deliberately not cloned (counts-only rollover).
 
-      // Cohort-driven invoices: students = Σ cohort counts (the engine's basis),
-      // so the scalar override is ignored to keep the two in sync. Otherwise the
-      // scalar override (or carried count) wins.
-      const students = srcCohorts.length
-        ? clonedCohorts.reduce((a, c) => a + c.count, 0)
-        : countOverrides[s.id] != null
-          ? Math.max(0, countOverrides[s.id])
-          : s.students;
+    // Cohort-driven invoices keep students = Σ batch counts (engine's basis).
+    for (const p of accountPlans) {
+      if (p.batches.length) p.students = p.batches.reduce((a, b) => a + b.count, 0);
+    }
+    if (accountPlans.length) {
+      plans.push(...accountPlans);
+      result.accountsRolled++;
+    }
+  }
 
-      const [created] = await db
-        .insert(invoices)
-        .values({
-          accountId,
+  if (plans.length) {
+    // Two bulk inserts. Postgres preserves VALUES order in RETURNING, so
+    // created[i] corresponds to plans[i].
+    const created = await db
+      .insert(invoices)
+      .values(
+        plans.map((p) => ({
+          accountId: p.accountId,
           yearId: toYear.id,
-          category: s.category,
-          semester: s.semester,
-          students,
-          priceToUni: s.priceToUni,
-          priceToDatagami: s.priceToDatagami,
-          gstRate: s.gstRate,
-          tdsRate: s.tdsRate,
-          advanceAdj: s.advanceAdj,
+          category: p.category,
+          semester: p.semester,
+          students: p.students,
+          // Counts-only: prices/GST/TDS/advanceAdj take their schema defaults.
           invoiceDate: null,
-          status: "draft",
+          status: "draft" as const,
           createdBy: user.id,
           updatedBy: user.id,
-        })
-        .returning();
-      result.invoicesCreated++;
-      rolledAny = true;
+        })),
+      )
+      .returning({ id: invoices.id });
+    result.invoicesCreated = created.length;
 
-      if (clonedCohorts.length) {
-        await db
-          .insert(cohorts)
-          .values(
-            clonedCohorts.map((c) => ({
-              ...c,
-              invoiceId: created.id,
-              createdBy: user.id,
-              updatedBy: user.id,
-            })),
-          );
-      }
-    }
-    if (rolledAny) result.accountsRolled++;
+    const cohortValues = plans.flatMap((p, i) =>
+      p.batches.map((b) => ({
+        invoiceId: created[i].id,
+        enrollmentYear: b.enrollmentYear,
+        count: b.count,
+        priceToUni: null,
+        priceToDatagami: null,
+        createdBy: user.id,
+        updatedBy: user.id,
+      })),
+    );
+    if (cohortValues.length) await db.insert(cohorts).values(cohortValues);
   }
 
   return result;
