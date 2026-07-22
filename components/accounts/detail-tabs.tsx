@@ -37,12 +37,15 @@ export function DetailTabs({
   accountId,
   currentYear,
   canEdit = false,
+  isSuperAdmin = false,
 }: {
   invoices: Inv[];
   oem: string;
   accountId: number;
   currentYear: string;
   canEdit?: boolean;
+  /** Super-admins alone may delete a bill of any status (spec §8). */
+  isSuperAdmin?: boolean;
 }) {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Ladder");
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -95,6 +98,7 @@ export function DetailTabs({
                 accountId={accountId}
                 currentYear={currentYear}
                 canEdit={canEdit}
+                isSuperAdmin={isSuperAdmin}
                 onEdit={canEdit ? () => setEditingId(inv.id) : undefined}
               />
             ),

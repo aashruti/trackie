@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Money } from "@/components/ui/money";
 import { StatusBadge } from "@/components/ui/badge";
 import { PaymentForm } from "./payment-form";
-import { deleteDraftInvoiceAction } from "@/app/(app)/accounts/[id]/actions";
+import { DeleteBillDialog } from "./delete-bill-dialog";
+import { billDeletionPreviewAction } from "@/app/(app)/accounts/[id]/actions";
+import type { BillDeletionPreview } from "@/lib/dal/account-admin";
 import type { InvoiceComputed, Status } from "@/lib/money/types";
 import type { Direction, PaymentEntry } from "@/lib/dal/payments";
 import { fmtDay, isOverdue } from "@/lib/dates";
@@ -74,19 +76,46 @@ export function InvoiceLadder({
   accountId,
   currentYear,
   canEdit = false,
+  isSuperAdmin = false,
   onEdit,
 }: {
   inv: LadderInvoice;
   accountId: number;
   currentYear?: string;
   canEdit?: boolean;
+  /** Super-admins alone may delete a bill of any status (spec §8). */
+  isSuperAdmin?: boolean;
   onEdit?: () => void;
 }) {
   const isAdvance = inv.category === "advance";
   const self = inv.selfSupplied === true;
   const [paying, setPaying] = useState<Direction | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [deleting, startDelete] = useTransition();
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [preview, setPreview] = useState<BillDeletionPreview | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  // Fetch the cascade first, then open — the dialog's whole job is to show
+  // what is about to be destroyed, so it never opens without that answer.
+  // A failed fetch still opens, in an error state, rather than dead-ending.
+  async function openDeleteDialog() {
+    setLoadingPreview(true);
+    setPreview(null);
+    setPreviewError(null);
+    try {
+      const res = await billDeletionPreviewAction(accountId, inv.id);
+      if (res.ok) setPreview(res.preview);
+      else setPreviewError(res.error);
+    } catch (e) {
+      // Transport-level failure (the action itself never throws).
+      setPreviewError(
+        e instanceof Error ? e.message : "Could not work out what deleting this bill would remove.",
+      );
+    } finally {
+      setLoadingPreview(false);
+      setDeleteOpen(true);
+    }
+  }
 
   return (
     <Card className="p-5">
@@ -132,33 +161,18 @@ export function InvoiceLadder({
                   Edit
                 </button>
               )}
-              {inv.status === "draft" && (
-                confirmDelete ? (
-                  <span className="flex items-center gap-1">
-                    <button
-                      onClick={() => startDelete(async () => { await deleteDraftInvoiceAction(accountId, inv.id); })}
-                      disabled={deleting}
-                      className="rounded-md border border-[var(--negative-border)] bg-[var(--negative-subtle)] px-2.5 py-1 text-xs font-medium text-[var(--negative-text)] hover:opacity-80 disabled:opacity-50"
-                    >
-                      {deleting ? "Deleting…" : "Confirm delete"}
-                    </button>
-                    <button
-                      onClick={() => setConfirmDelete(false)}
-                      className="rounded-md border border-border-strong bg-surface px-2 py-1 text-xs text-text-muted hover:bg-surface-hover"
-                    >
-                      Cancel
-                    </button>
-                  </span>
-                ) : (
-                  <button
-                    onClick={() => setConfirmDelete(true)}
-                    className="rounded-md border border-border-strong bg-surface px-2.5 py-1 text-xs font-medium text-[var(--negative-text)] hover:bg-[var(--negative-subtle)]"
-                  >
-                    Delete
-                  </button>
-                )
-              )}
             </>
+          )}
+          {/* Any status, super-admin only (spec §8) — the old draft-only gate
+              is gone; the itemised dialog is what makes that safe. */}
+          {isSuperAdmin && (
+            <button
+              onClick={openDeleteDialog}
+              disabled={loadingPreview}
+              className="rounded-md border border-border-strong bg-surface px-2.5 py-1 text-xs font-medium text-[var(--negative-text)] hover:bg-[var(--negative-subtle)] disabled:opacity-50"
+            >
+              {loadingPreview ? "Checking…" : "Delete"}
+            </button>
           )}
           <StatusBadge status={inv.status} />
         </div>
@@ -272,6 +286,17 @@ export function InvoiceLadder({
           invoiceId={inv.id}
           direction={paying}
           onClose={() => setPaying(null)}
+        />
+      )}
+
+      {deleteOpen && (
+        <DeleteBillDialog
+          accountId={accountId}
+          invoiceId={inv.id}
+          billLabel={title(inv)}
+          preview={preview}
+          loadError={previewError}
+          onClose={() => setDeleteOpen(false)}
         />
       )}
 

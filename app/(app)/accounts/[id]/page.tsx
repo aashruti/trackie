@@ -128,6 +128,7 @@ export default async function AccountDetailPage({
             accountId={detail.id}
             currentYear={YEAR}
             canEdit={user.roles.some((r) => r !== "viewer")}
+            isSuperAdmin={user.roles.includes("super-admin")}
           />
         )}
       </main>
