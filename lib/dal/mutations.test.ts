@@ -114,16 +114,26 @@ describe("mergeCohortRows", () => {
     expect(mergeCohortRows(rows)).toEqual(rows);
   });
 
-  it("merges same-label rows: counts sum, first non-null price wins", () => {
+  it("merges same-label rows only when prices are identical (counts sum)", () => {
     const merged = mergeCohortRows([
-      { enrollmentYear: "FY24–25", count: 10, priceToUni: null, priceToDatagami: "70" },
-      { enrollmentYear: "FY24–25", count: 4, priceToUni: "100", priceToDatagami: "80" },
+      { enrollmentYear: "FY24–25", count: 10, priceToUni: "100", priceToDatagami: "70" },
+      { enrollmentYear: "FY24–25", count: 4, priceToUni: "100", priceToDatagami: "70" },
       { enrollmentYear: "FY25–26", count: 1, priceToUni: null, priceToDatagami: null },
     ]);
     expect(merged).toEqual([
       { enrollmentYear: "FY24–25", count: 14, priceToUni: "100", priceToDatagami: "70" },
       { enrollmentYear: "FY25–26", count: 1, priceToUni: null, priceToDatagami: null },
     ]);
+  });
+
+  it("keeps same-label rows with conflicting prices separate (no silent loss)", () => {
+    // Mirrors migration 0020: price-conflicting duplicates are money-bearing
+    // and must survive a save untouched, not collapse into one.
+    const rows = [
+      { enrollmentYear: "FY24–25", count: 10, priceToUni: null, priceToDatagami: "70" },
+      { enrollmentYear: "FY24–25", count: 4, priceToUni: "100", priceToDatagami: "80" },
+    ];
+    expect(mergeCohortRows(rows)).toEqual(rows);
   });
 
   it("does not mutate its input", () => {

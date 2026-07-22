@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth/config";
 import { updateInvoice, setCohorts, type CohortInput } from "@/lib/dal/mutations";
+import { assignedIds } from "@/lib/dal/accounts";
 import { canViewFinance } from "@/lib/dal/authz";
 import { isUserError } from "@/lib/dal/errors";
 
@@ -24,14 +25,19 @@ export async function savePricingAction(edits: PricingEdit[]): Promise<SavePrici
     return { ok: false, error: "Pricing is available to Sales / Super Admin only" };
   }
 
+  // Resolve the user's assigned accounts ONCE for the whole batch (super-admin
+  // ignores it) — each helper re-checks canEdit against this, so a forged
+  // payload still can't reach an unassigned account, without N extra queries.
+  const assigned = user.roles.includes("super-admin") ? [] : await assignedIds(user.id);
+
   try {
     // Sequential loop over EDITED invoices only — each helper re-checks canEdit
     // and keeps the batch↔scalar sync, so the bulk screen inherits every
     // invariant for free. Bounded by the user's edit batch, not table size.
     const touched = new Set<number>();
     for (const e of edits) {
-      if (e.invoice) await updateInvoice(user, e.invoiceId, e.invoice);
-      if (e.cohorts) await setCohorts(user, e.invoiceId, e.cohorts);
+      if (e.invoice) await updateInvoice(user, e.invoiceId, e.invoice, assigned);
+      if (e.cohorts) await setCohorts(user, e.invoiceId, e.cohorts, assigned);
       touched.add(e.accountId);
     }
     revalidatePath("/pricing");

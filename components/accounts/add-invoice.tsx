@@ -19,8 +19,8 @@ const INVOICE_STATUSES: { value: Status; label: string }[] = [
 const CATEGORIES = REPORT_CATEGORIES.map((value) => ({ value, label: CATEGORY_LABEL[value] }));
 const SEMESTERS: { value: Semester; label: string }[] = [
   { value: "none", label: "Yearly (no split)" },
-  { value: "1", label: "1st semester" },
-  { value: "2", label: "2nd semester" },
+  { value: "1", label: "Odd sem" },
+  { value: "2", label: "Even sem" },
 ];
 
 export function AddInvoice({

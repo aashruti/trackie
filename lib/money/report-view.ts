@@ -31,7 +31,7 @@ export const CATEGORY_LABEL: Record<ReportCategory, string> = {
 };
 
 /**
- * "Old students · 1st sem" style label for an invoice stream. Takes plain
+ * "Old students · Odd sem" style label for an invoice stream. Takes plain
  * strings because DAL row types carry category/semester untyped; unknown
  * categories fall back to the raw value.
  */

@@ -63,6 +63,14 @@ runs `normalizeBatchLabel` on save.
 
 Anything not matching a known pattern is left untouched. Data-only migration — no schema change.
 
+**Scope (accepted, self-healing):** the migration covers the realistic legacy forms (hyphen,
+2- or 4-digit, optional `FY`/space). `normalizeBatchLabel` recognizes a slightly broader set
+(em-dash, lowercase `fy`, `FY2024-25`) — any exotic straggler the bulk rename misses is
+canonicalized by the runtime normalizer on its next edit, so it converges to the canonical form
+without a second migration. Migration **0020** then merges any price-agreeing duplicate labels
+0019 folds together; `mergeCohortRows` (in `setCohorts`) applies the same rule at write time and
+leaves price-*conflicting* same-label rows separate (money-bearing — never silently collapsed).
+
 ## Part 3 — Rollover: counts-only + promotion (`lib/dal/rollover.ts`)
 
 Unchanged: idempotent per-account skip when the target year already has invoices; everything created

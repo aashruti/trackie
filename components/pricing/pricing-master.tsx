@@ -287,7 +287,7 @@ export function PricingMaster({
                           const orig = inv.batches[bi];
                           return (
                             <tr
-                              key={`${inv.invoiceId}:${b.enrollmentYear}`}
+                              key={`${inv.invoiceId}:${bi}:${b.enrollmentYear}`}
                               className="border-b border-border-subtle bg-surface-sunken/50 align-top last:border-0"
                             >
                               <td className="py-1.5 pl-8 pr-3 text-xs text-text-secondary">
