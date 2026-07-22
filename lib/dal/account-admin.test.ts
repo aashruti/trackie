@@ -21,6 +21,7 @@ import {
   listOems,
 } from "./account-admin";
 import { getAccountDetail } from "./account-detail";
+import { computeInvoice } from "@/lib/money/compute";
 
 const SUPER = { id: 1, roles: ["super-admin" as const] };
 const YEAR = "FY26–27";
@@ -451,7 +452,7 @@ describe("deleteBill / getBillDeletionPreview", () => {
       /Super Admin/,
     );
     await expect(
-      deleteBill(SALES, fx.accountId, cleanup.invoiceId, cleanup.paymentIds),
+      deleteBill(SALES, fx.accountId, cleanup.invoiceId, cleanup.paymentIds, 2),
     ).rejects.toThrow(/Super Admin/);
 
     // Nothing was destroyed on the way to the rejection.
@@ -467,7 +468,7 @@ describe("deleteBill / getBillDeletionPreview", () => {
     await expect(
       getBillDeletionPreview(DELETER, fx.accountId, cleanup.otherInvoiceId),
     ).rejects.toThrow(/not found/i);
-    await expect(deleteBill(DELETER, fx.accountId, cleanup.otherInvoiceId, [])).rejects.toThrow(
+    await expect(deleteBill(DELETER, fx.accountId, cleanup.otherInvoiceId, [], 0)).rejects.toThrow(
       /not found/i,
     );
 
@@ -525,7 +526,7 @@ describe("deleteBill / getBillDeletionPreview", () => {
     const [before] = await db.select().from(invoices).where(eq(invoices.id, cleanup.invoiceId));
     expect(before.status).toBe("paid"); // the retired function would have refused here
 
-    await deleteBill(DELETER, fx.accountId, cleanup.invoiceId, previewedPaymentIds);
+    await deleteBill(DELETER, fx.accountId, cleanup.invoiceId, previewedPaymentIds, preview.cohortCount);
 
     expect(await db.select().from(invoices).where(eq(invoices.id, cleanup.invoiceId))).toHaveLength(0);
     expect(await db.select().from(payments).where(eq(payments.invoiceId, cleanup.invoiceId))).toHaveLength(0);
@@ -677,7 +678,7 @@ describe("deleteBill — the confirm must assert on what the dialog previewed", 
 
     // Confirming now would destroy strictly MORE money than the dialog showed.
     await expect(
-      deleteBill(DELETER, fx.accountId, inv.a, previewedIds),
+      deleteBill(DELETER, fx.accountId, inv.a, previewedIds, preview.cohortCount),
     ).rejects.toThrow(/changed since you opened this dialog/i);
 
     // Nothing at all was destroyed — not the bill, not any payment, including
@@ -696,7 +697,7 @@ describe("deleteBill — the confirm must assert on what the dialog previewed", 
     const previewedIds = preview.payments.map((p) => p.id);
     expect(previewedIds).toHaveLength(3);
 
-    await deleteBill(DELETER, fx.accountId, inv.a, previewedIds);
+    await deleteBill(DELETER, fx.accountId, inv.a, previewedIds, preview.cohortCount);
 
     expect(await db.select().from(invoices).where(eq(invoices.id, inv.a))).toHaveLength(0);
     expect(await db.select().from(payments).where(eq(payments.invoiceId, inv.a))).toHaveLength(0);
@@ -710,7 +711,7 @@ describe("deleteBill — the confirm must assert on what the dialog previewed", 
     // actually differs.
     expect(shuffled).not.toEqual(preview.payments.map((p) => p.id));
 
-    await deleteBill(DELETER, fx.accountId, inv.b, shuffled);
+    await deleteBill(DELETER, fx.accountId, inv.b, shuffled, preview.cohortCount);
 
     expect(await db.select().from(invoices).where(eq(invoices.id, inv.b))).toHaveLength(0);
     expect(await db.select().from(payments).where(eq(payments.invoiceId, inv.b))).toHaveLength(0);
@@ -725,5 +726,158 @@ describe("deleteBill — the confirm must assert on what the dialog previewed", 
 
     // C carries no payments — the identifying fields must not depend on them.
     expect(preview.payments).toHaveLength(0);
+  });
+});
+
+describe("deleteBill / getBillDeletionPreview — cohort pricing & the cohort guard", () => {
+  const RUN = String(Date.now()).slice(-9);
+  const fx = { oemId: 0, accountId: 0, deleterId: 0 };
+  // pricedInvoiceId: cohort-priced bill (FIX 1). guardInvoiceId: 2 cohorts, no
+  // payments (FIX 3). Track cohort ids so the audit sweep covers cascade rows.
+  const cleanup = { invoiceIds: [] as number[], cohortIds: [] as number[] };
+  let pricedInvoiceId = 0;
+  let guardInvoiceId = 0;
+  let DELETER = { id: 0, roles: ["super-admin" as const] };
+
+  beforeAll(async () => {
+    const [deleter] = await db
+      .insert(users)
+      .values({
+        name: `Cohort Deleter ${RUN}`,
+        email: `cohort-deleter-${RUN}@test.local`,
+        passwordHash: "x",
+        role: "super-admin",
+      })
+      .returning({ id: users.id });
+    fx.deleterId = deleter.id;
+    DELETER = { id: deleter.id, roles: ["super-admin" as const] };
+
+    const [oem] = await db
+      .insert(oems)
+      .values({ name: `CohortBillOEM-${RUN}`, createdBy: SUPER.id, updatedBy: SUPER.id })
+      .returning({ id: oems.id });
+    fx.oemId = oem.id;
+
+    const [acc] = await db
+      .insert(accounts)
+      .values({ name: `CohortBillUni-${RUN}`, oemId: oem.id, createdBy: SUPER.id, updatedBy: SUPER.id })
+      .returning({ id: accounts.id });
+    fx.accountId = acc.id;
+
+    // An "old students" bill whose two cohorts carry locked per-cohort prices
+    // that differ from the invoice's own priceToUni. The ladder bills the sum
+    // of the cohort prices, NOT students × invoice price.
+    const priced = await createInvoice(SUPER, fx.accountId, YEAR, {
+      category: "old",
+      semester: "none",
+      students: 10,
+      priceToUni: 1000, // invoice fallback — deliberately NOT what a cohort uses
+      priceToDatagami: 800,
+      gstRate: 0.18,
+      tdsRate: 0.1,
+      status: "paid",
+    });
+    pricedInvoiceId = priced.id;
+    cleanup.invoiceIds.push(priced.id);
+    const pricedCohorts = await db
+      .insert(cohorts)
+      .values([
+        { invoiceId: priced.id, enrollmentYear: "2024-25", count: 4, priceToUni: "1500", createdBy: SUPER.id, updatedBy: SUPER.id },
+        { invoiceId: priced.id, enrollmentYear: "2025-26", count: 6, priceToUni: "800", createdBy: SUPER.id, updatedBy: SUPER.id },
+      ])
+      .returning({ id: cohorts.id });
+    cleanup.cohortIds.push(...pricedCohorts.map((c) => c.id));
+
+    // A separate bill with two cohorts and no payments — the fixture for the
+    // cohort-count guard.
+    const guard = await createInvoice(SUPER, fx.accountId, YEAR, {
+      category: "old",
+      semester: "none",
+      students: 7,
+      priceToUni: 2000,
+      priceToDatagami: 1500,
+      gstRate: 0.18,
+      tdsRate: 0.1,
+      status: "paid",
+    });
+    guardInvoiceId = guard.id;
+    cleanup.invoiceIds.push(guard.id);
+    const guardCohorts = await db
+      .insert(cohorts)
+      .values([
+        { invoiceId: guard.id, enrollmentYear: "2024-25", count: 3, createdBy: SUPER.id, updatedBy: SUPER.id },
+        { invoiceId: guard.id, enrollmentYear: "2025-26", count: 4, createdBy: SUPER.id, updatedBy: SUPER.id },
+      ])
+      .returning({ id: cohorts.id });
+    cleanup.cohortIds.push(...guardCohorts.map((c) => c.id));
+  });
+
+  afterAll(async () => {
+    for (const id of cleanup.invoiceIds) await db.delete(invoices).where(eq(invoices.id, id));
+    if (fx.accountId) await db.delete(accounts).where(eq(accounts.id, fx.accountId));
+    if (fx.oemId) await db.delete(oems).where(eq(oems.id, fx.oemId));
+    if (fx.deleterId) await db.delete(users).where(eq(users.id, fx.deleterId));
+
+    const scopes: Array<[string, number]> = [
+      ["accounts", fx.accountId],
+      ["oems", fx.oemId],
+      ["users", fx.deleterId],
+      ...cleanup.invoiceIds.map((id) => ["invoices", id] as [string, number]),
+      ...cleanup.cohortIds.map((id) => ["cohorts", id] as [string, number]),
+    ];
+    for (const [tableName, rowId] of scopes) {
+      if (!rowId) continue;
+      await db.delete(auditLog).where(and(eq(auditLog.tableName, tableName), eq(auditLog.rowId, String(rowId))));
+    }
+  });
+
+  it("bills a cohort-priced invoice at the ladder's figure, not students × invoice price", async () => {
+    const preview = await getBillDeletionPreview(DELETER, fx.accountId, pricedInvoiceId);
+
+    // The authoritative money engine, run on the same invoice + cohorts, IS the
+    // ladder's "Billing" line. The preview must equal it exactly.
+    const expected = computeInvoice({
+      category: "old",
+      semester: "none",
+      students: 10,
+      priceToUni: 1000,
+      priceToDatagami: 800,
+      gstRate: 0.18,
+      tdsRate: 0.1,
+      advanceAdj: 0,
+      cohortPricing: [
+        { count: 4, priceToUni: 1500, priceToDatagami: null },
+        { count: 6, priceToUni: 800, priceToDatagami: null },
+      ],
+    }).billing;
+    // 4×1500 + 6×800 = 10800 taxable, +18% GST = 12744.
+    expect(expected).toBe(12744);
+    expect(preview.billedAmount).toBe(expected);
+
+    // Discriminating: the retired naive figure (students × invoice price + GST)
+    // would have been 10×1000 = 10000, +18% = 11800. The cohort overrides must
+    // move the number off that.
+    expect(preview.billedAmount).not.toBe(11800);
+    expect(preview.cohortCount).toBe(2);
+  });
+
+  it("REFUSES to delete when the cohort count changed after the preview, and destroys nothing", async () => {
+    // The dialog previews two cohort rows and no payments.
+    const preview = await getBillDeletionPreview(DELETER, fx.accountId, guardInvoiceId);
+    expect(preview.cohortCount).toBe(2);
+    expect(preview.payments).toHaveLength(0);
+
+    // …and while the dialog sits open, one cohort is removed from the bill.
+    await db.delete(cohorts).where(eq(cohorts.id, cleanup.cohortIds[cleanup.cohortIds.length - 1]));
+
+    // Confirming against the two-cohort preview now no longer matches the bill.
+    await expect(
+      deleteBill(DELETER, fx.accountId, guardInvoiceId, [], preview.cohortCount),
+    ).rejects.toThrow(/changed since you opened this dialog/i);
+
+    // Nothing was destroyed by the delete — the invoice and its remaining
+    // cohort survive (only the row the test itself removed is gone).
+    expect(await db.select().from(invoices).where(eq(invoices.id, guardInvoiceId))).toHaveLength(1);
+    expect(await db.select().from(cohorts).where(eq(cohorts.invoiceId, guardInvoiceId))).toHaveLength(1);
   });
 });

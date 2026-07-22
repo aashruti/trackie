@@ -51,10 +51,16 @@ export function DeleteBillDialog({
     setError(null);
     startDelete(async () => {
       try {
-        // Confirm against exactly the payments listed below: the DAL refuses if
-        // the bill has gained or lost one since the preview, so the user can
-        // never destroy more than this dialog showed them.
-        const res = await deleteBillAction(accountId, invoiceId, payments.map((p) => p.id));
+        // Confirm against exactly what this dialog showed — the payments listed
+        // below and the cohort-row count. The DAL refuses if the bill has
+        // gained or lost a payment or cohort since the preview, so a delete
+        // approved here can't quietly destroy a different set than was shown.
+        const res = await deleteBillAction(
+          accountId,
+          invoiceId,
+          payments.map((p) => p.id),
+          preview?.cohortCount ?? 0,
+        );
         // Stay open on failure — silently closing would read as success.
         if (res.ok) onClose();
         else setError(res.error);

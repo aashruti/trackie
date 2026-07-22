@@ -98,9 +98,12 @@ export async function billDeletionPreviewAction(
   accountId: number,
   invoiceId: number,
 ): Promise<BillPreviewResult> {
+  // Auth lives outside the try so an unauthenticated call surfaces a clear
+  // auth error (the file's convention), instead of being swallowed into the
+  // generic "couldn't work out…" string below.
+  const session = await auth();
+  if (!session?.user) throw new Error("Not authenticated");
   try {
-    const session = await auth();
-    if (!session?.user) throw new Error("Not authenticated");
     const preview = await getBillDeletionPreview(sessionUser(session), accountId, invoiceId);
     return { ok: true, preview };
   } catch (e) {
@@ -115,19 +118,24 @@ export async function billDeletionPreviewAction(
 }
 
 /**
- * `expectedPaymentIds` is the ids of the payments the confirmation dialog
- * itemised — the delete is refused if the bill's payments no longer match it,
- * so the user can never destroy more than they were shown.
+ * `expectedPaymentIds` and `expectedCohortCount` are what the confirmation
+ * dialog itemised — the delete is refused if the bill's payments or cohort
+ * count no longer match, so the user is stopped from destroying a set they
+ * were never shown (changes that land in the tiny non-atomic window between the
+ * DAL's re-read and the cascade are not caught — see deleteBill).
  */
 export async function deleteBillAction(
   accountId: number,
   invoiceId: number,
   expectedPaymentIds: number[],
+  expectedCohortCount: number,
 ): Promise<ActionResult> {
+  // Auth outside the try so an unauthenticated call surfaces a clear auth error
+  // instead of the generic "could not delete" string (matches the file).
+  const session = await auth();
+  if (!session?.user) throw new Error("Not authenticated");
   try {
-    const session = await auth();
-    if (!session?.user) throw new Error("Not authenticated");
-    await deleteBill(sessionUser(session), accountId, invoiceId, expectedPaymentIds);
+    await deleteBill(sessionUser(session), accountId, invoiceId, expectedPaymentIds, expectedCohortCount);
     revalidatePath(`/accounts/${accountId}`);
     return { ok: true };
   } catch (e) {

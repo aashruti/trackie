@@ -1,5 +1,5 @@
 import "server-only";
-import { asc, count, eq, inArray } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
   accounts,
@@ -16,7 +16,8 @@ import { assignedIds } from "./accounts";
 import { stampedDelete, stampedDeleteWhere } from "./audit";
 import { UserError } from "./errors";
 import type { PaymentEntry } from "./payments";
-import type { Category, Semester, Status } from "@/lib/money/types";
+import { computeInvoice } from "@/lib/money/compute";
+import type { Category, CohortPricing, Semester, Status } from "@/lib/money/types";
 
 function assertSuperAdmin(user: SessionUser) {
   if (!user.roles.includes("super-admin")) throw new Error("Only a Super Admin can do this");
@@ -183,15 +184,17 @@ export async function createInvoice(
 export interface BillDeletionPreview {
   invoiceId: number;
   /**
-   * The invoice's own billed amount in rupees — net taxable (students ×
-   * priceToUni, less any advance adjustment) plus GST, i.e. `billing` from
-   * {@link computeInvoice} computed off the invoice row alone.
+   * The bill's billed amount in rupees — exactly the `billing` figure the
+   * ladder shows, produced by running the invoice (and its cohort rows)
+   * through {@link computeInvoice}. Per-cohort price overrides ARE applied:
+   * when the cohorts carry locked prices, billing is Σ(count × cohort price)
+   * less any advance, plus GST — matching the ladder's "Billing" line rather
+   * than a naive students × priceToUni.
    *
-   * Present purely to identify the bill: there is no unique constraint on
+   * Present to identify the bill: there is no unique constraint on
    * (account_id, year_id, category, semester), so two bills can share the
    * "Old · 1st sem" label the dialog shows and nothing else would tell them
-   * apart. Per-cohort price overrides are NOT applied (that would need the
-   * cohort rows) — this is the invoice's own figure, not the ladder's total.
+   * apart.
    */
   billedAmount: number;
   /** The invoice's own date (YYYY-MM-DD), or null if it was never set. */
@@ -222,8 +225,8 @@ function sumRupees(amounts: number[]): number {
  * the delete it precedes, so the dialog can never preview a bill the caller
  * could not then delete.
  *
- * Two queries (spec §8): one grouped invoice+cohort-count lookup that doubles as
- * the ownership check, one for the payment rows.
+ * Two queries (spec §8): one invoice+cohorts lookup that doubles as the
+ * ownership check and feeds the billing figure, one for the payment rows.
  */
 export async function getBillDeletionPreview(
   user: SessionUser,
@@ -232,34 +235,62 @@ export async function getBillDeletionPreview(
 ): Promise<BillDeletionPreview> {
   assertBillSuperAdmin(user);
 
-  // LEFT JOIN so an invoice with zero cohorts still returns a row (count 0) —
-  // an inner join would make "no cohorts" indistinguishable from "not found".
+  // LEFT JOIN so an invoice with zero cohorts still returns a row (with a null
+  // cohort) — an inner join would make "no cohorts" indistinguishable from
+  // "not found". The invoice's own columns repeat across the cohort rows; we
+  // read them off the first row and rebuild the cohort list from the rest.
   //
-  // The identifying columns (amount inputs + date) ride along on this same
-  // query — no extra round trip. They are functionally dependent on
-  // invoices.id, which is in the GROUP BY, so Postgres accepts them ungrouped.
-  const [inv] = await db
+  // We pull the cohorts' own count + prices (not just a COUNT(*)) so the billed
+  // figure can be run through the SAME money engine the ladder uses — that is
+  // what makes it match a cohort-priced bill's "Billing" line exactly.
+  const joined = await db
     .select({
-      id: invoices.id,
       accountId: invoices.accountId,
+      category: invoices.category,
+      semester: invoices.semester,
       students: invoices.students,
       priceToUni: invoices.priceToUni,
+      priceToDatagami: invoices.priceToDatagami,
       gstRate: invoices.gstRate,
+      tdsRate: invoices.tdsRate,
       advanceAdj: invoices.advanceAdj,
       invoiceDate: invoices.invoiceDate,
-      cohortCount: count(cohorts.id),
+      cohortId: cohorts.id,
+      cohortCount: cohorts.count,
+      cohortPriceToUni: cohorts.priceToUni,
+      cohortPriceToDatagami: cohorts.priceToDatagami,
     })
     .from(invoices)
     .leftJoin(cohorts, eq(cohorts.invoiceId, invoices.id))
-    .where(eq(invoices.id, invoiceId))
-    .groupBy(invoices.id, invoices.accountId)
-    .limit(1);
+    .where(eq(invoices.id, invoiceId));
+  const inv = joined[0];
   if (!inv || inv.accountId !== accountId) throw new UserError("Invoice not found");
 
-  // Mirrors computeInvoice's billedTaxableIn → billing, so the figure the
-  // dialog shows matches the ladder's "Billing" line for this invoice.
-  const billedTaxableIn = Number(inv.students) * Number(inv.priceToUni) - Number(inv.advanceAdj);
-  const billedAmount = billedTaxableIn + billedTaxableIn * Number(inv.gstRate);
+  // Rebuild each cohort's pricing exactly as account-detail does before handing
+  // it to computeInvoice, so a locked per-cohort price feeds the ladder engine.
+  const cohortPricing: CohortPricing[] = joined
+    .filter((r) => r.cohortId !== null)
+    .map((r) => ({
+      count: Number(r.cohortCount),
+      priceToUni: r.cohortPriceToUni == null ? null : Number(r.cohortPriceToUni),
+      priceToDatagami: r.cohortPriceToDatagami == null ? null : Number(r.cohortPriceToDatagami),
+    }));
+
+  // Run the invoice through the authoritative money engine and take `billing`,
+  // so the dialog's figure is byte-for-byte what the ladder's "Billing" line
+  // shows — cohort overrides included (computeInvoice sums per-cohort prices
+  // when cohortPricing is present, else falls back to students × priceToUni).
+  const { billing: billedAmount } = computeInvoice({
+    category: inv.category,
+    semester: inv.semester,
+    students: Number(inv.students),
+    priceToUni: Number(inv.priceToUni),
+    priceToDatagami: Number(inv.priceToDatagami),
+    gstRate: Number(inv.gstRate),
+    tdsRate: Number(inv.tdsRate),
+    advanceAdj: Number(inv.advanceAdj),
+    cohortPricing: cohortPricing.length ? cohortPricing : undefined,
+  });
 
   const rows = await db.select().from(payments).where(eq(payments.invoiceId, invoiceId));
   const entries: PaymentEntry[] = rows
@@ -283,7 +314,7 @@ export async function getBillDeletionPreview(
     oemPaymentsTotal: sumRupees(
       entries.filter((p) => p.direction === "oem-payment").map((p) => p.amount),
     ),
-    cohortCount: Number(inv.cohortCount),
+    cohortCount: cohortPricing.length,
   };
 }
 
@@ -301,14 +332,15 @@ export async function getBillDeletionPreview(
  * invoice by id alone, so a caller scoped to account A could delete account B's
  * invoice by passing A's id. Both halves must agree.
  *
- * `expectedPaymentIds` is the confirmation contract with the dialog — see the
- * check below.
+ * `expectedPaymentIds` and `expectedCohortCount` are the confirmation contract
+ * with the dialog — see the guard below.
  */
 export async function deleteBill(
   user: SessionUser,
   accountId: number,
   invoiceId: number,
   expectedPaymentIds: number[],
+  expectedCohortCount: number,
 ): Promise<void> {
   assertBillSuperAdmin(user);
 
@@ -319,24 +351,43 @@ export async function deleteBill(
     .limit(1);
   if (!row || row.accountId !== accountId) throw new UserError("Invoice not found");
 
-  // The confirmation dialog itemises exactly which payments this delete would
-  // destroy, and that itemised list is the entire safety argument for having
-  // dropped the old draft-only gate — a fully-paid bill is deletable *because*
-  // the user was shown the money first. So the delete has to keep the promise
-  // the dialog made: if a payment was added (or removed) between the preview
-  // and the confirm, the list the user approved is no longer what would be
-  // destroyed, and we refuse rather than quietly destroy strictly more.
+  // The confirmation dialog itemises exactly which payments and how many cohort
+  // rows this delete would destroy, and that itemised list is the entire safety
+  // argument for having dropped the old draft-only gate — a fully-paid bill is
+  // deletable *because* the user was shown the money first. So the delete
+  // re-reads the bill and refuses if it no longer matches what was previewed:
+  // if a payment or cohort was added or removed between opening the dialog and
+  // confirming, the user is sent back to reopen it rather than destroying a set
+  // they never saw.
   //
-  // Compared as a SET — the preview sorts by date for display, but ordering
-  // carries no meaning here and must not decide whether a delete is allowed.
-  // Payment ids are unique, so equal length + full containment is set equality.
+  // What this guard does and does NOT cover — be honest about the boundary:
+  // it catches changes that landed BEFORE this read. neon-http has no
+  // transactions, so between this read and the cascade DELETE several lines
+  // below there is a narrow window; a payment (or cohort) inserted in *that*
+  // window is destroyed unpreviewed and its DELETE audit row is misattributed
+  // to this deleter. That is not caught here and is not made atomic — it is the
+  // accepted neon-http non-atomicity trade-off (deleteAccount carries the same
+  // class of race), and it is recoverable: every destroyed row is named in the
+  // audit log with its before-image. The guard shrinks the exposure to that one
+  // window; it does not, and cannot on neon-http, eliminate it.
+  //
+  // Payments are compared as a SET — the preview sorts by date for display, but
+  // ordering carries no meaning here and must not decide whether a delete is
+  // allowed. Payment ids are unique, so equal length + full containment is set
+  // equality. Cohorts are compared by COUNT, which is what the dialog shows.
   const currentIds = (
     await db.select({ id: payments.id }).from(payments).where(eq(payments.invoiceId, invoiceId))
   ).map((r) => r.id);
   const expected = new Set(expectedPaymentIds);
-  const matchesPreview =
+  const paymentsMatch =
     currentIds.length === expected.size && currentIds.every((id) => expected.has(id));
-  if (!matchesPreview) {
+
+  const currentCohortCount = (
+    await db.select({ id: cohorts.id }).from(cohorts).where(eq(cohorts.invoiceId, invoiceId))
+  ).length;
+  const cohortsMatch = currentCohortCount === expectedCohortCount;
+
+  if (!paymentsMatch || !cohortsMatch) {
     throw new UserError(
       "This bill changed since you opened this dialog — reopen it to see what would be deleted.",
     );
