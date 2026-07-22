@@ -150,12 +150,12 @@ export function Sidebar({
   const showFinance = isSuper || roles.includes("sales");
   const showHr = isSuper || roles.includes("hr");
   const showDelivery = isSuper || roles.includes("delivery");
+  // Slices, not hardcoded indices: indexing silently dropped the tail item
+  // when FINANCE_BASE grew (review finding — "New year setup" vanished).
   const finance: Item[] = [
-    FINANCE_BASE[0],
-    FINANCE_BASE[1],
+    ...FINANCE_BASE.slice(0, 2),
     { label: "Leads", href: "/leads", icon: "M3 4h18l-7 8v6l-4 2v-8z" },
-    FINANCE_BASE[2],
-    FINANCE_BASE[3],
+    ...FINANCE_BASE.slice(2),
   ];
 
   const name = user?.name ?? "User";
