@@ -106,7 +106,9 @@ master screen to set the new year's prices.
 - **UI**: `components/pricing/pricing-master.tsx` (client). One table for the top-bar-selected year,
   grouped by account; one row per stream; old invoices expand into per-batch sub-rows. Editable cells:
   scalar count (new invoices), per-batch counts + locked prices (old invoices), invoice-level
-  `priceToUni`/`priceToDatagami` everywhere editable; advance rows show "—" for count. Live per-row
+  `priceToUni`/`priceToDatagami` everywhere editable. Advance bills do NOT appear (amended
+  2026-07-22 during browser review: an advance's "price" is a lump billing amount, not student
+  pricing — advance bills stay on the account screen). Live per-row
   billing/margin via existing client `computeInvoice` (drafts with price 0 simply show ₹0 until prices
   are set — expected in the counts-only workflow). Account-name filter box. Dirty cells highlighted;
   sticky footer shows "Save N changes".

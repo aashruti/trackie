@@ -177,7 +177,6 @@ export function PricingMaster({
                         : undefined,
                     });
                     const canType = acc.editable;
-                    const isAdvance = inv.category === "advance";
                     const scalarStudents = d.batches.length === 0;
                     const e = edits[inv.invoiceId];
                     return (
@@ -188,9 +187,7 @@ export function PricingMaster({
                           </td>
                           <td className="px-3 py-2 text-text-secondary">{streamLabel(inv.category, inv.semester)}</td>
                           <td className="px-3 py-2 text-right">
-                            {isAdvance ? (
-                              <span className="text-text-muted">—</span>
-                            ) : scalarStudents ? (
+                            {scalarStudents ? (
                               canType ? (
                                 <input
                                   type="number" min={0}

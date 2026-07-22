@@ -30,6 +30,10 @@ describe("getPricingMaster", () => {
     // The seeded cohort-driven old invoice surfaces its batches.
     const withBatches = rows.flatMap((r) => r.invoices).filter((i) => i.batches.length > 0);
     expect(withBatches.length).toBeGreaterThan(0);
+
+    // Advance bills never appear — student streams only (the seed has advance
+    // invoices, so this asserts the filter, not their absence from the data).
+    expect(rows.flatMap((r) => r.invoices).some((i) => i.category === "advance")).toBe(false);
   });
 
   it("returns [] for an unknown year", async () => {

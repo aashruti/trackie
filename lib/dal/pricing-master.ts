@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { academicYears, accounts, cohorts, invoices } from "@/lib/db/schema";
 import { canEdit, scopeAccountIds, type SessionUser } from "./authz";
@@ -33,7 +33,7 @@ export interface PricingAccountRow {
   invoices: PricingInvoiceRow[];
 }
 
-const CATEGORY_ORDER: Record<string, number> = { old: 0, new: 1, advance: 2 };
+const CATEGORY_ORDER: Record<string, number> = { old: 0, new: 1 };
 
 /**
  * Every visible account's invoices (+batches) for a year, for the /pricing
@@ -60,10 +60,19 @@ export async function getPricingMaster(
   if (!accRows.length) return [];
 
   const accountIds = accRows.map((a) => a.id);
+  // Student streams only — advance bills are billing artifacts (their "price"
+  // is a lump advance amount, not per-student pricing) and are managed on the
+  // account screen. User-confirmed 2026-07-22.
   const invRows = await db
     .select()
     .from(invoices)
-    .where(and(eq(invoices.yearId, year.id), inArray(invoices.accountId, accountIds)));
+    .where(
+      and(
+        eq(invoices.yearId, year.id),
+        inArray(invoices.accountId, accountIds),
+        ne(invoices.category, "advance"),
+      ),
+    );
   const invIds = invRows.map((r) => r.id);
   const cohortRows = invIds.length
     ? await db.select().from(cohorts).where(inArray(cohorts.invoiceId, invIds))
