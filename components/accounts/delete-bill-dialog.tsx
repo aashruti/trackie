@@ -140,7 +140,7 @@ export function DeleteBillDialog({
                     No payments have been recorded against this bill — nothing to unwind.
                   </p>
                 ) : (
-                  <div className="rounded-md border border-border px-3 py-2.5">
+                  <div className="overflow-x-auto rounded-md border border-border px-3 py-2.5">
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="text-[10px] uppercase tracking-wide text-text-muted">
