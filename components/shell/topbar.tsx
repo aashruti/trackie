@@ -2,6 +2,8 @@ import { signOut } from "@/lib/auth/config";
 import { YearSelector } from "./year-selector";
 import { ThemeToggle } from "./theme-toggle";
 import { UserMenu } from "./user-menu";
+import { CommandPalette } from "./command-palette";
+import { canViewFinance } from "@/lib/dal/authz";
 import type { Role } from "@/lib/db/enums";
 
 export function Topbar({
@@ -35,16 +37,9 @@ export function Topbar({
         </h1>
       </div>
 
-      {/* Search (presentational) */}
+      {/* Global search (⌘K command palette) — finance surfaces only. */}
       <div className="hidden min-w-0 flex-1 justify-center md:flex">
-        <div className="flex w-full max-w-xl items-center gap-2 rounded-lg border border-border bg-surface-sunken px-3 py-2 text-sm text-text-muted">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-            <circle cx="11" cy="11" r="7" />
-            <path d="M21 21l-4.3-4.3" />
-          </svg>
-          <span className="flex-1 truncate">Search universities, invoices, OEMs…</span>
-          <kbd className="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px]">⌘K</kbd>
-        </div>
+        {canViewFinance({ id: 0, roles: user.roles ?? [] }) && <CommandPalette />}
       </div>
 
       <div className="ml-auto flex shrink-0 items-center gap-2.5">
