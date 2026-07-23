@@ -62,16 +62,22 @@ function buildCsv(detail: AccountDetail, year: string): string {
   L.push("");
 
   L.push(row("PAYMENTS"));
-  L.push(row("Stream", "Direction", "Date", "Amount", "Mode", "Reference"));
+  // Tally-style Debit/Credit columns, bank-statement convention: receipts
+  // credited, OEM payments debited.
+  L.push(row("Stream", "Direction", "Date", "Debit", "Credit", "Mode", "Reference"));
   let anyPayment = false;
   for (const i of detail.invoices) {
     for (const p of i.ledger) {
       anyPayment = true;
+      const isCredit = p.direction === "receipt";
       L.push(
         row(
           streamLabel(i.category, i.semester),
-          p.direction === "receipt" ? "Receipt (in)" : "OEM payment (out)",
-          p.paidOn, p.amount, p.mode, p.ref ?? "",
+          isCredit ? "Receipt (in)" : "OEM payment (out)",
+          p.paidOn,
+          isCredit ? "" : p.amount,
+          isCredit ? p.amount : "",
+          p.mode, p.ref ?? "",
         ),
       );
     }

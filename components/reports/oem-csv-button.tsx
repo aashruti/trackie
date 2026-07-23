@@ -41,11 +41,21 @@ function buildCsv(r: OemReport, year: string): string {
   L.push("");
 
   L.push(row("PAYMENTS"));
-  L.push(row("Account", "Stream", "Direction", "Date", "Amount", "Mode", "Reference"));
+  // Tally-style Debit/Credit columns, bank-statement convention: receipts
+  // credited, OEM payments debited.
+  L.push(row("Account", "Stream", "Direction", "Date", "Debit", "Credit", "Mode", "Reference"));
   if (r.payments.length === 0) L.push(row("(no payments recorded)"));
   for (const p of r.payments) {
+    const isCredit = p.direction === "receipt";
     L.push(
-      row(p.account, p.stream, p.direction === "receipt" ? "Receipt (in)" : "OEM payment (out)", p.paidOn, p.amount, p.mode, p.ref ?? ""),
+      row(
+        p.account, p.stream,
+        isCredit ? "Receipt (in)" : "OEM payment (out)",
+        p.paidOn,
+        isCredit ? "" : p.amount,
+        isCredit ? p.amount : "",
+        p.mode, p.ref ?? "",
+      ),
     );
   }
   return L.join("\n");

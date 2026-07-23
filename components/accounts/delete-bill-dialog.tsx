@@ -140,26 +140,49 @@ export function DeleteBillDialog({
                     No payments have been recorded against this bill — nothing to unwind.
                   </p>
                 ) : (
-                  <div className="space-y-1 rounded-md border border-border px-3 py-2.5">
-                    {payments.map((p) => (
-                      <div key={p.id} className="flex items-center gap-3 text-xs">
-                        <span
-                          className={`shrink-0 rounded px-1.5 py-0.5 font-medium ${
-                            p.direction === "receipt"
-                              ? "bg-[var(--positive-subtle)] text-[var(--positive-text)]"
-                              : "bg-[var(--info-subtle)] text-[var(--info-text)]"
-                          }`}
-                        >
-                          {p.direction === "receipt" ? "Received" : "Paid OEM"}
-                        </span>
-                        <span className="text-text-secondary">{fmtDay(p.paidOn)}</span>
-                        <span className="truncate text-text-muted">
-                          {p.mode}
-                          {p.ref && ` · ${p.ref}`}
-                        </span>
-                        <Money value={p.amount} className="ml-auto shrink-0 font-medium" />
-                      </div>
-                    ))}
+                  <div className="overflow-x-auto rounded-md border border-border px-3 py-2.5">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-[10px] uppercase tracking-wide text-text-muted">
+                          <th className="pb-1 text-left font-medium">Particulars</th>
+                          <th className="pb-1 pl-3 text-left font-medium">Date</th>
+                          <th className="pb-1 pl-3 text-left font-medium">Mode</th>
+                          <th className="pb-1 pl-3 text-right font-medium">Debit</th>
+                          <th className="pb-1 pl-3 text-right font-medium">Credit</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {payments.map((p) => {
+                          const isCredit = p.direction === "receipt";
+                          return (
+                            <tr key={p.id} className="border-t border-border-subtle/60">
+                              <td className="py-1 pr-3">
+                                <span
+                                  className={
+                                    isCredit
+                                      ? "text-[var(--positive-text)]"
+                                      : "text-[var(--info-text)]"
+                                  }
+                                >
+                                  {isCredit ? "Received" : "Paid OEM"}
+                                </span>
+                              </td>
+                              <td className="py-1 pl-3 text-text-secondary">{fmtDay(p.paidOn)}</td>
+                              <td className="py-1 pl-3 text-text-muted">
+                                {p.mode}
+                                {p.ref ? ` · ${p.ref}` : ""}
+                              </td>
+                              <td className="py-1 pl-3 text-right">
+                                {!isCredit && <Money value={p.amount} className="font-medium" />}
+                              </td>
+                              <td className="py-1 pl-3 text-right">
+                                {isCredit && <Money value={p.amount} className="font-medium" />}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </div>
