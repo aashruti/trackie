@@ -10,6 +10,8 @@ import {
   deleteAccount,
   deleteBill,
   getBillDeletionPreview,
+  updateAccount,
+  type AccountEdit,
   type BillDeletionPreview,
   type NewInvoice,
 } from "@/lib/dal/account-admin";
@@ -149,4 +151,21 @@ export async function deleteAccountAction(accountId: number) {
   if (!session?.user) throw new Error("Not authenticated");
   await deleteAccount(sessionUser(session), accountId);
   redirect("/accounts");
+}
+
+export async function updateAccountAction(
+  accountId: number,
+  edit: AccountEdit,
+): Promise<ActionResult> {
+  const session = await auth();
+  if (!session?.user) throw new Error("Not authenticated");
+  try {
+    await updateAccount(sessionUser(session), accountId, edit);
+    revalidatePath(`/accounts/${accountId}`);
+    revalidatePath("/accounts");
+    return { ok: true };
+  } catch (e) {
+    console.error("[accounts:update]", e);
+    return { ok: false, error: isUserError(e) ? e.message : "Could not update the account." };
+  }
 }

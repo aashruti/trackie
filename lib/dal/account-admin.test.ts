@@ -19,6 +19,7 @@ import {
   deleteBill,
   getBillDeletionPreview,
   listOems,
+  updateAccount,
 } from "./account-admin";
 import { getAccountDetail } from "./account-detail";
 import { computeInvoice } from "@/lib/money/compute";
@@ -76,6 +77,53 @@ describe("account-admin", () => {
   it("rejects a non-super-admin creating an account", async () => {
     await expect(
       createAccount({ id: 2, roles: ["sales"] }, { name: "X", type: "university", oemId: 1 }),
+    ).rejects.toThrow();
+  });
+
+  it("updates name/type/city/OEM, clears blank city, and stamps the editor", async () => {
+    expect(accountId).toBeTruthy();
+    const oems = await listOems();
+    const ibm = oems.find((o) => o.name === "IBM")!;
+    const otherOem = oems.find((o) => o.id !== ibm.id) ?? ibm;
+
+    await updateAccount(SUPER, accountId!, {
+      name: "Renamed University",
+      type: "programme",
+      city: "Pune, MH",
+      oemId: otherOem.id,
+    });
+
+    const detail = await getAccountDetail(SUPER, accountId!, YEAR);
+    expect(detail!.name).toBe("Renamed University");
+    expect(detail!.type).toBe("programme");
+    expect(detail!.city).toBe("Pune, MH");
+    expect(detail!.oemId).toBe(otherOem.id);
+
+    // A whitespace-only city clears to null (not stored as "  ").
+    await updateAccount(SUPER, accountId!, { city: "   " });
+    const cleared = await getAccountDetail(SUPER, accountId!, YEAR);
+    expect(cleared!.city).toBeNull();
+
+    // The audit trigger reads updated_by off the row — assert it was stamped.
+    const { db } = await import("@/lib/db/client");
+    const t = await import("@/lib/db/schema");
+    const { eq } = await import("drizzle-orm");
+    const [row] = await db.select().from(t.accounts).where(eq(t.accounts.id, accountId!)).limit(1);
+    expect(row.updatedBy).toBe(SUPER.id);
+
+    // An unknown OEM is rejected (validated before write).
+    await expect(updateAccount(SUPER, accountId!, { oemId: -1 })).rejects.toThrow();
+    // An empty name is rejected.
+    await expect(updateAccount(SUPER, accountId!, { name: "  " })).rejects.toThrow();
+    // An off-enum type is rejected with a clean error (not a raw driver error).
+    await expect(
+      updateAccount(SUPER, accountId!, { type: "banana" as never }),
+    ).rejects.toThrow();
+  });
+
+  it("rejects an unassigned sales user editing the account", async () => {
+    await expect(
+      updateAccount({ id: 999, roles: ["sales"] }, accountId!, { name: "Nope" }),
     ).rejects.toThrow();
   });
 

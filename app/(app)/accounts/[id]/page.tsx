@@ -11,7 +11,9 @@ import { AddInvoice } from "@/components/accounts/add-invoice";
 import { AccountReportButton } from "@/components/accounts/account-report";
 import { PrintButton } from "@/components/reports/print-button";
 import { DeleteAccountButton } from "@/components/accounts/delete-account-button";
+import { EditAccountButton } from "@/components/accounts/edit-account-button";
 import { getAccountDetail } from "@/lib/dal/account-detail";
+import { listOems } from "@/lib/dal/account-admin";
 import { getYearContext } from "@/lib/dal/years";
 import { canAccessDelivery, canManageGroups, canViewFinance } from "@/lib/dal/authz";
 
@@ -42,11 +44,14 @@ export default async function AccountDetailPage({
   if (!canViewFinance({ id: Number(user.id), roles: user.roles })) redirect("/dashboard");
   const { currentYear: YEAR, years } = await getYearContext();
 
-  const detail = await getAccountDetail(
-    { id: Number(user.id), roles: user.roles },
-    Number(id),
-    YEAR,
-  );
+  // Independent reads — parallelise (house rule). Reaching this page means the
+  // user can edit this account (super-admin, or sales on an assigned account —
+  // getAccountDetail scopes it), so the OEM list for the edit form is loaded
+  // alongside it (the only cost is one small query on a 404, which is rare).
+  const [detail, oems] = await Promise.all([
+    getAccountDetail({ id: Number(user.id), roles: user.roles }, Number(id), YEAR),
+    listOems(),
+  ]);
   if (!detail) notFound();
   const canAccessGroups = canManageGroups({ id: Number(user.id), roles: user.roles });
 
@@ -64,6 +69,15 @@ export default async function AccountDetailPage({
             </h2>
             <StatusBadge status={detail.status} />
             <div className="ml-auto flex gap-2">
+              <EditAccountButton
+                // Re-key on the saved values so a successful edit (which
+                // revalidates this page) remounts the form with fresh initial
+                // state instead of a stale local buffer.
+                key={`${detail.name}|${detail.type}|${detail.city ?? ""}|${detail.oemId}`}
+                accountId={detail.id}
+                initial={{ name: detail.name, type: detail.type, city: detail.city, oemId: detail.oemId }}
+                oems={oems}
+              />
               {user.roles.includes("super-admin") && (
                 <DeleteAccountButton accountId={detail.id} accountName={detail.name} />
               )}
