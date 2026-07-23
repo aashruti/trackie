@@ -115,6 +115,10 @@ describe("account-admin", () => {
     await expect(updateAccount(SUPER, accountId!, { oemId: -1 })).rejects.toThrow();
     // An empty name is rejected.
     await expect(updateAccount(SUPER, accountId!, { name: "  " })).rejects.toThrow();
+    // An off-enum type is rejected with a clean error (not a raw driver error).
+    await expect(
+      updateAccount(SUPER, accountId!, { type: "banana" as never }),
+    ).rejects.toThrow();
   });
 
   it("rejects an unassigned sales user editing the account", async () => {

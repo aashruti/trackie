@@ -44,17 +44,16 @@ export default async function AccountDetailPage({
   if (!canViewFinance({ id: Number(user.id), roles: user.roles })) redirect("/dashboard");
   const { currentYear: YEAR, years } = await getYearContext();
 
-  const detail = await getAccountDetail(
-    { id: Number(user.id), roles: user.roles },
-    Number(id),
-    YEAR,
-  );
+  // Independent reads — parallelise (house rule). Reaching this page means the
+  // user can edit this account (super-admin, or sales on an assigned account —
+  // getAccountDetail scopes it), so the OEM list for the edit form is loaded
+  // alongside it (the only cost is one small query on a 404, which is rare).
+  const [detail, oems] = await Promise.all([
+    getAccountDetail({ id: Number(user.id), roles: user.roles }, Number(id), YEAR),
+    listOems(),
+  ]);
   if (!detail) notFound();
   const canAccessGroups = canManageGroups({ id: Number(user.id), roles: user.roles });
-  // Reaching this page means the user can edit this account (super-admin, or
-  // sales on an assigned account — getAccountDetail already scoped it), so the
-  // OEM list for the edit form is always loaded here.
-  const oems = await listOems();
 
   return (
     <>
@@ -71,6 +70,10 @@ export default async function AccountDetailPage({
             <StatusBadge status={detail.status} />
             <div className="ml-auto flex gap-2">
               <EditAccountButton
+                // Re-key on the saved values so a successful edit (which
+                // revalidates this page) remounts the form with fresh initial
+                // state instead of a stale local buffer.
+                key={`${detail.name}|${detail.type}|${detail.city ?? ""}|${detail.oemId}`}
                 accountId={detail.id}
                 initial={{ name: detail.name, type: detail.type, city: detail.city, oemId: detail.oemId }}
                 oems={oems}

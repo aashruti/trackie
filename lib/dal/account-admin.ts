@@ -149,7 +149,12 @@ export async function updateAccount(
     if (!name) throw new UserError("Account name is required");
     patch.name = name;
   }
-  if (edit.type !== undefined) patch.type = edit.type;
+  if (edit.type !== undefined) {
+    if (edit.type !== "university" && edit.type !== "programme") {
+      throw new UserError("Invalid account type");
+    }
+    patch.type = edit.type;
+  }
   if (edit.city !== undefined) {
     const city = edit.city?.trim();
     patch.city = city ? city : null;
@@ -160,7 +165,13 @@ export async function updateAccount(
     patch.oemId = edit.oemId;
   }
 
-  if (Object.keys(patch).length === 0) return { id: accountId };
+  if (Object.keys(patch).length === 0) {
+    // No fields to change — still confirm the account exists so the caller
+    // gets "not found" rather than a silent ok for a bad id.
+    const [exists] = await db.select({ id: accounts.id }).from(accounts).where(eq(accounts.id, accountId)).limit(1);
+    if (!exists) throw new UserError("Account not found.");
+    return { id: accountId };
+  }
 
   const updated = await db
     .update(accounts)
