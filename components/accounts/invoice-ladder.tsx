@@ -73,6 +73,18 @@ export function InvoiceLadder({
 }) {
   const isAdvance = inv.category === "advance";
   const self = inv.selfSupplied === true;
+
+  // Payment ledger split into Tally-style Debit/Credit columns, bank-statement
+  // convention: money received (receipt) is credited, money paid out to the OEM
+  // is debited. Column totals mirror Tally's ledger footer.
+  const ledgerDebit = inv.ledger.reduce(
+    (s, p) => (p.direction === "receipt" ? s : s + p.amount),
+    0,
+  );
+  const ledgerCredit = inv.ledger.reduce(
+    (s, p) => (p.direction === "receipt" ? s + p.amount : s),
+    0,
+  );
   const [paying, setPaying] = useState<Direction | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [loadingPreview, setLoadingPreview] = useState(false);
@@ -289,25 +301,61 @@ export function InvoiceLadder({
           <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-text-muted">
             Payment ledger
           </div>
-          <div className="space-y-1">
-            {inv.ledger.map((p) => (
-              <div key={p.id} className="flex items-center gap-3 text-xs">
-                <span
-                  className={`rounded px-1.5 py-0.5 font-medium ${
-                    p.direction === "receipt"
-                      ? "bg-[var(--positive-subtle)] text-[var(--positive-text)]"
-                      : "bg-[var(--info-subtle)] text-[var(--info-text)]"
-                  }`}
-                >
-                  {p.direction === "receipt" ? "Received" : "Paid OEM"}
-                </span>
-                <span className="text-text-secondary">{p.paidOn}</span>
-                <span className="text-text-muted">{p.mode}</span>
-                {p.ref && <span className="text-text-muted">· {p.ref}</span>}
-                <Money value={p.amount} className="ml-auto font-medium" />
-              </div>
-            ))}
-          </div>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-wide text-text-muted">
+                <th className="pb-1 text-left font-medium">Particulars</th>
+                <th className="pb-1 pl-3 text-left font-medium">Date</th>
+                <th className="pb-1 pl-3 text-left font-medium">Mode</th>
+                <th className="pb-1 pl-3 text-right font-medium">Debit</th>
+                <th className="pb-1 pl-3 text-right font-medium">Credit</th>
+              </tr>
+            </thead>
+            <tbody>
+              {inv.ledger.map((p) => {
+                const isCredit = p.direction === "receipt";
+                return (
+                  <tr key={p.id} className="border-t border-border-subtle/60">
+                    <td className="py-1 pr-3">
+                      <span
+                        className={
+                          isCredit
+                            ? "text-[var(--positive-text)]"
+                            : "text-[var(--info-text)]"
+                        }
+                      >
+                        {isCredit ? "Received" : "Paid OEM"}
+                      </span>
+                    </td>
+                    <td className="py-1 pl-3 text-text-secondary">{p.paidOn}</td>
+                    <td className="py-1 pl-3 text-text-muted">
+                      {p.mode}
+                      {p.ref ? ` · ${p.ref}` : ""}
+                    </td>
+                    <td className="py-1 pl-3 text-right">
+                      {!isCredit && <Money value={p.amount} className="font-medium" />}
+                    </td>
+                    <td className="py-1 pl-3 text-right">
+                      {isCredit && <Money value={p.amount} className="font-medium" />}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr className="border-t border-border-subtle font-semibold">
+                <td className="pt-1.5 pr-3 text-text-secondary" colSpan={3}>
+                  Total
+                </td>
+                <td className="pt-1.5 pl-3 text-right">
+                  <Money value={ledgerDebit} className="font-semibold" />
+                </td>
+                <td className="pt-1.5 pl-3 text-right">
+                  <Money value={ledgerCredit} className="font-semibold" />
+                </td>
+              </tr>
+            </tfoot>
+          </table>
         </div>
       )}
     </Card>

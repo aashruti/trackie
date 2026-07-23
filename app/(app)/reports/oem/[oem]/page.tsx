@@ -39,6 +39,17 @@ export default async function OemReportPage({
   if (!report) notFound();
   const t = report.totals;
 
+  // Payments day-book split into Tally-style Debit/Credit columns, bank-statement
+  // convention: receipts credited, OEM payments debited.
+  const payDebit = report.payments.reduce(
+    (s, p) => (p.direction === "receipt" ? s : s + p.amount),
+    0,
+  );
+  const payCredit = report.payments.reduce(
+    (s, p) => (p.direction === "receipt" ? s + p.amount : s),
+    0,
+  );
+
   return (
     <>
       <Topbar section="Reports" title="OEM report" user={user} years={years} currentYear={YEAR} />
@@ -132,30 +143,40 @@ export default async function OemReportPage({
                   <tr className="border-b border-border-subtle text-xs text-text-muted">
                     <th className="px-4 py-2.5 text-left font-medium">Account</th>
                     <th className="px-3 py-2.5 text-left font-medium">Stream</th>
-                    <th className="px-3 py-2.5 text-left font-medium">Direction</th>
                     <th className="px-3 py-2.5 text-left font-medium">Date</th>
                     <th className="px-3 py-2.5 text-left font-medium">Mode</th>
                     <th className="px-3 py-2.5 text-left font-medium">Reference</th>
-                    <th className="px-4 py-2.5 text-right font-medium">Amount</th>
+                    <th className="px-3 py-2.5 text-right font-medium">Debit</th>
+                    <th className="px-4 py-2.5 text-right font-medium">Credit</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {report.payments.map((p, i) => (
-                    <tr key={i} className="border-b border-border-subtle last:border-0">
-                      <td className="px-4 py-2.5 font-medium text-text-primary">{p.account}</td>
-                      <td className="px-3 py-2.5 text-text-secondary">{p.stream}</td>
-                      <td className="px-3 py-2.5">
-                        <span className={p.direction === "receipt" ? "text-[var(--positive-text)]" : "text-[var(--info-text)]"}>
-                          {p.direction === "receipt" ? "Receipt" : "Paid OEM"}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2.5 text-text-secondary">{p.paidOn}</td>
-                      <td className="px-3 py-2.5 text-text-muted">{p.mode}</td>
-                      <td className="px-3 py-2.5 text-text-muted">{p.ref ?? "—"}</td>
-                      <td className="px-4 py-2.5 text-right"><Money value={p.amount} compact /></td>
-                    </tr>
-                  ))}
+                  {report.payments.map((p, i) => {
+                    const isCredit = p.direction === "receipt";
+                    return (
+                      <tr key={i} className="border-b border-border-subtle last:border-0">
+                        <td className="px-4 py-2.5 font-medium text-text-primary">{p.account}</td>
+                        <td className="px-3 py-2.5 text-text-secondary">{p.stream}</td>
+                        <td className="px-3 py-2.5 text-text-secondary">{p.paidOn}</td>
+                        <td className="px-3 py-2.5 text-text-muted">{p.mode}</td>
+                        <td className="px-3 py-2.5 text-text-muted">{p.ref ?? "—"}</td>
+                        <td className="px-3 py-2.5 text-right">
+                          {!isCredit && <Money value={p.amount} compact tone="info" />}
+                        </td>
+                        <td className="px-4 py-2.5 text-right">
+                          {isCredit && <Money value={p.amount} compact tone="positive" />}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
+                <tfoot>
+                  <tr className="border-t border-border-strong bg-surface-sunken font-semibold">
+                    <td className="px-4 py-2.5" colSpan={5}>Total</td>
+                    <td className="px-3 py-2.5 text-right"><Money value={payDebit} compact tone="info" /></td>
+                    <td className="px-4 py-2.5 text-right"><Money value={payCredit} compact tone="positive" /></td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
           )}
