@@ -119,6 +119,58 @@ export async function createAccount(
   return insertAccount(user.id, { name: input.name, type: input.type, city: input.city, oemId });
 }
 
+export interface AccountEdit {
+  name?: string;
+  type?: "university" | "programme";
+  city?: string | null;
+  oemId?: number;
+}
+
+/**
+ * Edit an account's structural details (name / type / city / OEM). Enforces
+ * `canEdit` (super-admin anywhere; sales on assigned accounts) — the same gate
+ * as finance edits, not the super-only gate used for create/delete, because the
+ * accounts team asked to let assigned sales fix these too. Only the fields
+ * present in `edit` are touched. Group assignment is out of scope (own flow).
+ */
+export async function updateAccount(
+  user: SessionUser,
+  accountId: number,
+  edit: AccountEdit,
+): Promise<{ id: number }> {
+  const assigned = user.roles.includes("super-admin") ? [] : await assignedIds(user.id);
+  if (!canEdit(user, accountId, assigned)) {
+    throw new UserError("Not authorized to edit this account");
+  }
+
+  const patch: Record<string, unknown> = {};
+  if (edit.name !== undefined) {
+    const name = edit.name.trim();
+    if (!name) throw new UserError("Account name is required");
+    patch.name = name;
+  }
+  if (edit.type !== undefined) patch.type = edit.type;
+  if (edit.city !== undefined) {
+    const city = edit.city?.trim();
+    patch.city = city ? city : null;
+  }
+  if (edit.oemId !== undefined) {
+    const [oem] = await db.select({ id: oems.id }).from(oems).where(eq(oems.id, edit.oemId)).limit(1);
+    if (!oem) throw new UserError("Selected OEM not found");
+    patch.oemId = edit.oemId;
+  }
+
+  if (Object.keys(patch).length === 0) return { id: accountId };
+
+  const updated = await db
+    .update(accounts)
+    .set({ ...patch, updatedBy: user.id })
+    .where(eq(accounts.id, accountId))
+    .returning({ id: accounts.id });
+  if (!updated.length) throw new UserError("Account not found.");
+  return { id: updated[0].id };
+}
+
 export interface NewInvoice {
   category: Category;
   semester: Semester;

@@ -36,7 +36,9 @@ export interface AccountDetail {
   id: number;
   name: string;
   type: string;
+  city: string | null;
   oem: string;
+  oemId: number;
   selfSupplied: boolean;
   /** Set when the account is part of an account group (grouped view). */
   groupId: number | null;
@@ -80,7 +82,9 @@ export async function getAccountDetail(
       id: accounts.id,
       name: accounts.name,
       type: accounts.type,
+      city: accounts.city,
       oem: oems.name,
+      oemId: accounts.oemId,
       isSelf: oems.isSelf,
       groupId: accounts.groupId,
       groupName: accountGroups.name,
@@ -163,7 +167,9 @@ export async function getAccountDetail(
     id: acc.id,
     name: acc.name,
     type: acc.type,
+    city: acc.city,
     oem: acc.oem,
+    oemId: acc.oemId,
     selfSupplied: acc.isSelf,
     // Group metadata is Finance-only (grouped view) — don't serialize it to
     // roles that can't see groups, even when they're assigned to the account.

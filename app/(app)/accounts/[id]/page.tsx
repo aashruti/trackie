@@ -11,7 +11,9 @@ import { AddInvoice } from "@/components/accounts/add-invoice";
 import { AccountReportButton } from "@/components/accounts/account-report";
 import { PrintButton } from "@/components/reports/print-button";
 import { DeleteAccountButton } from "@/components/accounts/delete-account-button";
+import { EditAccountButton } from "@/components/accounts/edit-account-button";
 import { getAccountDetail } from "@/lib/dal/account-detail";
+import { listOems } from "@/lib/dal/account-admin";
 import { getYearContext } from "@/lib/dal/years";
 import { canAccessDelivery, canManageGroups, canViewFinance } from "@/lib/dal/authz";
 
@@ -49,6 +51,10 @@ export default async function AccountDetailPage({
   );
   if (!detail) notFound();
   const canAccessGroups = canManageGroups({ id: Number(user.id), roles: user.roles });
+  // Reaching this page means the user can edit this account (super-admin, or
+  // sales on an assigned account — getAccountDetail already scoped it), so the
+  // OEM list for the edit form is always loaded here.
+  const oems = await listOems();
 
   return (
     <>
@@ -64,6 +70,11 @@ export default async function AccountDetailPage({
             </h2>
             <StatusBadge status={detail.status} />
             <div className="ml-auto flex gap-2">
+              <EditAccountButton
+                accountId={detail.id}
+                initial={{ name: detail.name, type: detail.type, city: detail.city, oemId: detail.oemId }}
+                oems={oems}
+              />
               {user.roles.includes("super-admin") && (
                 <DeleteAccountButton accountId={detail.id} accountName={detail.name} />
               )}
