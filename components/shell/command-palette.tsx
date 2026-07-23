@@ -12,6 +12,9 @@ const GROUPS: { key: GroupKey; title: string }[] = [
   { key: "invoices", title: "Bills" },
 ];
 
+const LISTBOX_ID = "cmdk-listbox";
+const optionId = (i: number) => `cmdk-opt-${i}`;
+
 function SearchIcon({ className = "" }: { className?: string }) {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
@@ -29,6 +32,7 @@ export function CommandPalette() {
   const [loading, setLoading] = useState(false);
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   // Flattened, in-render-order list of hits — the target of arrow/enter nav.
   const flat = useMemo<SearchHit[]>(
@@ -41,6 +45,7 @@ export function CommandPalette() {
     setQ("");
     setResults(null);
     setActive(0);
+    setLoading(false);
   }, []);
 
   const go = useCallback(
@@ -52,22 +57,33 @@ export function CommandPalette() {
     [close, router],
   );
 
-  // Global ⌘K / Ctrl+K to open.
+  // Global ⌘K / Ctrl+K toggles the palette; closing goes through `close()` so
+  // state fully resets no matter how it was dismissed.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setOpen((v) => !v);
+        if (open) close();
+        else setOpen(true);
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [open, close]);
 
-  // Focus the input whenever the palette opens.
+  // Focus the input on open; restore focus to the trigger on close (cleanup),
+  // reading the refs inside the effect (not during render).
   useEffect(() => {
-    if (open) inputRef.current?.focus();
+    if (!open) return;
+    const trigger = triggerRef.current;
+    inputRef.current?.focus();
+    return () => trigger?.focus();
   }, [open]);
+
+  // Keep the arrow-selected row in view within the scroll area.
+  useEffect(() => {
+    if (open) document.getElementById(optionId(active))?.scrollIntoView({ block: "nearest" });
+  }, [active, open]);
 
   // Debounced search. Aborts the in-flight request when the query changes or the
   // palette closes, so a slow response can't overwrite a newer one. Empty-query
@@ -123,6 +139,7 @@ export function CommandPalette() {
   return (
     <>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Search"
@@ -165,6 +182,10 @@ export function CommandPalette() {
                 onKeyDown={onInputKey}
                 placeholder="Search universities, invoices, OEMs…"
                 aria-label="Search query"
+                role="combobox"
+                aria-expanded={hasResults}
+                aria-controls={LISTBOX_ID}
+                aria-activedescendant={hasResults ? optionId(active) : undefined}
                 autoComplete="off"
                 spellCheck={false}
                 className="flex-1 bg-transparent py-3.5 text-sm text-text-primary outline-none placeholder:text-text-muted"
@@ -172,7 +193,7 @@ export function CommandPalette() {
               <kbd className="rounded border border-border bg-surface-sunken px-1.5 py-0.5 text-[10px] text-text-muted">Esc</kbd>
             </div>
 
-            <div className="max-h-[60vh] overflow-y-auto py-2">
+            <div id={LISTBOX_ID} role="listbox" aria-label="Search results" className="max-h-[60vh] overflow-y-auto py-2">
               {loading && !hasResults && (
                 <p className="px-4 py-6 text-center text-sm text-text-muted">Searching…</p>
               )}
@@ -194,7 +215,7 @@ export function CommandPalette() {
                     const hits = results![g.key];
                     if (hits.length === 0) return null;
                     return (
-                      <div key={g.key} className="mb-1">
+                      <div key={g.key} role="group" aria-label={g.title} className="mb-1">
                         <div className="px-4 py-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted">
                           {g.title}
                         </div>
@@ -205,7 +226,10 @@ export function CommandPalette() {
                           return (
                             <button
                               key={`${g.key}-${hit.id}`}
+                              id={optionId(i)}
                               type="button"
+                              role="option"
+                              aria-selected={isActive}
                               onMouseEnter={() => setActive(i)}
                               onClick={() => go(hit)}
                               className={`flex w-full items-center gap-3 px-4 py-2 text-left text-sm ${

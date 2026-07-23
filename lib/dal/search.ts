@@ -67,10 +67,16 @@ export async function globalSearch(
   if (!q) return EMPTY;
   if (!canViewFinance(user)) return EMPTY;
 
-  const assigned = user.roles.includes("super-admin") ? [] : await assignedIds(user.id);
+  // Independent lookups run together (DAL rule): the user's assigned accounts and
+  // the current academic-year row.
+  const [assigned, yearRows] = await Promise.all([
+    user.roles.includes("super-admin") ? Promise.resolve<number[]>([]) : assignedIds(user.id),
+    db.select({ id: academicYears.id }).from(academicYears).where(eq(academicYears.label, yearLabel)).limit(1),
+  ]);
   const scope = scopeAccountIds(user, assigned); // null = unrestricted (super)
   // A scoped user with no assignments can see nothing — skip the queries.
   if (scope !== null && scope.length === 0) return EMPTY;
+  const year = yearRows[0];
 
   const esc = escapeLike(q);
   const pattern = `%${esc}%`;
@@ -89,15 +95,11 @@ export async function globalSearch(
     (c) => CATEGORY_LABEL[c as ReportCategory].toLowerCase().includes(qLower) || c.includes(qLower),
   );
 
-  const [year] = await db
-    .select({ id: academicYears.id })
-    .from(academicYears)
-    .where(eq(academicYears.label, yearLabel))
-    .limit(1);
-
-  // Invoices match on status ("overdue") or stream label; account-name matches
-  // already surface in the Accounts group, so they are intentionally excluded
-  // here to keep bill hits meaningful.
+  // Invoices match on stored status or stream label; account-name matches already
+  // surface in the Accounts group, so they are intentionally excluded here.
+  // NOTE: this is the *stored* status — a raised bill past its due date reads as
+  // "Overdue" on the account page (effStatus) but is matched/labelled "raised"
+  // here. Aging-aware bill search is a deliberate follow-up, not implemented.
   const invConds = [ilike(sql`${invoices.status}::text`, pattern)];
   if (matchedCats.length) invConds.push(inArray(invoices.category, matchedCats));
 
