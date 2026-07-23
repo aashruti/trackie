@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import type { SearchHit, SearchResults } from "@/lib/dal/search";
 
-const GROUPS: { key: keyof SearchResults; title: string }[] = [
+type GroupKey = "accounts" | "oems" | "invoices";
+const GROUPS: { key: GroupKey; title: string }[] = [
   { key: "accounts", title: "Universities & accounts" },
   { key: "oems", title: "OEMs" },
   { key: "invoices", title: "Bills" },
@@ -89,7 +91,7 @@ export function CommandPalette() {
         })
         .catch((err: Error) => {
           if (err.name === "AbortError") return;
-          setResults({ accounts: [], oems: [], invoices: [] });
+          setResults({ accounts: [], oems: [], invoices: [], truncated: { accounts: false, oems: false, invoices: false } });
           setLoading(false);
         });
     }, 180);
@@ -131,7 +133,11 @@ export function CommandPalette() {
         <kbd className="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px]">⌘K</kbd>
       </button>
 
-      {open && (
+      {/* Portalled to <body>: the topbar's `backdrop-blur` establishes a
+          containing block, which would otherwise trap this fixed overlay inside
+          the 64px header instead of covering the viewport. */}
+      {open &&
+        createPortal(
         <div
           className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 px-4 pt-[14vh] backdrop-blur-sm"
           onMouseDown={close}
@@ -203,7 +209,7 @@ export function CommandPalette() {
                               onMouseEnter={() => setActive(i)}
                               onClick={() => go(hit)}
                               className={`flex w-full items-center gap-3 px-4 py-2 text-left text-sm ${
-                                isActive ? "bg-surface-hover" : ""
+                                isActive ? "bg-[var(--surface-hover)]" : ""
                               }`}
                             >
                               <span className="flex-1 truncate text-text-primary">{hit.label}</span>
@@ -213,13 +219,19 @@ export function CommandPalette() {
                             </button>
                           );
                         })}
+                        {results!.truncated[g.key] && (
+                          <div className="px-4 py-1.5 text-[11px] text-text-muted">
+                            More matches — keep typing to narrow.
+                          </div>
+                        )}
                       </div>
                     );
                   });
                 })()}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );

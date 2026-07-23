@@ -82,7 +82,14 @@ describe("globalSearch — super-admin (unrestricted)", () => {
   });
 
   it("empty query returns nothing", async () => {
-    expect(await globalSearch(SUPER, "   ", YEAR)).toEqual({ accounts: [], oems: [], invoices: [] });
+    expect(await globalSearch(SUPER, "   ", YEAR)).toEqual({ accounts: [], oems: [], invoices: [], truncated: { accounts: false, oems: false, invoices: false } });
+  });
+
+  it("caps each group at 8 and flags truncation when more matches exist", async () => {
+    // "u" hits nearly every seeded university name (22 accounts) → over the cap.
+    const res = await globalSearch(SUPER, "u", YEAR);
+    expect(res.accounts.length).toBe(8);
+    expect(res.truncated.accounts).toBe(true);
   });
 
   it("wildcard characters are escaped, not treated as patterns", async () => {
@@ -125,6 +132,6 @@ describe("globalSearch — scoped sales user (assigned account B only)", () => {
 describe("globalSearch — non-finance user", () => {
   it("returns nothing regardless of query (search is finance-gated)", async () => {
     const delivery = { id: fx.userId, roles: ["delivery" as const] };
-    expect(await globalSearch(delivery, OEM_NAME, YEAR)).toEqual({ accounts: [], oems: [], invoices: [] });
+    expect(await globalSearch(delivery, OEM_NAME, YEAR)).toEqual({ accounts: [], oems: [], invoices: [], truncated: { accounts: false, oems: false, invoices: false } });
   });
 });

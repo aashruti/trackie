@@ -23,12 +23,19 @@ export interface SearchResults {
   accounts: SearchHit[];
   oems: SearchHit[];
   invoices: SearchHit[];
+  /** Per-group flag: more matches exist than the cap returns (refine to see). */
+  truncated: { accounts: boolean; oems: boolean; invoices: boolean };
 }
 
-const EMPTY: SearchResults = { accounts: [], oems: [], invoices: [] };
+const EMPTY: SearchResults = {
+  accounts: [],
+  oems: [],
+  invoices: [],
+  truncated: { accounts: false, oems: false, invoices: false },
+};
 
-/** Max hits returned per group (the palette is a jump-to, not a report). */
-const GROUP_LIMIT = 6;
+/** Max hits shown per group (the palette is a jump-to, not a full report). */
+const GROUP_LIMIT = 8;
 
 /**
  * Escape ILIKE wildcards so user input is matched literally — otherwise a typed
@@ -47,6 +54,9 @@ export function escapeLike(s: string): string {
  * accounts' bills — nothing leaks across the scope boundary. `yearLabel` is
  * resolved by the caller (the route reads the current-year cookie) so this stays
  * free of request context and unit-testable, matching `getReportData`.
+ *
+ * Prefix matches sort first so the most relevant hits survive the per-group cap;
+ * each group reports whether more matches exist so the UI can prompt a refine.
  */
 export async function globalSearch(
   user: SessionUser,
@@ -62,9 +72,16 @@ export async function globalSearch(
   // A scoped user with no assignments can see nothing — skip the queries.
   if (scope !== null && scope.length === 0) return EMPTY;
 
-  const pattern = `%${escapeLike(q)}%`;
+  const esc = escapeLike(q);
+  const pattern = `%${esc}%`;
+  const prefix = `${esc}%`;
   const inScope = scope === null ? undefined : inArray(accounts.id, scope);
   const qLower = q.toLowerCase();
+  // One past the cap so we can tell the caller "there are more — refine".
+  const probe = GROUP_LIMIT + 1;
+  // Prefix hits (name starts with the query) rank above mid-string hits.
+  const nameRank = (col: typeof accounts.name | typeof oems.name) =>
+    sql`case when ${col} ilike ${prefix} then 0 else 1 end`;
 
   // Bill types whose human label ("Old students") matches the query, so a search
   // for a stream finds its bills even though the DB stores terse codes ("old").
@@ -91,8 +108,8 @@ export async function globalSearch(
       .from(accounts)
       .innerJoin(oems, eq(accounts.oemId, oems.id))
       .where(and(inScope, or(ilike(accounts.name, pattern), ilike(accounts.city, pattern), ilike(oems.name, pattern))))
-      .orderBy(asc(accounts.name))
-      .limit(GROUP_LIMIT),
+      .orderBy(nameRank(accounts.name), asc(accounts.name))
+      .limit(probe),
 
     // OEMs — by name. Scoped users only see OEMs that have an assigned account
     // (the innerJoin + scope filter); super-admins see all matching OEMs.
@@ -101,15 +118,17 @@ export async function globalSearch(
           .select({ id: oems.id, name: oems.name, isSelf: oems.isSelf })
           .from(oems)
           .where(ilike(oems.name, pattern))
-          .orderBy(asc(oems.name))
-          .limit(GROUP_LIMIT)
-      : db
+          .orderBy(nameRank(oems.name), asc(oems.name))
+          .limit(probe)
+      : // SELECT DISTINCT forbids ordering by a non-selected expression, so the
+        // scoped branch ranks by name only (a scoped user's OEM list is short).
+        db
           .selectDistinct({ id: oems.id, name: oems.name, isSelf: oems.isSelf })
           .from(oems)
           .innerJoin(accounts, eq(accounts.oemId, oems.id))
           .where(and(inArray(accounts.id, scope), ilike(oems.name, pattern)))
           .orderBy(asc(oems.name))
-          .limit(GROUP_LIMIT),
+          .limit(probe),
 
     // Invoices — current year only. No year row → no bill search.
     year
@@ -126,28 +145,33 @@ export async function globalSearch(
           .innerJoin(accounts, eq(invoices.accountId, accounts.id))
           .where(and(eq(invoices.yearId, year.id), inScope, or(...invConds)))
           .orderBy(asc(accounts.name))
-          .limit(GROUP_LIMIT)
+          .limit(probe)
       : Promise.resolve([] as { id: number; accountId: number; accountName: string; category: string; semester: string; status: string }[]),
   ]);
 
   return {
-    accounts: accRows.map((a) => ({
+    accounts: accRows.slice(0, GROUP_LIMIT).map((a) => ({
       id: a.id,
       label: a.name,
       sublabel: [a.city, a.oem].filter(Boolean).join(" · "),
       href: `/accounts/${a.id}`,
     })),
-    oems: oemRows.map((o) => ({
+    oems: oemRows.slice(0, GROUP_LIMIT).map((o) => ({
       id: o.id,
       label: o.isSelf ? `${o.name} (own product)` : o.name,
       sublabel: "OEM report",
       href: `/reports/oem/${encodeURIComponent(o.name)}`,
     })),
-    invoices: invRows.map((i) => ({
+    invoices: invRows.slice(0, GROUP_LIMIT).map((i) => ({
       id: i.id,
       label: i.accountName,
       sublabel: `${streamLabel(i.category, i.semester)} · ${statusMeta(i.status as Status)[1]}`,
       href: `/accounts/${i.accountId}`,
     })),
+    truncated: {
+      accounts: accRows.length > GROUP_LIMIT,
+      oems: oemRows.length > GROUP_LIMIT,
+      invoices: invRows.length > GROUP_LIMIT,
+    },
   };
 }
