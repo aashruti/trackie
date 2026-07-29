@@ -19,9 +19,9 @@ import { canAccessDelivery, canManageGroups, canViewFinance } from "@/lib/dal/au
 
 function Kpi({ label, value, tone }: { label: string; value: number; tone?: "default" | "positive" | "negative" | "pending" | "info" }) {
   return (
-    <Card className="p-4">
+    <Card className="flex min-h-24 flex-col p-4">
       <div className="text-xs font-medium uppercase tracking-wide text-text-muted">{label}</div>
-      <div className="mt-1.5 text-xl font-semibold">
+      <div className="mt-auto pt-1.5 text-xl font-semibold">
         <Money value={value} compact tone={tone ?? "default"} />
       </div>
     </Card>
@@ -112,10 +112,12 @@ export default async function AccountDetailPage({
           </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
           <Kpi label="Billed" value={detail.totals.billed} />
-          <Kpi label="Outstanding" value={detail.totals.outstanding} tone="pending" />
+          <Kpi label="Received from university" value={detail.totals.received} tone="positive" />
+          <Kpi label="Outstanding from university" value={detail.totals.outstanding} tone="pending" />
           <Kpi label="Payable to OEM" value={detail.totals.payable} tone="info" />
+          <Kpi label="Outstanding to OEM" value={detail.totals.outstandingToOem} tone="pending" />
           <Kpi label="Net margin" value={detail.totals.netMargin} tone="positive" />
         </div>
 
