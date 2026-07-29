@@ -31,10 +31,10 @@ const shell = (body: string) =>
 
 /** New leave request → notify HR / approvers. */
 export async function notifyLeaveRequested(
-  recipients: string[],
+  recipients: { to: string[]; cc: string[] },
   req: { employeeName: string; leaveTypeName: string; startDate: string; endDate: string; days: number },
 ) {
-  if (!recipients.length) return { sent: false, skippedReason: "no-recipients" as const };
+  if (!recipients.to.length) return { sent: false, skippedReason: "no-recipients" as const };
   const html = shell(
     `<h2 style="margin:0 0 8px">Leave request awaiting approval</h2>
      <p><b>${esc(req.employeeName)}</b> requested <b>${esc(req.leaveTypeName)}</b> leave.</p>
@@ -42,7 +42,8 @@ export async function notifyLeaveRequested(
      <p>Review it in Trackie → HR → Leave.</p>`,
   );
   return sendEmail({
-    to: recipients,
+    to: recipients.to,
+    cc: recipients.cc,
     subject: `Leave request — ${req.employeeName} (${req.days}d ${req.leaveTypeName})`,
     html,
     text: `${req.employeeName} requested ${req.leaveTypeName} leave for ${range(req.startDate, req.endDate)} (${req.days} days). Review in Trackie → HR → Leave.`,
