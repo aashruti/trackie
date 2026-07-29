@@ -57,7 +57,7 @@ export async function sendEmail(input: EmailInput): Promise<EmailResult> {
       },
       recipients: {
         to: to.map((address) => ({ address })),
-        cc: cc.map((address) => ({ address })),
+        ...(cc.length ? { cc: cc.map((address) => ({ address })) } : {}),
       },
       replyTo: input.replyTo ? [{ address: input.replyTo }] : undefined,
     });
