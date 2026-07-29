@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { MonthSwitcher } from "@/components/hr/month-switcher";
+import { useAppDialog } from "@/components/ui/app-dialog";
 import { generatePayrollAction, finalizePayrollAction } from "@/app/(app)/hr/payroll/actions";
 import type { PayrollPreview, PayrollRunDetail, PayrollRunRow, PayslipLine } from "@/lib/dal/hr/payroll";
 
@@ -27,6 +28,7 @@ export function PayrollManager({
   monthLabel: string;
 }) {
   const router = useRouter();
+  const { confirmAction } = useAppDialog();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [detail, setDetail] = useState<PayslipLine | null>(null);
@@ -43,9 +45,14 @@ export function PayrollManager({
       router.refresh();
     });
   }
-  function finalize() {
+  async function finalize() {
     if (!savedRun) return;
-    if (!confirm(`Finalize ${monthLabel}? Payslips lock and become visible to employees.`)) return;
+    const confirmed = await confirmAction({
+      title: `Finalize payroll for ${monthLabel}?`,
+      description: "Payslips will be locked and become visible to employees.",
+      confirmLabel: "Finalize & lock",
+    });
+    if (!confirmed) return;
     setError(null);
     startTransition(async () => {
       const res = await finalizePayrollAction(savedRun.run.id);

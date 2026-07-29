@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useAppDialog } from "@/components/ui/app-dialog";
 import type { HolidayRow } from "@/lib/dal/hr/holidays";
 import { addHolidayAction, deleteHolidayAction, reapplyHolidayAction } from "@/app/(app)/hr/settings/actions";
 
@@ -11,6 +12,7 @@ function fmtDate(iso: string) {
 
 export function HrSettingsManager({ holidays }: { holidays: HolidayRow[] }) {
   const router = useRouter();
+  const { confirmAction } = useAppDialog();
   const [pending, startTransition] = useTransition();
   const [busyId, setBusyId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -32,6 +34,18 @@ export function HrSettingsManager({ holidays }: { holidays: HolidayRow[] }) {
     e.preventDefault();
     if (!date || !name.trim()) { setError("Pick a date and give the holiday a name."); return; }
     run(() => addHolidayAction(date, name.trim()), () => { setDate(""); setName(""); });
+  }
+
+  async function removeHoliday(holiday: HolidayRow) {
+    const confirmed = await confirmAction({
+      title: `Delete “${holiday.name}”?`,
+      description: `${fmtDate(holiday.date)} and its auto-applied holiday attendance marks will be removed.`,
+      confirmLabel: "Delete holiday",
+      tone: "danger",
+    });
+    if (!confirmed) return;
+    setBusyId(holiday.id);
+    run(() => deleteHolidayAction(holiday.id));
   }
 
   const now = new Date();
@@ -86,7 +100,7 @@ export function HrSettingsManager({ holidays }: { holidays: HolidayRow[] }) {
                     title="Re-apply to any employees enrolled since this holiday was added">
                     {busyId === h.id && pending ? "…" : "Re-apply"}
                   </button>
-                  <button disabled={pending} onClick={() => { if (confirm(`Delete “${h.name}” (${fmtDate(h.date)})? This removes the auto-applied holiday marks.`)) { setBusyId(h.id); run(() => deleteHolidayAction(h.id)); } }}
+                  <button disabled={pending} onClick={() => removeHoliday(h)}
                     className="shrink-0 rounded-md border border-[var(--negative-border)] px-2 py-1 text-xs font-medium text-[var(--negative-text)] transition-colors hover:bg-[var(--negative-subtle)] disabled:opacity-40">
                     Delete
                   </button>

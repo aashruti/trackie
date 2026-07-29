@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useAppDialog } from "@/components/ui/app-dialog";
 import type { ProgramDetail } from "@/lib/dal/delivery/programs";
 import { PROGRAM_STATUSES, type ProgramStatus } from "@/lib/db/enums";
 import { PROGRAM_STATUS_META } from "./meta";
@@ -30,6 +31,7 @@ export function ProgramControls({
   oems: { id: number; name: string; isSelf: boolean }[];
 }) {
   const router = useRouter();
+  const { confirmAction } = useAppDialog();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -68,10 +70,14 @@ export function ProgramControls({
         Edit
       </button>
       <button
-        onClick={() => {
-          if (confirm(`Delete “${program.name}” with ALL its events and activity history? This can't be undone.`)) {
-            run(() => deleteProgramAction(program.id), () => router.push("/delivery/programs"));
-          }
+        onClick={async () => {
+          const confirmed = await confirmAction({
+            title: `Delete “${program.name}”?`,
+            description: "All events and activity history will be permanently deleted. This cannot be undone.",
+            confirmLabel: "Delete program",
+            tone: "danger",
+          });
+          if (confirmed) run(() => deleteProgramAction(program.id), () => router.push("/delivery/programs"));
         }}
         disabled={pending}
         className="rounded-md border border-[var(--negative-border)] px-2 py-1 text-xs font-medium text-[var(--negative-text)] hover:bg-[var(--negative-subtle)] disabled:opacity-40"

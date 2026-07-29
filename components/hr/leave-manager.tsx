@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
+import { useAppDialog } from "@/components/ui/app-dialog";
 import type { LeaveRequestRow, BalanceLedgerRow } from "@/lib/dal/hr/leave";
 import { reviewLeaveAction, setLeaveBalanceAction, accrueAllToDateAction } from "@/app/(app)/hr/leave/actions";
 
@@ -229,6 +230,7 @@ function ApprovalCard({ r, focused }: { r: LeaveRequestRow; focused: boolean }) 
 
 function Ledger({ ledger, year }: { ledger: BalanceLedgerRow[]; year: number }) {
   const router = useRouter();
+  const { confirmAction } = useAppDialog();
   const [pending, startTransition] = useTransition();
   const [editKey, setEditKey] = useState<string | null>(null);
   const [draft, setDraft] = useState({ entitlement: "", carriedForward: "", accrued: "", used: "", unpaidTaken: "" });
@@ -270,8 +272,14 @@ function Ledger({ ledger, year }: { ledger: BalanceLedgerRow[]; year: number }) 
       router.refresh();
     });
   }
-  function accrueAll() {
-    if (!confirm(`Set accrued to the pro-rata to-date value for every active employee (based on their date of joining)? This overwrites the Accrued column for ${year}.`)) return;
+  async function accrueAll() {
+    const confirmed = await confirmAction({
+      title: `Recalculate accrued leave for ${year}?`,
+      description: "This overwrites the Accrued column for every active employee using their date of joining and the pro-rata value to date.",
+      confirmLabel: "Recalculate accrued leave",
+      tone: "danger",
+    });
+    if (!confirmed) return;
     setError(null);
     startTransition(async () => {
       const res = await accrueAllToDateAction(year);

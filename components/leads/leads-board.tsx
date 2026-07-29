@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Avatar } from "@/components/ui/avatar";
 import { Money } from "@/components/ui/money";
 import { MoveSelect } from "@/components/team/team-board";
+import { useAppDialog } from "@/components/ui/app-dialog";
 import { LeadDetailDialog } from "./lead-detail-dialog";
 import { NewLeadDialog } from "./new-lead-dialog";
 import {
@@ -65,6 +66,7 @@ export function LeadsBoard({
   isSuperAdmin: boolean;
 }) {
   const router = useRouter();
+  const { showAlert } = useAppDialog();
   const [optimisticLeads, applyAction] = useOptimistic(leads, (state, a: LeadAction) =>
     state.map((l) => {
       if (l.id !== a.id) return l;
@@ -143,7 +145,11 @@ export function LeadsBoard({
         const res = await convertLeadAction(id);
         if (res?.accountId) router.push(`/accounts/${res.accountId}`);
       } catch (e) {
-        alert(e instanceof Error ? e.message : "Failed to convert lead");
+        await showAlert({
+          title: "Could not convert lead",
+          description: e instanceof Error ? e.message : "The lead could not be converted. Please try again.",
+          tone: "danger",
+        });
       }
     });
   }

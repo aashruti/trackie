@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Avatar } from "@/components/ui/avatar";
 import { Money } from "@/components/ui/money";
+import { useAppDialog } from "@/components/ui/app-dialog";
 import { MonthSwitcher } from "@/components/hr/month-switcher";
 import type { ProgramCalendar, ProgramDetail, ProgramEvent } from "@/lib/dal/delivery/programs";
 import type { Option } from "@/lib/board/constants";
@@ -189,6 +190,7 @@ function EventCard({
   pending: boolean;
   run: (fn: () => Promise<{ ok: boolean; error?: string }>, onOk?: () => void) => void;
 }) {
+  const { confirmAction } = useAppDialog();
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
   const meta = EVENT_STATUS_META[event.status];
@@ -251,10 +253,14 @@ function EventCard({
                 Edit
               </button>
               <button
-                onClick={() => {
-                  if (confirm(`Delete “${event.title}” and its ${event.activities.length} logged activit${event.activities.length === 1 ? "y" : "ies"}?`)) {
-                    run(() => deleteEventAction(programId, event.id));
-                  }
+                onClick={async () => {
+                  const confirmed = await confirmAction({
+                    title: `Delete “${event.title}”?`,
+                    description: `This will also delete ${event.activities.length} logged activit${event.activities.length === 1 ? "y" : "ies"}.`,
+                    confirmLabel: "Delete event",
+                    tone: "danger",
+                  });
+                  if (confirmed) run(() => deleteEventAction(programId, event.id));
                 }}
                 disabled={pending}
                 className="rounded-md border border-[var(--negative-border)] px-2 py-1 text-xs font-medium text-[var(--negative-text)] hover:bg-[var(--negative-subtle)] disabled:opacity-40"
@@ -338,10 +344,16 @@ function EventCard({
                         {a.cost > 0 && <Money value={a.cost} compact className="text-[13px] font-semibold" />}
                         {canManage && (
                           <button
-                            onClick={() => {
-                              if (confirm(`Delete “${a.title}”${a.cost > 0 ? ` (₹${a.cost.toLocaleString("en-IN")} of spend)` : ""}?`)) {
-                                run(() => deleteActivityAction(programId, a.id));
-                              }
+                            onClick={async () => {
+                              const confirmed = await confirmAction({
+                                title: `Delete “${a.title}”?`,
+                                description: a.cost > 0
+                                  ? `This activity includes ₹${a.cost.toLocaleString("en-IN")} of recorded spend.`
+                                  : "This activity will be permanently removed.",
+                                confirmLabel: "Delete activity",
+                                tone: "danger",
+                              });
+                              if (confirmed) run(() => deleteActivityAction(programId, a.id));
                             }}
                             disabled={pending}
                             aria-label={`Delete ${a.title}`}

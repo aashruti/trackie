@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { Money } from "@/components/ui/money";
+import { useAppDialog } from "@/components/ui/app-dialog";
 import { fmt } from "@/lib/money/format";
 import { fmtDay, todayISO } from "@/lib/dates";
 import {
@@ -36,6 +37,7 @@ export function LeadDetailDialog({
   onLogActivity: (input: { type: ActivityType; body: string }) => void;
   onConvert: () => void;
 }) {
+  const { promptForText } = useAppDialog();
   const [type, setType] = useState<ActivityType>("note");
   const [body, setBody] = useState("");
   const [fuAction, setFuAction] = useState("");
@@ -49,9 +51,17 @@ export function LeadDetailDialog({
     setFuDate("");
   }
 
-  function pickStage(stage: LeadStage) {
+  async function pickStage(stage: LeadStage) {
     if (stage === "lost" && lead.stage !== "lost") {
-      const reason = window.prompt("Why was this lead lost? (optional)") ?? "";
+      const reason = await promptForText({
+        title: "Mark this lead as lost?",
+        description: "Add an optional reason so the team has context later.",
+        label: "Reason",
+        placeholder: "Why was this lead lost?",
+        confirmLabel: "Mark as lost",
+        multiline: true,
+      });
+      if (reason === null) return;
       onSetStage("lost", reason);
     } else {
       onSetStage(stage);
