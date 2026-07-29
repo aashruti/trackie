@@ -103,7 +103,8 @@ async function seedDemoEmployees() {
       monthlySalary: String(salaries[i % salaries.length]),
       shiftId: general?.id ?? null,
       weeklyOffDay: 0,
-      wfhDay: 6,
+      // Saturday is a company-wide working day and counts as Present.
+      wfhDay: null,
     };
   });
   await db.insert(employeeProfiles).values(values);

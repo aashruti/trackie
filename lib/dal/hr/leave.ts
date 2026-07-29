@@ -231,13 +231,13 @@ export async function listBalanceLedger(
   }));
 }
 
-/** HR sets an employee's balance for a leave type + year (upsert; preserves unpaidTaken). */
+/** HR sets an employee's complete balance row for a leave type + year. */
 export async function setLeaveBalance(
   user: SessionUser,
   employeeId: number,
   leaveTypeId: number,
   year: number,
-  values: { entitlement: number; carriedForward: number; accrued: number; used: number },
+  values: { entitlement: number; carriedForward: number; accrued: number; used: number; unpaidTaken: number },
 ): Promise<void> {
   assertHrAccess(user);
   if (!Number.isInteger(year) || year < 2000 || year > 2100) throw new UserError("Invalid year.");
@@ -249,6 +249,7 @@ export async function setLeaveBalance(
     carriedForward: String(values.carriedForward),
     accrued: String(values.accrued),
     used: String(values.used),
+    unpaidTaken: String(values.unpaidTaken),
   };
   await db
     .insert(leaveBalances)

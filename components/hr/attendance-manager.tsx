@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import type { AttendancePreview, MonthGridRow, MonthGridCell } from "@/lib/dal/hr/attendance";
 import type { AttendanceDayType } from "@/lib/db/enums";
 import { MonthSwitcher } from "@/components/hr/month-switcher";
-import { previewAttendanceAction, commitAttendanceAction, overrideAttendanceAction, setAttendanceLateAction, getDayAttendanceAction, getEmployeeCalendarAction } from "@/app/(app)/hr/attendance/actions";
+import { previewAttendanceAction, commitAttendanceAction, overrideAttendanceAction, setAttendanceExceptionsAction, getDayAttendanceAction, getEmployeeCalendarAction } from "@/app/(app)/hr/attendance/actions";
 import type { MyAttendance, DayMark } from "@/lib/dal/hr/attendance";
 
 const OVERRIDE_OPTIONS: AttendanceDayType[] = ["office", "half-day", "wfh", "official-visit", "comp-off", "paid-leave", "unpaid-leave", "weekly-off", "holiday", "absent"];
@@ -24,10 +24,26 @@ const DAY_META: Record<AttendanceDayType, { label: string; cls: string }> = {
   "half-day": { label: "½P", cls: "bg-[var(--pending-subtle)] text-[var(--pending-text)]" },
 };
 
-function Cell({ dayType, isLate, isEarlyLeave }: { dayType: AttendanceDayType; isLate?: boolean; isEarlyLeave?: boolean }) {
+function Cell({
+  dayType,
+  isLate,
+  lateMinutes,
+  isEarlyLeave,
+  earlyMinutes,
+}: {
+  dayType: AttendanceDayType;
+  isLate?: boolean;
+  lateMinutes?: number;
+  isEarlyLeave?: boolean;
+  earlyMinutes?: number;
+}) {
   const m = DAY_META[dayType];
+  const details = [
+    isLate ? `Late ${lateMinutes ?? 0} min` : "",
+    isEarlyLeave ? `Leaving early ${earlyMinutes ?? 0} min` : "",
+  ].filter(Boolean).join(" · ");
   return (
-    <div className={`relative grid h-7 w-10 place-items-center rounded text-[11px] font-semibold ${m.cls}`}>
+    <div title={details || undefined} className={`relative grid h-7 w-10 place-items-center rounded text-[11px] font-semibold ${m.cls}`}>
       {m.label}
       {isLate && <span className="absolute -right-0.5 -top-1 rounded-sm bg-[var(--pending)] px-0.5 text-[7px] font-bold text-[var(--primary-fg)]">LC</span>}
       {isEarlyLeave && <span className="absolute -bottom-1 -right-0.5 rounded-sm bg-[var(--negative)] px-0.5 text-[7px] font-bold text-white">LE</span>}
@@ -54,7 +70,7 @@ function Legend() {
         <span key={dt} className="inline-flex items-center gap-1"><Cell dayType={dt} /> {label}</span>
       ))}
       <span className="inline-flex items-center gap-1"><span className="rounded-sm bg-[var(--pending)] px-1 text-[8px] font-bold text-[var(--primary-fg)]">LC</span> Late</span>
-      <span className="inline-flex items-center gap-1"><span className="rounded-sm bg-[var(--negative)] px-1 text-[8px] font-bold text-white">LE</span> Early</span>
+      <span className="inline-flex items-center gap-1"><span className="rounded-sm bg-[var(--negative)] px-1 text-[8px] font-bold text-white">LE</span> Leaving early</span>
     </div>
   );
 }
@@ -133,7 +149,18 @@ function MarkDayPanel({ employees, grid }: { employees: { id: number; code: stri
   // Seed today's marks from the already-loaded grid to avoid an initial flash.
   const [marks, setMarks] = useState<Record<number, DayMark>>(() => {
     const seed: Record<number, DayMark> = {};
-    for (const r of grid.rows) { const c = r.cells[today]; if (c) seed[r.employeeId] = { dayType: c.dayType, isLate: c.isLate, isEarlyLeave: c.isEarlyLeave }; }
+    for (const r of grid.rows) {
+      const c = r.cells[today];
+      if (c) {
+        seed[r.employeeId] = {
+          dayType: c.dayType,
+          isLate: c.isLate,
+          lateMinutes: c.lateMinutes,
+          isEarlyLeave: c.isEarlyLeave,
+          earlyMinutes: c.earlyMinutes,
+        };
+      }
+    }
     return seed;
   });
 
@@ -165,7 +192,10 @@ function MarkDayPanel({ employees, grid }: { employees: { id: number; code: stri
     });
   }
   const mark = (id: number, dt: AttendanceDayType) => run(id, () => overrideAttendanceAction(id, date, dt));
-  const toggleLate = (id: number, next: boolean) => run(id, () => setAttendanceLateAction(id, date, next));
+  const saveExceptions = (
+    id: number,
+    input: { isLate: boolean; lateMinutes: number; isEarlyLeave: boolean; earlyMinutes: number },
+  ) => run(id, () => setAttendanceExceptionsAction(id, date, input));
 
   if (!employees.length) return <div className="rounded-xl border border-border bg-surface px-4 py-12 text-center text-sm text-text-muted">No active employees.</div>;
 
@@ -199,7 +229,7 @@ function MarkDayPanel({ employees, grid }: { employees: { id: number; code: stri
                 <div className="text-sm font-medium text-text-primary">{e.name}</div>
                 <div className="text-[11px] text-text-muted">{e.code}</div>
               </div>
-              {cur ? <Cell dayType={cur.dayType} isLate={cur.isLate} isEarlyLeave={cur.isEarlyLeave} /> : <span className="text-[11px] text-text-muted">— not marked</span>}
+              {cur ? <Cell dayType={cur.dayType} isLate={cur.isLate} lateMinutes={cur.lateMinutes} isEarlyLeave={cur.isEarlyLeave} earlyMinutes={cur.earlyMinutes} /> : <span className="text-[11px] text-text-muted">— not marked</span>}
               <div className="ml-auto flex flex-wrap items-center gap-2">
                 {/* Primary Present / Absent toggle */}
                 <div className="inline-flex overflow-hidden rounded-md border border-border-strong text-xs font-semibold">
@@ -227,14 +257,16 @@ function MarkDayPanel({ employees, grid }: { employees: { id: number; code: stri
                         {label}
                       </button>
                     ))}
-                    {/* Late only applies to a present day — shown after a divider */}
+                    {/* Arrival/departure exceptions only apply to a present day. */}
                     {isPresent && (
                       <>
                         <span className="mx-0.5 h-4 w-px bg-border" />
-                        <button disabled={busy} onClick={() => toggleLate(e.id, !cur.isLate)} title="Flag a late arrival"
-                          className={`rounded-md border px-2 py-1 text-xs font-semibold transition-colors disabled:opacity-40 ${cur.isLate ? "border-[var(--pending-border)] bg-[var(--pending-subtle)] text-[var(--pending-text)]" : "border-border text-text-secondary hover:bg-surface-hover"}`}>
-                          Late
-                        </button>
+                        <ExceptionControls
+                          key={`${date}:${e.id}:${cur.isLate}:${cur.lateMinutes}:${cur.isEarlyLeave}:${cur.earlyMinutes}`}
+                          mark={cur}
+                          busy={busy}
+                          onSave={(input) => saveExceptions(e.id, input)}
+                        />
                       </>
                     )}
                   </div>
@@ -244,7 +276,83 @@ function MarkDayPanel({ employees, grid }: { employees: { id: number; code: stri
           );
         })}
       </div>
-      <p className="text-[11px] text-text-muted">“Late” flags a present day as a late arrival (feeds the late→LOP policy). Use the arrows or the picker to mark any past date.</p>
+      <p className="text-[11px] text-text-muted">Late coming and leaving early are stored with minutes. Late coming feeds the late→LOP policy. Use the arrows or picker to mark any past date.</p>
+    </div>
+  );
+}
+
+function ExceptionControls({
+  mark,
+  busy,
+  onSave,
+}: {
+  mark: DayMark;
+  busy: boolean;
+  onSave: (input: { isLate: boolean; lateMinutes: number; isEarlyLeave: boolean; earlyMinutes: number }) => void;
+}) {
+  const [isLate, setIsLate] = useState(mark.isLate);
+  const [lateMinutes, setLateMinutes] = useState(mark.lateMinutes || 15);
+  const [isEarlyLeave, setIsEarlyLeave] = useState(mark.isEarlyLeave);
+  const [earlyMinutes, setEarlyMinutes] = useState(mark.earlyMinutes || 15);
+  const changed =
+    isLate !== mark.isLate ||
+    (isLate && lateMinutes !== mark.lateMinutes) ||
+    isEarlyLeave !== mark.isEarlyLeave ||
+    (isEarlyLeave && earlyMinutes !== mark.earlyMinutes);
+  const invalid =
+    (isLate && (!Number.isInteger(lateMinutes) || lateMinutes < 1 || lateMinutes > 1440)) ||
+    (isEarlyLeave && (!Number.isInteger(earlyMinutes) || earlyMinutes < 1 || earlyMinutes > 1440));
+
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      <label className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium ${isLate ? "border-[var(--pending-border)] bg-[var(--pending-subtle)] text-[var(--pending-text)]" : "border-border text-text-secondary"}`}>
+        <input type="checkbox" checked={isLate} onChange={(e) => setIsLate(e.target.checked)} disabled={busy} />
+        Late
+      </label>
+      {isLate && (
+        <label className="inline-flex items-center gap-1 text-[11px] text-text-muted">
+          <input
+            type="number"
+            min={1}
+            max={1440}
+            value={lateMinutes}
+            onChange={(e) => setLateMinutes(Number(e.target.value))}
+            disabled={busy}
+            aria-label="Late-coming minutes"
+            className="w-14 rounded border border-border-strong bg-surface px-1.5 py-1 text-right tabular text-text-primary"
+          />
+          min
+        </label>
+      )}
+      <label className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium ${isEarlyLeave ? "border-[var(--negative-border)] bg-[var(--negative-subtle)] text-[var(--negative-text)]" : "border-border text-text-secondary"}`}>
+        <input type="checkbox" checked={isEarlyLeave} onChange={(e) => setIsEarlyLeave(e.target.checked)} disabled={busy} />
+        Leaving early
+      </label>
+      {isEarlyLeave && (
+        <label className="inline-flex items-center gap-1 text-[11px] text-text-muted">
+          <input
+            type="number"
+            min={1}
+            max={1440}
+            value={earlyMinutes}
+            onChange={(e) => setEarlyMinutes(Number(e.target.value))}
+            disabled={busy}
+            aria-label="Leaving-early minutes"
+            className="w-14 rounded border border-border-strong bg-surface px-1.5 py-1 text-right tabular text-text-primary"
+          />
+          min
+        </label>
+      )}
+      {changed && (
+        <button
+          type="button"
+          disabled={busy || invalid}
+          onClick={() => onSave({ isLate, lateMinutes: isLate ? lateMinutes : 0, isEarlyLeave, earlyMinutes: isEarlyLeave ? earlyMinutes : 0 })}
+          className="rounded-md bg-[var(--primary)] px-2 py-1 text-xs font-semibold text-[var(--primary-fg)] disabled:opacity-40"
+        >
+          Save
+        </button>
+      )}
     </div>
   );
 }
@@ -368,7 +476,7 @@ function PreviewGrid({ dates, matched }: { dates: string[]; matched: AttendanceP
                 </td>
                 {dates.map((d) => {
                   const r = byDate.get(d);
-                  return <td key={d} title={`${e.name} · ${fmtDate(d)}`} className="px-0.5 py-1">{r ? <Cell dayType={r.dayType} isLate={r.isLate} isEarlyLeave={r.isEarlyLeave} /> : <div className="h-7 w-10" />}</td>;
+                  return <td key={d} title={`${e.name} · ${fmtDate(d)}`} className="px-0.5 py-1">{r ? <Cell dayType={r.dayType} isLate={r.isLate} lateMinutes={r.lateMinutes} isEarlyLeave={r.isEarlyLeave} earlyMinutes={r.earlyMinutes} /> : <div className="h-7 w-10" />}</td>;
                 })}
               </tr>
             );
@@ -420,7 +528,7 @@ function GridPanel({ grid }: { grid: { days: string[]; rows: MonthGridRow[] } })
                   return (
                     <td key={d} className="px-0.5 py-1">
                       <button title={`${e.name} · ${fmtDate(d)}`} onClick={() => setEdit({ employeeId: e.employeeId, name: e.name, date: d })} className="att-cell rounded transition-shadow hover:shadow-[inset_0_0_0_2px_var(--primary)]">
-                        {c ? <Cell dayType={c.dayType} isLate={c.isLate} isEarlyLeave={c.isEarlyLeave} /> : <div className="grid h-7 w-10 place-items-center text-text-muted">·</div>}
+                        {c ? <Cell dayType={c.dayType} isLate={c.isLate} lateMinutes={c.lateMinutes} isEarlyLeave={c.isEarlyLeave} earlyMinutes={c.earlyMinutes} /> : <div className="grid h-7 w-10 place-items-center text-text-muted">·</div>}
                       </button>
                     </td>
                   );
@@ -511,6 +619,7 @@ function CalendarView({ data }: { data: MyAttendance & { name: string; code: str
         <span>Leave <b className="tabular text-text-primary">{s.leave}</b></span>
         <span>Absent <b className="tabular text-[var(--negative-text)]">{s.absent}</b></span>
         <span>Late <b className="tabular text-[var(--pending-text)]">{s.lateCount}</b></span>
+        <span>Leaving early <b className="tabular text-[var(--negative-text)]">{s.earlyCount}</b></span>
         <span>LOP <b className="tabular text-[var(--negative-text)]">{s.lopDays}</b></span>
       </div>
       <div className="rounded-xl border border-border bg-surface p-4">
@@ -523,10 +632,11 @@ function CalendarView({ data }: { data: MyAttendance & { name: string; code: str
             const c = data.cells[d];
             const m = c ? DAY_META[c.dayType] : null;
             return (
-              <div key={d} title={`${fmtDate(d)}${m ? " · " + m.label : ""}`} className={`relative grid aspect-square place-items-center rounded-md border border-border-subtle ${m ? m.cls : "bg-surface-sunken/40"}`}>
+              <div key={d} title={`${fmtDate(d)}${m ? " · " + m.label : ""}${c?.isLate ? ` · Late ${c.lateMinutes} min` : ""}${c?.isEarlyLeave ? ` · Leaving early ${c.earlyMinutes} min` : ""}`} className={`relative grid aspect-square place-items-center rounded-md border border-border-subtle ${m ? m.cls : "bg-surface-sunken/40"}`}>
                 <span className="absolute left-1 top-0.5 text-[9px] text-text-muted">{dayNum(d)}</span>
                 {m && <span className="text-[11px] font-semibold">{m.label}</span>}
                 {c?.isLate && <span className="absolute right-0.5 top-0.5 rounded-sm bg-[var(--pending)] px-0.5 text-[7px] font-bold text-[var(--primary-fg)]">LC</span>}
+                {c?.isEarlyLeave && <span className="absolute bottom-0.5 right-0.5 rounded-sm bg-[var(--negative)] px-0.5 text-[7px] font-bold text-white">LE</span>}
               </div>
             );
           })}

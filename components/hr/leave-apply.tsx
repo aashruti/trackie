@@ -52,7 +52,7 @@ export function LeaveApply({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const [ok, setOk] = useState(false);
+  const [delivery, setDelivery] = useState<"sent" | "saved-only" | null>(null);
 
   const [leaveTypeId, setLeaveTypeId] = useState<number | "">(types[0]?.id ?? "");
   const [startDate, setStartDate] = useState("");
@@ -65,6 +65,7 @@ export function LeaveApply({
 
   function submit() {
     setError(null);
+    setDelivery(null);
     if (leaveTypeId === "") return setError("Pick a leave type.");
     if (!startDate) return setError("Pick a start date.");
     const end = endDate || startDate;
@@ -85,7 +86,7 @@ export function LeaveApply({
           setError(res.error);
           return;
         }
-        setOk(true);
+        setDelivery(res.emailSent ? "sent" : "saved-only");
         setReason("");
         setStartDate("");
         setEndDate("");
@@ -158,8 +159,13 @@ export function LeaveApply({
           {error && (
             <p className="rounded-md border border-[var(--negative-border)] bg-[var(--negative-subtle)] px-3 py-2 text-sm text-[var(--negative-text)]">{error}</p>
           )}
-          {ok && !error && (
-            <p className="rounded-md border border-[var(--positive-border)] bg-[var(--positive-subtle)] px-3 py-2 text-sm text-[var(--positive-text)]">Request submitted — HR has been notified.</p>
+          {delivery === "sent" && !error && (
+            <p className="rounded-md border border-[var(--positive-border)] bg-[var(--positive-subtle)] px-3 py-2 text-sm text-[var(--positive-text)]">Request submitted — HR and your inbox have been notified.</p>
+          )}
+          {delivery === "saved-only" && !error && (
+            <p className="rounded-md border border-[var(--pending-border)] bg-[var(--pending-subtle)] px-3 py-2 text-sm text-[var(--pending-text)]">
+              Request submitted, but email delivery is not configured or temporarily failed. HR can still see it in the approvals queue.
+            </p>
           )}
         </div>
 

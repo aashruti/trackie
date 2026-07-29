@@ -60,11 +60,16 @@ export function computePay(i: PayInput): PayComputed {
   const tds = Math.max(0, i.tds ?? 0);
   const additions = i.additions ?? 0;
   const netPay = Math.max(0, round2(earnedGross + additions - insurance - professionalTax - tds));
+  const basic = round2(gross * SALARY_SPLIT.basic);
+  // HR policy: HRA is 40% of Basic (therefore 16% of Gross).
+  const hra = round2(basic * 0.4);
+  // Use the remainder so the three earnings heads always add back to Gross.
+  const otherAllowance = round2(gross - basic - hra);
   return {
     gross,
-    basic: round2(gross * SALARY_SPLIT.basic),
-    hra: round2(gross * SALARY_SPLIT.hra),
-    otherAllowance: round2(gross * SALARY_SPLIT.other),
+    basic,
+    hra,
+    otherAllowance,
     perDay: round2(gross / days),
     lopDays,
     daysWorked,
@@ -520,6 +525,10 @@ export async function finalizePayrollRun(user: SessionUser, runId: number): Prom
 
 export type MyPayslip = {
   runId: number;
+  employeeName: string;
+  employeeCode: string;
+  designation: string | null;
+  dateOfJoining: string | null;
   month: number;
   year: number;
   cycleStart: string;
@@ -552,6 +561,8 @@ export async function getMyPayslips(user: SessionUser): Promise<{ isEmployee: bo
       runId: payrollRuns.id,
       month: payrollRuns.month,
       year: payrollRuns.year,
+      designation: employeeProfiles.designation,
+      dateOfJoining: employeeProfiles.dateOfJoining,
       baseSalary: payslips.baseSalary,
       perDay: payslips.perDay,
       daysWorked: payslips.daysWorked,
@@ -572,6 +583,7 @@ export async function getMyPayslips(user: SessionUser): Promise<{ isEmployee: bo
     })
     .from(payslips)
     .innerJoin(payrollRuns, eq(payslips.runId, payrollRuns.id))
+    .innerJoin(employeeProfiles, eq(payslips.employeeId, employeeProfiles.id))
     .where(and(eq(payslips.employeeId, emp.employeeId), eq(payrollRuns.status, "finalized")))
     .orderBy(desc(payrollRuns.year), desc(payrollRuns.month));
 
@@ -579,6 +591,10 @@ export async function getMyPayslips(user: SessionUser): Promise<{ isEmployee: bo
     const cycle = cycleRange(r.year, r.month, CALENDAR_CYCLE);
     return {
       runId: r.runId,
+      employeeName: emp.name,
+      employeeCode: emp.employeeCode,
+      designation: r.designation,
+      dateOfJoining: r.dateOfJoining,
       month: r.month,
       year: r.year,
       cycleStart: cycle.start,

@@ -37,12 +37,13 @@ export function MyAttendanceView({ data, monthLabel, year, month }: { data: MyAt
         <MonthSwitcher year={year} month={month} />
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
         <Stat label="Present" value={summary.present} tone="text-[var(--positive-text)]" />
         <Stat label="WFH" value={summary.wfh} />
         <Stat label="Leave" value={summary.leave} />
         <Stat label="Absent" value={summary.absent} tone={summary.absent ? "text-[var(--negative-text)]" : undefined} />
         <Stat label="Late" value={summary.lateCount} tone={summary.lateCount ? "text-[var(--pending-text)]" : undefined} />
+        <Stat label="Leaving early" value={summary.earlyCount} tone={summary.earlyCount ? "text-[var(--negative-text)]" : undefined} />
         <Stat label="LOP days" value={summary.lopDays} tone={summary.lopDays ? "text-[var(--negative-text)]" : undefined} />
       </div>
 
@@ -56,10 +57,15 @@ export function MyAttendanceView({ data, monthLabel, year, month }: { data: MyAt
             const c = cells[d];
             const meta = c ? DAY_META[c.dayType] : null;
             return (
-              <div key={d} title={new Date(d + "T00:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" })} className={`relative grid aspect-square place-items-center rounded-md border border-border-subtle ${meta ? meta.cls : "bg-surface-sunken/40"}`}>
+              <div
+                key={d}
+                title={`${new Date(d + "T00:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" })}${c?.isLate ? ` · Late ${c.lateMinutes} min` : ""}${c?.isEarlyLeave ? ` · Leaving early ${c.earlyMinutes} min` : ""}`}
+                className={`relative grid aspect-square place-items-center rounded-md border border-border-subtle ${meta ? meta.cls : "bg-surface-sunken/40"}`}
+              >
                 <span className="absolute left-1 top-0.5 text-[9px] text-text-muted">{Number(d.slice(8, 10))}</span>
                 {meta && <span className="text-[11px] font-semibold">{meta.label}</span>}
                 {c?.isLate && <span className="absolute right-0.5 top-0.5 rounded-sm bg-[var(--pending)] px-0.5 text-[7px] font-bold text-[var(--primary-fg)]">LC</span>}
+                {c?.isEarlyLeave && <span className="absolute bottom-0.5 right-0.5 rounded-sm bg-[var(--negative)] px-0.5 text-[7px] font-bold text-white">LE</span>}
               </div>
             );
           })}

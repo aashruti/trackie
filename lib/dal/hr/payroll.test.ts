@@ -70,6 +70,12 @@ describe("computePay — invariants", () => {
     expect(SALARY_SPLIT.basic + SALARY_SPLIT.hra + SALARY_SPLIT.other).toBe(1);
   });
 
+  it("uses HRA = 40% of Basic and makes Other the exact Gross remainder", () => {
+    const p = computePay({ gross: 33333, lopDays: 0 });
+    expect(p.hra).toBe(Math.round(p.basic * 0.4 * 100) / 100);
+    expect(p.basic + p.hra + p.otherAllowance).toBe(33333);
+  });
+
   it("net is floored at 0 (deductions can zero pay but never go negative)", () => {
     expect(computePay({ gross: 10000, lopDays: 0, tds: 999999 }).netPay).toBe(0);
   });

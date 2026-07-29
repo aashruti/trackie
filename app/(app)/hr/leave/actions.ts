@@ -29,7 +29,7 @@ export async function setLeaveBalanceAction(
   employeeId: number,
   leaveTypeId: number,
   year: number,
-  values: { entitlement: number; carriedForward: number; accrued: number; used: number },
+  values: { entitlement: number; carriedForward: number; accrued: number; used: number; unpaidTaken: number },
 ): Promise<ActionResult> {
   try {
     await setLeaveBalance(await actor(), employeeId, leaveTypeId, year, values);
@@ -56,19 +56,18 @@ export async function reviewLeaveAction(
     console.error("[leave:review]", e);
     return { ok: false, error: isUserError(e) ? e.message : "Could not process this request." };
   }
-  // Only email verified addresses; failures never block the decision.
+  // Employee accounts are created by HR/Admin, so a pending verification click
+  // must not suppress a real approval/rejection notification.
   try {
-    if (info.employeeEmailVerified) {
-      await notifyLeaveDecision(info.employeeEmail, {
-        employeeName: info.employeeName,
-        leaveTypeName: info.leaveTypeName,
-        startDate: info.startDate,
-        endDate: info.endDate,
-        days: info.days,
-        decision: info.decision,
-        note,
-      });
-    }
+    await notifyLeaveDecision(info.employeeEmail, {
+      employeeName: info.employeeName,
+      leaveTypeName: info.leaveTypeName,
+      startDate: info.startDate,
+      endDate: info.endDate,
+      days: info.days,
+      decision: info.decision,
+      note,
+    });
   } catch (e) {
     console.error("[leave:notify] failed to notify employee of decision:", e instanceof Error ? e.message : e);
   }

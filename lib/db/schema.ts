@@ -372,6 +372,7 @@ export const employeeProfiles = pgTable("employee_profiles", {
   // Device ENROLLMENT number (e.g. "8") — how the fingerprint report identifies
   // this person; distinct from DG/TH codes.
   biometricId: text("biometric_id"),
+  designation: text("designation"),
   dateOfJoining: date("date_of_joining"),
   monthlySalary: numeric("monthly_salary").notNull().default("0"), // gross
   // Monthly deductions applied on payslips (₹200 PT default = Maharashtra rate).
@@ -380,7 +381,9 @@ export const employeeProfiles = pgTable("employee_profiles", {
   professionalTax: numeric("professional_tax").notNull().default("200"),
   shiftId: integer("shift_id").references(() => shifts.id, { onDelete: "set null" }),
   weeklyOffDay: integer("weekly_off_day").default(0), // 0=Sun … 6=Sat
-  wfhDay: integer("wfh_day").default(6), // company default: Saturday
+  // Optional recurring WFH day. Saturday is a company-wide working day and is
+  // recorded as Present, so there is no WFH default.
+  wfhDay: integer("wfh_day"),
   dob: date("dob"),
   pan: text("pan"),
   aadhar: text("aadhar"),

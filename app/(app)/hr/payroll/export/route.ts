@@ -25,7 +25,7 @@ export async function GET(req: Request) {
     ? saved.totals
     : lines.reduce((t, l) => ({ base: t.base + l.baseSalary, lop: t.lop + l.lopAmount, net: t.net + l.netPay }), { base: 0, lop: 0, net: 0 });
 
-  const header = ["Code", "Employee", "Gross", "Basic", "HRA", "Other", "Per day", "Days worked", "Earned", "LOP days", "Insurance", "Prof. tax", "TDS", "Additions", "Net pay"];
+  const header = ["Code", "Employee", "Gross", "Basic (40%)", "HRA (40% of Basic)", "Other allowance", "Per day", "Days worked", "Earned", "LOP days", "Insurance", "Professional tax", "Tax deduction", "Additions", "Net pay"];
   const body = lines.map((l) => [l.employeeCode, l.name, l.baseSalary, l.basic, l.hra, l.otherAllowance, l.perDay, l.daysWorked, l.earnedGross, l.lopDays, l.insurance, l.professionalTax, l.tds, l.additions, l.netPay]);
   const totalRow = ["", "TOTAL", totals.base, "", "", "", "", "", "", "", "", "", "", "", totals.net];
   const status = saved ? saved.run.status : "preview";

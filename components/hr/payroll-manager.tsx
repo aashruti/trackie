@@ -10,7 +10,6 @@ import type { PayrollPreview, PayrollRunDetail, PayrollRunRow, PayslipLine } fro
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const inr = (n: number) => "₹" + n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
 const iso = (d: string) => new Date(d + "T00:00:00Z").toLocaleDateString("en-GB", { day: "2-digit", month: "short", timeZone: "UTC" });
-const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export function PayrollManager({
   preview,
@@ -118,14 +117,14 @@ export function PayrollManager({
                 <th className="px-3 py-2 text-right">Days worked</th>
                 <th className="px-3 py-2 text-right">LOP days</th>
                 <th className="px-3 py-2 text-right">Earned</th>
-                <th className="px-3 py-2 text-right">Deductions</th>
+                <th className="px-3 py-2 text-right">Insurance</th>
+                <th className="px-3 py-2 text-right">PT</th>
+                <th className="px-3 py-2 text-right">Tax deduction</th>
                 <th className="px-3 py-2 text-right">Net ₹</th>
               </tr>
             </thead>
             <tbody>
-              {lines.map((l) => {
-                const deductions = round2(l.insurance + l.professionalTax + l.tds - l.additions);
-                return (
+              {lines.map((l) => (
                 <tr key={l.employeeId} onClick={() => setDetail(l)}
                   className="cursor-pointer border-b border-border-subtle last:border-0 hover:bg-surface-hover">
                   <td className="px-3 py-2">
@@ -137,11 +136,12 @@ export function PayrollManager({
                   <td className={`px-3 py-2 text-right tabular ${l.lopDays ? "text-[var(--negative-text)]" : "text-text-secondary"}`}>{l.daysWorked}</td>
                   <td className={`px-3 py-2 text-right tabular ${l.lopDays ? "text-[var(--negative-text)]" : "text-text-muted"}`}>{l.lopDays}</td>
                   <td className="px-3 py-2 text-right tabular text-text-secondary">{l.earnedGross.toLocaleString("en-IN")}</td>
-                  <td className={`px-3 py-2 text-right tabular ${deductions ? "text-[var(--negative-text)]" : "text-text-muted"}`}>{deductions.toLocaleString("en-IN")}</td>
+                  <td className={`px-3 py-2 text-right tabular ${l.insurance ? "text-[var(--negative-text)]" : "text-text-muted"}`}>{l.insurance.toLocaleString("en-IN")}</td>
+                  <td className={`px-3 py-2 text-right tabular ${l.professionalTax ? "text-[var(--negative-text)]" : "text-text-muted"}`}>{l.professionalTax.toLocaleString("en-IN")}</td>
+                  <td className={`px-3 py-2 text-right tabular ${l.tds ? "text-[var(--negative-text)]" : "text-text-muted"}`}>{l.tds.toLocaleString("en-IN")}</td>
                   <td className="px-3 py-2 text-right font-semibold tabular text-text-primary">{l.netPay.toLocaleString("en-IN")}</td>
                 </tr>
-                );
-              })}
+              ))}
             </tbody>
           </table>
         </div>
@@ -204,8 +204,8 @@ function BreakdownModal({ line, onClose }: { line: PayslipLine; onClose: () => v
           <dl className="space-y-1.5 text-sm">
             <Row k="Gross salary" v={inr(b.gross)} />
             <Row k="Basic (40%)" v={inr(b.basic)} />
-            <Row k="HRA (16%)" v={inr(b.hra)} />
-            <Row k="Other allowance (44%)" v={inr(b.otherAllowance)} />
+            <Row k="HRA (40% of Basic)" v={inr(b.hra)} />
+            <Row k="Other allowance (remainder)" v={inr(b.otherAllowance)} />
             <div className="my-2 border-t border-border-subtle" />
             <Row k={`Per day (gross ÷ ${b.daysInMonth})`} v={inr(b.perDay)} />
             <Row k="Present days" v={String(b.presentDays)} />
@@ -216,9 +216,9 @@ function BreakdownModal({ line, onClose }: { line: PayslipLine; onClose: () => v
             <Row k={`Days worked (${b.daysInMonth} − LOP)`} v={String(b.daysWorked)} strong />
             <div className="my-2 border-t border-border-subtle" />
             <Row k="Earned (per day × days worked)" v={inr(b.earnedGross)} strong />
-            {b.insurance > 0 && <Row k="Insurance" v={"− " + inr(b.insurance)} tone="text-[var(--negative-text)]" />}
-            {b.professionalTax > 0 && <Row k="Professional tax" v={"− " + inr(b.professionalTax)} tone="text-[var(--negative-text)]" />}
-            {b.tds > 0 && <Row k="TDS" v={"− " + inr(b.tds)} tone="text-[var(--negative-text)]" />}
+            <Row k="Insurance" v={"− " + inr(b.insurance)} tone={b.insurance ? "text-[var(--negative-text)]" : undefined} />
+            <Row k="Professional tax" v={"− " + inr(b.professionalTax)} tone={b.professionalTax ? "text-[var(--negative-text)]" : undefined} />
+            <Row k="Tax deduction" v={"− " + inr(b.tds)} tone={b.tds ? "text-[var(--negative-text)]" : undefined} />
             {b.additions > 0 && <Row k="Additions" v={"+ " + inr(b.additions)} tone="text-[var(--positive-text)]" />}
             <div className="my-2 border-t border-border-subtle" />
             <Row k="Net pay" v={inr(b.netPay)} strong tone="text-[var(--positive-text)]" />
