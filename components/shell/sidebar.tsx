@@ -155,6 +155,7 @@ export function Sidebar({
   const finance: Item[] = [
     ...FINANCE_BASE.slice(0, 2),
     { label: "Leads", href: "/leads", icon: "M3 4h18l-7 8v6l-4 2v-8z" },
+    { label: "Sales push", href: "/sales-push", icon: "M4 19V9M10 19V5M16 19v-7M3 19h18" },
     ...FINANCE_BASE.slice(2),
   ];
 
