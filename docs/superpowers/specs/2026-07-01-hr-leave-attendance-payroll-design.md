@@ -52,7 +52,8 @@ under `app/(app)/**/actions.ts`, custom UI in `components/`.
   per-day half-day-if-late-after-X-minutes. `LE` (early leaving) tracked, policy-configurable.
 - **Raw file storage:** **Vercel Blob** (`@vercel/blob` + `BLOB_READ_WRITE_TOKEN`).
 - **Leave/payroll year basis:** **calendar year** (independent of `academicYears`).
-- **Weekly pattern default:** Sun = weekly off, Sat = WFH (per-employee overridable).
+- **Weekly pattern default:** Sun = weekly off; Saturday is a company-wide
+  working day recorded as Present. An individual recurring WFH day is optional.
 
 ## 2. Non-goals (YAGNI)
 - Self check-in / QR / geofencing. Attendance = scanner file or HR manual override only.
@@ -116,7 +117,7 @@ employee_profiles
   monthly_salary numeric not null default '0'
   shift_id int -> shifts.id (nullable)
   weekly_off_day int default 0                           // 0=Sun
-  wfh_day int default 6                                  // 6=Sat (company default)
+  wfh_day int                                            // optional recurring individual WFH day
   // HR profile fields seen in workbook
   dob date
   pan text

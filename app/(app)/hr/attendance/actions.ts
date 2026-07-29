@@ -6,10 +6,11 @@ import {
   previewAttendance,
   commitAttendance,
   overrideAttendanceDay,
-  setAttendanceLate,
+  setAttendanceExceptions,
   getDayAttendance,
   getEmployeeCalendar,
   type AttendancePreview,
+  type AttendanceExceptions,
 } from "@/lib/dal/hr/attendance";
 import type { AttendanceDayType } from "@/lib/db/enums";
 import { isStorageConfigured, uploadBlob } from "@/lib/storage/blob";
@@ -83,6 +84,9 @@ export async function overrideAttendanceAction(
   try {
     await overrideAttendanceDay(await actor(), employeeId, date, dayType);
     revalidatePath("/hr/attendance");
+    revalidatePath("/hr/leave");
+    revalidatePath("/me/attendance");
+    revalidatePath("/me/leave");
     return { ok: true };
   } catch (e) {
     console.error("[attendance:override]", e);
@@ -90,18 +94,19 @@ export async function overrideAttendanceAction(
   }
 }
 
-export async function setAttendanceLateAction(
+export async function setAttendanceExceptionsAction(
   employeeId: number,
   date: string,
-  isLate: boolean,
+  input: AttendanceExceptions,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    await setAttendanceLate(await actor(), employeeId, date, isLate);
+    await setAttendanceExceptions(await actor(), employeeId, date, input);
     revalidatePath("/hr/attendance");
+    revalidatePath("/me/attendance");
     return { ok: true };
   } catch (e) {
-    console.error("[attendance:late]", e);
-    return { ok: false, error: isUserError(e) ? e.message : "Could not update the late flag." };
+    console.error("[attendance:exceptions]", e);
+    return { ok: false, error: isUserError(e) ? e.message : "Could not update attendance exceptions." };
   }
 }
 

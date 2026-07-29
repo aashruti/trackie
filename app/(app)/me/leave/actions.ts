@@ -12,7 +12,9 @@ async function actor() {
   return { id: Number(session.user.id), roles: session.user.roles };
 }
 
-export type ActionResult = { ok: true } | { ok: false; error: string };
+export type ActionResult =
+  | { ok: true; emailSent: boolean }
+  | { ok: false; error: string };
 
 export async function applyLeaveAction(input: ApplyLeaveInput): Promise<ActionResult> {
   let created;
@@ -25,29 +27,33 @@ export async function applyLeaveAction(input: ApplyLeaveInput): Promise<ActionRe
   }
   // Notifications are best-effort: the request is already saved, so a lookup or
   // send failure must not make the user think it failed (and resubmit).
+  let emailSent = false;
   try {
     const recipients = await hrRecipientEmails();
-    await notifyLeaveRequested(recipients, {
-      employeeName: created.employeeName,
-      leaveTypeName: created.leaveTypeName,
-      startDate: created.startDate,
-      endDate: created.endDate,
-      days: created.days,
-    });
-    // Confirmation to the applicant (only if they've verified their email).
-    if (created.employeeEmailVerified) {
-      await notifyLeaveSubmitted(created.employeeEmail, {
+    const [hrResult, employeeResult] = await Promise.all([
+      notifyLeaveRequested(recipients, {
         employeeName: created.employeeName,
         leaveTypeName: created.leaveTypeName,
         startDate: created.startDate,
         endDate: created.endDate,
         days: created.days,
-      });
-    }
+      }),
+      // Internal employee accounts are provisioned by HR/Admin, so delivery
+      // must not be suppressed merely because the verification link has not
+      // been clicked yet.
+      notifyLeaveSubmitted(created.employeeEmail, {
+        employeeName: created.employeeName,
+        leaveTypeName: created.leaveTypeName,
+        startDate: created.startDate,
+        endDate: created.endDate,
+        days: created.days,
+      }),
+    ]);
+    emailSent = hrResult.sent && employeeResult.sent;
   } catch (e) {
     console.error("[leave:notify] failed to notify on new request:", e instanceof Error ? e.message : e);
   }
   revalidatePath("/me/leave");
   revalidatePath("/hr/leave");
-  return { ok: true };
+  return { ok: true, emailSent };
 }

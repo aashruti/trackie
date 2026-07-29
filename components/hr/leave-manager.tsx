@@ -205,7 +205,7 @@ function Ledger({ ledger, year }: { ledger: BalanceLedgerRow[]; year: number }) 
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [editKey, setEditKey] = useState<string | null>(null);
-  const [draft, setDraft] = useState({ entitlement: "", carriedForward: "", accrued: "", used: "" });
+  const [draft, setDraft] = useState({ entitlement: "", carriedForward: "", accrued: "", used: "", unpaidTaken: "" });
   const [error, setError] = useState<string | null>(null);
 
   if (!ledger.length) {
@@ -215,11 +215,26 @@ function Ledger({ ledger, year }: { ledger: BalanceLedgerRow[]; year: number }) 
   function startEdit(key: string, t: BalanceLedgerRow["types"][number]) {
     setError(null);
     setEditKey(key);
-    setDraft({ entitlement: String(t.entitlement), carriedForward: String(t.carriedForward), accrued: String(t.accrued), used: String(t.used) });
+    setDraft({
+      entitlement: String(t.entitlement),
+      carriedForward: String(t.carriedForward),
+      accrued: String(t.accrued),
+      used: String(t.used),
+      unpaidTaken: String(t.unpaidTaken),
+    });
   }
   function save(employeeId: number, leaveTypeId: number) {
-    if ([draft.entitlement, draft.carriedForward, draft.accrued, draft.used].some((s) => s.trim() === "")) { setError("Enter a value for entitlement, carry-forward, accrued, and used."); return; }
-    const values = { entitlement: Number(draft.entitlement), carriedForward: Number(draft.carriedForward), accrued: Number(draft.accrued), used: Number(draft.used) };
+    if ([draft.entitlement, draft.carriedForward, draft.accrued, draft.used, draft.unpaidTaken].some((s) => s.trim() === "")) {
+      setError("Enter a value for entitlement, carry-forward, accrued, used, and unpaid.");
+      return;
+    }
+    const values = {
+      entitlement: Number(draft.entitlement),
+      carriedForward: Number(draft.carriedForward),
+      accrued: Number(draft.accrued),
+      used: Number(draft.used),
+      unpaidTaken: Number(draft.unpaidTaken),
+    };
     if (Object.values(values).some((v) => !Number.isFinite(v) || v < 0)) { setError("Enter valid non-negative numbers."); return; }
     setError(null);
     startTransition(async () => {
@@ -295,7 +310,9 @@ function Ledger({ ledger, year }: { ledger: BalanceLedgerRow[]; year: number }) 
                     <td className="px-4 py-2.5 text-right tabular text-text-secondary">
                       {editing ? <input value={draft.used} onChange={(e) => setDraft((d) => ({ ...d, used: e.target.value }))} inputMode="decimal" className={inputCls} /> : t.used}
                     </td>
-                    <td className="px-4 py-2.5 text-right tabular text-text-secondary">{t.unpaidTaken}</td>
+                    <td className="px-4 py-2.5 text-right tabular text-text-secondary">
+                      {editing ? <input value={draft.unpaidTaken} onChange={(e) => setDraft((d) => ({ ...d, unpaidTaken: e.target.value }))} inputMode="decimal" className={inputCls} /> : t.unpaidTaken}
+                    </td>
                     <td className="px-4 py-2.5 text-right tabular font-semibold text-text-primary">{bal}</td>
                     <td className="px-4 py-2.5 text-right">
                       {editing ? (

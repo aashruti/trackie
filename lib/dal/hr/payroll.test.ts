@@ -7,6 +7,7 @@ import {
   runningMonthLop,
   absenceUnits,
   lateLopDays,
+  shouldCountLate,
   cycleRange,
   SALARY_SPLIT,
   DAYS_IN_MONTH,
@@ -70,6 +71,12 @@ describe("computePay — invariants", () => {
     expect(SALARY_SPLIT.basic + SALARY_SPLIT.hra + SALARY_SPLIT.other).toBe(1);
   });
 
+  it("uses HRA = 40% of Basic and makes Other the exact Gross remainder", () => {
+    const p = computePay({ gross: 33333, lopDays: 0 });
+    expect(p.hra).toBe(Math.round(p.basic * 0.4 * 100) / 100);
+    expect(p.basic + p.hra + p.otherAllowance).toBe(33333);
+  });
+
   it("net is floored at 0 (deductions can zero pay but never go negative)", () => {
     expect(computePay({ gross: 10000, lopDays: 0, tds: 999999 }).netPay).toBe(0);
   });
@@ -103,6 +110,15 @@ describe("lateLopDays — 3 free lates/month, then half-day each", () => {
     expect(lateLopDays(4)).toBe(0.5); // 1 over → 0.5
     expect(lateLopDays(5)).toBe(1); // 2 over → 1.0
     expect(lateLopDays(7)).toBe(2); // 4 over → 2.0
+  });
+});
+
+describe("shouldCountLate — HR confirmation of scanner exceptions", () => {
+  it("ignores untouched scanner flags but counts HR-confirmed and manual flags", () => {
+    expect(shouldCountLate("scanner", null)).toBe(false);
+    expect(shouldCountLate("scanner", 7)).toBe(true);
+    expect(shouldCountLate("manual", 7)).toBe(true);
+    expect(shouldCountLate("import", null)).toBe(true);
   });
 });
 

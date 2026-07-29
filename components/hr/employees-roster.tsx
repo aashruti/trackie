@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Money } from "@/components/ui/money";
 import type { RosterRow, ShiftRow, CandidateUser, EmployeeInput } from "@/lib/dal/hr/employees";
 import {
+  createEmployeeAction,
   enableEmployeeAction,
   updateEmployeeAction,
   setEmployeeStatusAction,
@@ -46,6 +47,7 @@ export function EmployeesRoster({
     return employees.filter(
       (e) =>
         e.name.toLowerCase().includes(q) ||
+        (e.designation ?? "").toLowerCase().includes(q) ||
         e.employeeCode.toLowerCase().includes(q) ||
         e.altCodes.some((c) => c.toLowerCase().includes(q)) ||
         (e.biometricId ?? "").toLowerCase().includes(q),
@@ -74,7 +76,7 @@ export function EmployeesRoster({
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search name or code…"
+              placeholder="Search name, role or code…"
               className="w-48 bg-transparent text-text-primary placeholder:text-text-muted focus:outline-none"
             />
           </div>
@@ -85,7 +87,7 @@ export function EmployeesRoster({
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
               <path d="M12 5v14M5 12h14" />
             </svg>
-            Add person
+            Add employee
           </button>
         </div>
       </div>
@@ -97,6 +99,7 @@ export function EmployeesRoster({
             <tr className="border-b border-border bg-surface-sunken text-left text-[11px] font-semibold uppercase tracking-wider text-text-muted">
               <th className="px-4 py-3">Roster code</th>
               <th className="px-4 py-3">Name</th>
+              <th className="px-4 py-3">Designation</th>
               <th className="px-4 py-3">Alt code</th>
               <th className="px-4 py-3 text-right">Bio #</th>
               <th className="px-4 py-3">Shift</th>
@@ -107,7 +110,7 @@ export function EmployeesRoster({
           <tbody>
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-12 text-center text-sm text-text-muted">
+                <td colSpan={8} className="px-4 py-12 text-center text-sm text-text-muted">
                   {employees.length === 0
                     ? "No employees yet. Add a person to get started."
                     : "No matches."}
@@ -129,6 +132,7 @@ export function EmployeesRoster({
                     <span className="truncate text-text-primary">{e.name}</span>
                   </div>
                 </td>
+                <td className="px-4 py-3 text-text-secondary">{e.designation ?? "—"}</td>
                 <td className="px-4 py-3 text-text-secondary">{e.altCodes.join(", ") || "—"}</td>
                 <td className="px-4 py-3 text-right tabular text-text-secondary">{e.biometricId ?? "—"}</td>
                 <td className="px-4 py-3 text-text-secondary">{e.shiftName ?? "—"}</td>
@@ -198,21 +202,27 @@ function ProfileDrawer({
   const isEdit = state.mode === "edit";
   const row = isEdit ? state.row : null;
 
+  const [addMode, setAddMode] = useState<"new" | "existing">("new");
   const [userId, setUserId] = useState<number | "">(candidates[0]?.id ?? "");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [employeeCode, setEmployeeCode] = useState(row?.employeeCode ?? "");
   const [altCodes, setAltCodes] = useState((row?.altCodes ?? []).join(", "));
   const [biometricId, setBiometricId] = useState(row?.biometricId ?? "");
+  const [designation, setDesignation] = useState(row?.designation ?? "");
   const [monthlySalary, setMonthlySalary] = useState(String(row?.monthlySalary ?? ""));
   const [insuranceMonthly, setInsuranceMonthly] = useState(String(row?.insuranceMonthly ?? ""));
   const [tdsMonthly, setTdsMonthly] = useState(String(row?.tdsMonthly ?? ""));
   const [professionalTax, setProfessionalTax] = useState(String(row?.professionalTax ?? 200));
   const [shiftId, setShiftId] = useState<number | "">(row?.shiftId ?? "");
   const [dateOfJoining, setDateOfJoining] = useState(row?.dateOfJoining ?? "");
-  const [weeklyOffDay, setWeeklyOffDay] = useState(0);
-  const [wfhDay, setWfhDay] = useState<number | "">(6);
-  const [phone, setPhone] = useState("");
-  const [pan, setPan] = useState("");
-  const [aadhar, setAadhar] = useState("");
+  const [weeklyOffDay, setWeeklyOffDay] = useState(row?.weeklyOffDay ?? 0);
+  const [wfhDay, setWfhDay] = useState<number | "">(row?.wfhDay ?? "");
+  const [dob, setDob] = useState(row?.dob ?? "");
+  const [phone, setPhone] = useState(row?.phone ?? "");
+  const [pan, setPan] = useState(row?.pan ?? "");
+  const [aadhar, setAadhar] = useState(row?.aadhar ?? "");
 
   function submit() {
     setError(null);
@@ -220,14 +230,25 @@ function ProfileDrawer({
       setError("Roster code is required.");
       return;
     }
-    if (!isEdit && userId === "") {
+    if (!isEdit && addMode === "existing" && userId === "") {
       setError("Pick a user to enable.");
       return;
+    }
+    if (!isEdit && addMode === "new") {
+      if (!name.trim() || !email.trim()) {
+        setError("Name and email are required.");
+        return;
+      }
+      if (password.length < 8) {
+        setError("Temporary password must be at least 8 characters.");
+        return;
+      }
     }
     const input: EmployeeInput = {
       employeeCode: employeeCode.trim(),
       altCodes: altCodes.split(",").map((s) => s.trim()).filter(Boolean),
       biometricId: biometricId.trim() || null,
+      designation: designation.trim() || null,
       monthlySalary: Number(monthlySalary) || 0,
       insuranceMonthly: Number(insuranceMonthly) || 0,
       tdsMonthly: Number(tdsMonthly) || 0,
@@ -236,15 +257,19 @@ function ProfileDrawer({
       dateOfJoining: dateOfJoining || null,
       weeklyOffDay: Number(weeklyOffDay),
       wfhDay: wfhDay === "" ? null : Number(wfhDay),
+      dob: dob || null,
       phone: phone.trim() || null,
       pan: pan.trim() || null,
       aadhar: aadhar.trim() || null,
+      emergencyContacts: row?.emergencyContacts ?? undefined,
     };
     startTransition(async () => {
       try {
         const res = isEdit
           ? await updateEmployeeAction(row!.employeeId, input)
-          : await enableEmployeeAction(Number(userId), input);
+          : addMode === "new"
+            ? await createEmployeeAction({ name: name.trim(), email: email.trim(), password }, input)
+            : await enableEmployeeAction(Number(userId), input);
         if (res && !res.ok) {
           setError(res.error);
           return;
@@ -284,7 +309,7 @@ function ProfileDrawer({
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <div>
             <div className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
-              {isEdit ? "Edit employee" : "Enable as employee"}
+              {isEdit ? "Edit employee" : "Add employee"}
             </div>
             <div className="text-base font-semibold text-text-primary">
               {isEdit ? row!.name : "New employee"}
@@ -303,26 +328,69 @@ function ProfileDrawer({
 
         <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
           {!isEdit && (
-            <Field label="App user" hint="Only users without an employee profile are listed.">
-              {candidates.length === 0 ? (
-                <p className="text-sm text-text-muted">
-                  Every user is already an employee. Create a user first in Admin.
-                </p>
-              ) : (
-                <select
-                  value={userId}
-                  onChange={(e) => setUserId(Number(e.target.value))}
-                  className={inputCls}
+            <div className="space-y-3">
+              <div className="inline-flex overflow-hidden rounded-md border border-border-strong text-sm font-medium">
+                <button
+                  type="button"
+                  onClick={() => setAddMode("new")}
+                  className={`px-3 py-1.5 ${addMode === "new" ? "bg-[var(--primary-subtle)] text-[var(--primary-text)]" : "text-text-secondary hover:bg-surface-hover"}`}
                 >
-                  {candidates.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} · {c.email}
-                    </option>
-                  ))}
-                </select>
+                  New employee
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAddMode("existing")}
+                  className={`border-l border-border-strong px-3 py-1.5 ${addMode === "existing" ? "bg-[var(--primary-subtle)] text-[var(--primary-text)]" : "text-text-secondary hover:bg-surface-hover"}`}
+                >
+                  Existing user
+                </button>
+              </div>
+              {addMode === "new" ? (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Full name">
+                      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Employee name" className={inputCls} />
+                    </Field>
+                    <Field label="Email">
+                      <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@datagami.in" className={inputCls} />
+                    </Field>
+                  </div>
+                  <Field label="Temporary password" hint="Minimum 8 characters. Share it securely; the employee can change it from Profile.">
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Temporary login password"
+                      className={inputCls}
+                    />
+                  </Field>
+                </>
+              ) : (
+                <Field label="App user" hint="Only users without an employee profile are listed.">
+                  {candidates.length === 0 ? (
+                    <p className="text-sm text-text-muted">Every existing user is already an employee.</p>
+                  ) : (
+                    <select
+                      value={userId}
+                      onChange={(e) => setUserId(Number(e.target.value))}
+                      className={inputCls}
+                    >
+                      {candidates.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name} · {c.email}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </Field>
               )}
-            </Field>
+            </div>
           )}
+
+          <Field label="Designation">
+            <input value={designation} onChange={(e) => setDesignation(e.target.value)} placeholder="e.g. Delivery Manager" className={inputCls} />
+          </Field>
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="Roster code">
@@ -363,16 +431,22 @@ function ProfileDrawer({
             </Field>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <Field label="Date of joining">
               <input type="date" value={dateOfJoining ?? ""} onChange={(e) => setDateOfJoining(e.target.value)} className={inputCls} />
             </Field>
+            <Field label="Date of birth">
+              <input type="date" value={dob} onChange={(e) => setDob(e.target.value)} className={inputCls} />
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
             <Field label="Weekly off">
               <select value={weeklyOffDay} onChange={(e) => setWeeklyOffDay(Number(e.target.value))} className={inputCls}>
                 {DAYS.map((d, i) => (<option key={d} value={i}>{d}</option>))}
               </select>
             </Field>
-            <Field label="WFH day">
+            <Field label="Recurring WFH day" hint="Saturday is counted as Present. Leave blank unless a person has another fixed WFH day.">
               <select value={wfhDay} onChange={(e) => setWfhDay(e.target.value === "" ? "" : Number(e.target.value))} className={inputCls}>
                 <option value="">None</option>
                 {DAYS.map((d, i) => (<option key={d} value={i}>{d}</option>))}
@@ -418,10 +492,10 @@ function ProfileDrawer({
             </button>
             <button
               onClick={submit}
-              disabled={pending || (!isEdit && candidates.length === 0)}
+              disabled={pending || (!isEdit && addMode === "existing" && candidates.length === 0)}
               className="rounded-md bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-[var(--primary-fg)] transition-colors hover:bg-[var(--primary-hover)] disabled:opacity-50"
             >
-              {pending ? "Saving…" : isEdit ? "Save changes" : "Enable employee"}
+              {pending ? "Saving…" : isEdit ? "Save changes" : addMode === "new" ? "Create employee" : "Enable employee"}
             </button>
           </div>
         </div>

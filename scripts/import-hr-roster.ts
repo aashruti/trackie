@@ -159,6 +159,14 @@ function matchBiometric(name: string, enroll: Map<string, string>): string | nul
   return null;
 }
 
+function correctedJoiningDate(userName: string, doj: string | null): string | null {
+  if (!doj) return null;
+  const name = norm(userName);
+  return name.startsWith("kiran") || name.startsWith("bini")
+    ? `2025${doj.slice(4)}`
+    : doj;
+}
+
 async function main() {
   const roster = parseRoster(ROSTER_PATH);
   const leave = parseLeave(ROSTER_PATH);
@@ -229,7 +237,7 @@ async function main() {
         employeeCode: p.emp.code,
         altCodes: p.emp.altCodes,
         biometricId: p.bio,
-        dateOfJoining: p.lv?.doj ?? null,
+        dateOfJoining: correctedJoiningDate(p.userName, p.lv?.doj ?? null),
         dob: p.emp.dob,
         pan: p.emp.pan,
         aadhar: p.emp.aadhar,
