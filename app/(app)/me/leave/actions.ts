@@ -2,7 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth/config";
-import { applyForLeave, hrRecipientEmails, type ApplyLeaveInput } from "@/lib/dal/hr/leave";
+import {
+  applyForLeave,
+  cancelMyLeaveRequest,
+  hrRecipientEmails,
+  type ApplyLeaveInput,
+} from "@/lib/dal/hr/leave";
 import { notifyLeaveRequested, notifyLeaveSubmitted } from "@/lib/email/hr-leave";
 import { isUserError } from "@/lib/dal/errors";
 import { appBaseUrl } from "@/lib/http/base-url";
@@ -16,6 +21,7 @@ async function actor() {
 export type ActionResult =
   | { ok: true; emailSent: boolean }
   | { ok: false; error: string };
+export type CancelActionResult = { ok: true } | { ok: false; error: string };
 
 export async function applyLeaveAction(input: ApplyLeaveInput): Promise<ActionResult> {
   let created;
@@ -59,4 +65,18 @@ export async function applyLeaveAction(input: ApplyLeaveInput): Promise<ActionRe
   revalidatePath("/me/leave");
   revalidatePath("/hr/leave");
   return { ok: true, emailSent };
+}
+
+export async function cancelLeaveAction(requestId: number): Promise<CancelActionResult> {
+  try {
+    await cancelMyLeaveRequest(await actor(), requestId);
+  } catch (e) {
+    return {
+      ok: false,
+      error: isUserError(e) ? e.message : "Could not cancel this leave request.",
+    };
+  }
+  revalidatePath("/me/leave");
+  revalidatePath("/hr/leave");
+  return { ok: true };
 }

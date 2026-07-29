@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import type { LeaveTypeRow, LeaveRequestRow, BalanceLedgerRow } from "@/lib/dal/hr/leave";
-import { applyLeaveAction } from "@/app/(app)/me/leave/actions";
+import { applyLeaveAction, cancelLeaveAction } from "@/app/(app)/me/leave/actions";
 
 type BalanceType = BalanceLedgerRow["types"][number];
 
@@ -51,7 +51,10 @@ export function LeaveApply({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const [cancelPending, startCancelTransition] = useTransition();
+  const [cancellingId, setCancellingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const [delivery, setDelivery] = useState<"sent" | "saved-only" | null>(null);
 
   const [leaveTypeId, setLeaveTypeId] = useState<number | "">(types[0]?.id ?? "");
@@ -94,6 +97,26 @@ export function LeaveApply({
         router.refresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Something went wrong.");
+      }
+    });
+  }
+
+  function cancelRequest(requestId: number) {
+    if (!window.confirm("Cancel this pending leave request?")) return;
+    setCancelError(null);
+    setCancellingId(requestId);
+    startCancelTransition(async () => {
+      try {
+        const res = await cancelLeaveAction(requestId);
+        if (!res.ok) {
+          setCancelError(res.error);
+          return;
+        }
+        router.refresh();
+      } catch (e) {
+        setCancelError(e instanceof Error ? e.message : "Could not cancel this leave request.");
+      } finally {
+        setCancellingId(null);
       }
     });
   }
@@ -180,11 +203,12 @@ export function LeaveApply({
                   <th className="px-4 py-2.5">Dates</th>
                   <th className="px-4 py-2.5 text-right">Days</th>
                   <th className="px-4 py-2.5">Status</th>
+                  <th className="px-4 py-2.5 text-right">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {requests.length === 0 && (
-                  <tr><td colSpan={4} className="px-4 py-8 text-center text-sm text-text-muted">No requests yet.</td></tr>
+                  <tr><td colSpan={5} className="px-4 py-8 text-center text-sm text-text-muted">No requests yet.</td></tr>
                 )}
                 {requests.map((r) => (
                   <tr key={r.id} className="border-b border-border-subtle last:border-0">
@@ -192,11 +216,30 @@ export function LeaveApply({
                     <td className="px-4 py-2.5 text-text-secondary">{range(r.startDate, r.endDate)}</td>
                     <td className="px-4 py-2.5 text-right tabular text-text-secondary">{r.days}</td>
                     <td className="px-4 py-2.5"><Badge tone={statusTone(r.status)}>{r.status}</Badge></td>
+                    <td className="px-4 py-2.5 text-right">
+                      {r.status === "pending" ? (
+                        <button
+                          type="button"
+                          onClick={() => cancelRequest(r.id)}
+                          disabled={cancelPending}
+                          className="rounded-md border border-[var(--negative-border)] px-2.5 py-1 text-xs font-semibold text-[var(--negative-text)] transition-colors hover:bg-[var(--negative-subtle)] disabled:opacity-50"
+                        >
+                          {cancelPending && cancellingId === r.id ? "Cancelling…" : "Cancel"}
+                        </button>
+                      ) : (
+                        <span className="text-text-muted">—</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {cancelError && (
+            <p className="mt-2 rounded-md border border-[var(--negative-border)] bg-[var(--negative-subtle)] px-3 py-2 text-sm text-[var(--negative-text)]">
+              {cancelError}
+            </p>
+          )}
         </div>
       </div>
 

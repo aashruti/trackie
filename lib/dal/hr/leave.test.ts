@@ -1,8 +1,13 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { users, userRoles, employeeProfiles } from "@/lib/db/schema";
-import { getOrCreateEmployeeForUser, hrRecipientEmails, monthsAccruedToDate } from "./leave";
+import { users, userRoles, employeeProfiles, leaveRequests, leaveTypes } from "@/lib/db/schema";
+import {
+  cancelMyLeaveRequest,
+  getOrCreateEmployeeForUser,
+  hrRecipientEmails,
+  monthsAccruedToDate,
+} from "./leave";
 
 /** Pro-rata accrual months for Earned leave (1.5/mo), given date-of-joining. */
 describe("monthsAccruedToDate — pro-rata for mid-year joiners", () => {
@@ -137,5 +142,61 @@ describe("hrRecipientEmails — explicit HR role only, with Dhaval in CC", () =>
       await db.delete(userRoles).where(eq(userRoles.userId, userId));
       await db.delete(users).where(eq(users.id, userId));
     }
+  });
+});
+
+describe("cancelMyLeaveRequest — pending self-service cancellation", () => {
+  const RUN = String(Date.now()).slice(-7);
+  let userId = 0;
+  let employeeId = 0;
+  let requestId = 0;
+  const actor = { id: 0, roles: ["viewer" as const] };
+
+  it("cancels the employee's pending request and refuses a second cancellation", async () => {
+    const [user] = await db
+      .insert(users)
+      .values({
+        name: "Leave Cancellation Test",
+        email: `leave-cancel-${RUN}@test.local`,
+        passwordHash: "x",
+        role: "viewer",
+      })
+      .returning({ id: users.id });
+    userId = user.id;
+    actor.id = userId;
+    const [employee] = await db
+      .insert(employeeProfiles)
+      .values({ userId, employeeCode: `LC${RUN}` })
+      .returning({ id: employeeProfiles.id });
+    employeeId = employee.id;
+    const [type] = await db.select({ id: leaveTypes.id }).from(leaveTypes).limit(1);
+    const [request] = await db
+      .insert(leaveRequests)
+      .values({
+        employeeId,
+        leaveTypeId: type.id,
+        startDate: "2098-01-05",
+        endDate: "2098-01-05",
+        days: "1",
+        reason: "Cancellation regression test",
+        createdBy: userId,
+        updatedBy: userId,
+      })
+      .returning({ id: leaveRequests.id });
+    requestId = request.id;
+
+    await cancelMyLeaveRequest(actor, requestId);
+    const [cancelled] = await db
+      .select({ status: leaveRequests.status })
+      .from(leaveRequests)
+      .where(eq(leaveRequests.id, requestId));
+    expect(cancelled.status).toBe("cancelled");
+    await expect(cancelMyLeaveRequest(actor, requestId)).rejects.toThrow(/only a pending/i);
+  });
+
+  afterAll(async () => {
+    if (requestId) await db.delete(leaveRequests).where(eq(leaveRequests.id, requestId));
+    if (employeeId) await db.delete(employeeProfiles).where(eq(employeeProfiles.id, employeeId));
+    if (userId) await db.delete(users).where(eq(users.id, userId));
   });
 });
