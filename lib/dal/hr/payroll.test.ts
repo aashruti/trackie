@@ -7,6 +7,7 @@ import {
   runningMonthLop,
   absenceUnits,
   lateLopDays,
+  shouldCountLate,
   cycleRange,
   SALARY_SPLIT,
   DAYS_IN_MONTH,
@@ -109,6 +110,15 @@ describe("lateLopDays — 3 free lates/month, then half-day each", () => {
     expect(lateLopDays(4)).toBe(0.5); // 1 over → 0.5
     expect(lateLopDays(5)).toBe(1); // 2 over → 1.0
     expect(lateLopDays(7)).toBe(2); // 4 over → 2.0
+  });
+});
+
+describe("shouldCountLate — HR confirmation of scanner exceptions", () => {
+  it("ignores untouched scanner flags but counts HR-confirmed and manual flags", () => {
+    expect(shouldCountLate("scanner", null)).toBe(false);
+    expect(shouldCountLate("scanner", 7)).toBe(true);
+    expect(shouldCountLate("manual", 7)).toBe(true);
+    expect(shouldCountLate("import", null)).toBe(true);
   });
 });
 

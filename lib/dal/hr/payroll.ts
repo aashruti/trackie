@@ -7,7 +7,7 @@ import { assertHrAccess, type SessionUser } from "@/lib/dal/authz";
 import { stampedDeleteWhere } from "@/lib/dal/audit";
 import { UserError } from "@/lib/dal/errors";
 import { getEmployeeForUser } from "./leave";
-import type { AttendanceDayType } from "@/lib/db/enums";
+import type { AttendanceDayType, AttendanceSource } from "@/lib/db/enums";
 
 // Day types that count toward "present/worked" (half-day counts as 0.5).
 const PRESENT_TYPES: AttendanceDayType[] = ["office", "wfh", "official-visit", "comp-off"];
@@ -167,6 +167,11 @@ export function absenceUnits(dayType: AttendanceDayType): number {
 export const FREE_LATES_PER_MONTH = 3;
 export const lateLopDays = (lateCount: number) => Math.max(0, lateCount - FREE_LATES_PER_MONTH) * 0.5;
 
+/** Raw scanner late flags count only after HR has explicitly confirmed them. */
+export function shouldCountLate(source: AttendanceSource, overriddenByUserId: number | null): boolean {
+  return source !== "scanner" || overriddenByUserId != null;
+}
+
 /** Running-balance loss-of-pay for `targetMonth`: leave accrues `monthlyAccrual`
  *  each month and accumulates; that month's absences draw it down; any overdraw is
  *  the month's LOP and floors the balance at 0 (no negative carry to next month). */
@@ -280,7 +285,14 @@ async function buildPreview(year: number, month: number): Promise<PayrollPreview
     // All attendance from the year start through the payroll month — needed for the
     // running leave-balance simulation, not just this month.
     db
-      .select({ employeeId: attendanceRecords.employeeId, date: attendanceRecords.date, dayType: attendanceRecords.dayType, isLate: attendanceRecords.isLate, source: attendanceRecords.source })
+      .select({
+        employeeId: attendanceRecords.employeeId,
+        date: attendanceRecords.date,
+        dayType: attendanceRecords.dayType,
+        isLate: attendanceRecords.isLate,
+        source: attendanceRecords.source,
+        overriddenByUserId: attendanceRecords.overriddenByUserId,
+      })
       .from(attendanceRecords)
       .where(and(gte(attendanceRecords.date, yearStart), lte(attendanceRecords.date, cycle.end))),
     db.select().from(leaveTypes).where(and(eq(leaveTypes.active, true), eq(leaveTypes.accrualMode, "monthly"))).limit(1),
@@ -307,8 +319,10 @@ async function buildPreview(year: number, month: number): Promise<PayrollPreview
       if (PRESENT_TYPES.includes(r.dayType)) st.present += 1;
       else if (r.dayType === "half-day") st.present += 0.5;
       else if (r.dayType === "paid-leave") st.paidLeave += 1;
-      // Count late-comings from the authoritative sources (grid import / HR), not raw scanner punches.
-      if (r.isLate && r.source !== "scanner") st.late += 1;
+      // Scanner-derived flags are informational until HR explicitly edits them.
+      // An exception edit records the HR user while preserving the scanner source
+      // so it cannot later be mistaken for a manual leave-ledger contribution.
+      if (r.isLate && shouldCountLate(r.source, r.overriddenByUserId)) st.late += 1;
       monthStats.set(r.employeeId, st);
     }
   }

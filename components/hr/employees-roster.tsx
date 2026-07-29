@@ -356,7 +356,14 @@ function ProfileDrawer({
                     </Field>
                   </div>
                   <Field label="Temporary password" hint="Minimum 8 characters. Share it securely; the employee can change it from Profile.">
-                    <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Temporary login password" className={inputCls} />
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Temporary login password"
+                      className={inputCls}
+                    />
                   </Field>
                 </>
               ) : (

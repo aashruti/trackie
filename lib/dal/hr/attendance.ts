@@ -561,9 +561,9 @@ export async function setAttendanceExceptions(
         lateMinutes,
         isEarlyLeave: input.isEarlyLeave,
         earlyMinutes,
-        // An HR edit is authoritative; payroll intentionally ignores untouched
-        // scanner flags but must count this manual decision.
-        source: "manual",
+        // Preserve how the attendance day itself was created. The override user
+        // makes these exception flags authoritative without turning a scanner
+        // half-day into a manual leave-ledger contribution.
         overriddenByUserId: user.id,
         updatedBy: user.id,
       },
