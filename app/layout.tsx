@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Hanken_Grotesk, IBM_Plex_Mono } from "next/font/google";
 import { cookies } from "next/headers";
+import { AppDialogProvider } from "@/components/ui/app-dialog";
 import "./globals.css";
 
 // Brand fonts. Bound to the design-system token variables (--font-sans / --font-mono
@@ -42,7 +43,9 @@ export default async function RootLayout({
       suppressHydrationWarning
       className={`${hanken.variable} ${ibmPlexMono.variable} h-full antialiased${dark ? " dark" : ""}`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <AppDialogProvider>{children}</AppDialogProvider>
+      </body>
     </html>
   );
 }

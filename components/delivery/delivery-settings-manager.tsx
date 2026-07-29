@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useAppDialog } from "@/components/ui/app-dialog";
 import type { DeliveryMethodRow } from "@/lib/dal/delivery/methods";
 import { createMethodAction, setMethodActiveAction, updateMethodAction } from "@/app/(app)/delivery/settings/actions";
 
@@ -16,6 +17,7 @@ export function DeliverySettingsManager({
   canManage: boolean;
 }) {
   const router = useRouter();
+  const { confirmAction } = useAppDialog();
   const [pending, startTransition] = useTransition();
   const [busyId, setBusyId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -124,8 +126,16 @@ export function DeliverySettingsManager({
                           Edit
                         </button>
                         <button disabled={pending}
-                          onClick={() => {
-                            if (m.active && m.programCount > 0 && !confirm(`Deactivate “${m.name}”? ${m.programCount} program(s) keep it, but new programs can't pick it.`)) return;
+                          onClick={async () => {
+                            if (m.active && m.programCount > 0) {
+                              const confirmed = await confirmAction({
+                                title: `Deactivate “${m.name}”?`,
+                                description: `${m.programCount} program(s) will keep this teaching style, but new programs will not be able to select it.`,
+                                confirmLabel: "Deactivate",
+                                tone: "danger",
+                              });
+                              if (!confirmed) return;
+                            }
                             setBusyId(m.id);
                             run(() => setMethodActiveAction(m.id, !m.active));
                           }}

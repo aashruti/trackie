@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Money } from "@/components/ui/money";
 import { StatusBadge } from "@/components/ui/badge";
 import { Combobox } from "@/components/ui/combobox";
+import { useAppDialog } from "@/components/ui/app-dialog";
 import type { GroupDetail } from "@/lib/dal/groups";
 import type { Status } from "@/lib/money/types";
 import { ProfitBadge } from "./groups-explorer";
@@ -26,6 +27,7 @@ export function GroupDetailView({
   year: string;
 }) {
   const router = useRouter();
+  const { confirmAction } = useAppDialog();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
@@ -80,10 +82,14 @@ export function GroupDetailView({
               Rename
             </button>
             <button
-              onClick={() => {
-                if (confirm(`Delete the group “${detail.name}”? Its ${detail.memberCount} account(s) stay intact — they just become ungrouped.`)) {
-                  run(() => deleteGroupAction(detail.id), () => router.push("/accounts/groups"));
-                }
+              onClick={async () => {
+                const confirmed = await confirmAction({
+                  title: `Delete “${detail.name}”?`,
+                  description: `Its ${detail.memberCount} account(s) will stay intact and become ungrouped.`,
+                  confirmLabel: "Delete group",
+                  tone: "danger",
+                });
+                if (confirmed) run(() => deleteGroupAction(detail.id), () => router.push("/accounts/groups"));
               }}
               disabled={pending}
               className="rounded-md border border-[var(--negative-border)] px-2 py-1 text-xs font-medium text-[var(--negative-text)] hover:bg-[var(--negative-subtle)] disabled:opacity-40"
@@ -173,10 +179,14 @@ export function GroupDetailView({
                 <td className="px-4 py-2.5"><StatusBadge status={m.status as Status} /></td>
                 <td className="px-4 py-2.5 text-right">
                   <button
-                    onClick={() => {
-                      if (confirm(`Remove “${m.name}” from the group? The account itself is untouched.`)) {
-                        run(() => removeAccountAction(detail.id, m.id));
-                      }
+                    onClick={async () => {
+                      const confirmed = await confirmAction({
+                        title: `Remove “${m.name}”?`,
+                        description: "The account itself will remain untouched and become ungrouped.",
+                        confirmLabel: "Remove account",
+                        tone: "danger",
+                      });
+                      if (confirmed) run(() => removeAccountAction(detail.id, m.id));
                     }}
                     disabled={pending}
                     className="rounded-md border border-border px-2 py-1 text-xs font-medium text-text-secondary hover:bg-[var(--negative-subtle)] hover:text-[var(--negative-text)] disabled:opacity-40"

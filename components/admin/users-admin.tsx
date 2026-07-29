@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { useAppDialog } from "@/components/ui/app-dialog";
 import {
   createUserAction,
   setUserAccountsAction,
@@ -132,6 +133,7 @@ function CreateUser() {
 }
 
 function UserCard({ user, accounts, self }: { user: UserRow; accounts: AccountOption[]; self: boolean }) {
+  const { confirmAction } = useAppDialog();
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set(user.assignedAccountIds));
   const [rolesOpen, setRolesOpen] = useState(false);
@@ -197,8 +199,14 @@ function UserCard({ user, accounts, self }: { user: UserRow; accounts: AccountOp
     });
   }
 
-  function remove() {
-    if (!confirm(`Delete ${user.email}?`)) return;
+  async function remove() {
+    const confirmed = await confirmAction({
+      title: `Delete ${user.name}?`,
+      description: `${user.email} will lose access to Trackie. This cannot be undone.`,
+      confirmLabel: "Delete user",
+      tone: "danger",
+    });
+    if (!confirmed) return;
     startTransition(async () => {
       try {
         await deleteUserAction(user.id);
@@ -222,8 +230,14 @@ function UserCard({ user, accounts, self }: { user: UserRow; accounts: AccountOp
     });
   }
 
-  function signOutEverywhere() {
-    if (!confirm(`Sign ${user.name} out of every device? They'll need to sign in again.`)) return;
+  async function signOutEverywhere() {
+    const confirmed = await confirmAction({
+      title: `Sign ${user.name} out everywhere?`,
+      description: "All active sessions will end and they will need to sign in again.",
+      confirmLabel: "Sign out everywhere",
+      tone: "danger",
+    });
+    if (!confirmed) return;
     setError(null);
     setNote(null);
     startTransition(async () => {

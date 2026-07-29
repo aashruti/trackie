@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
+import { useAppDialog } from "@/components/ui/app-dialog";
 import type { LeaveTypeRow, LeaveRequestRow, BalanceLedgerRow } from "@/lib/dal/hr/leave";
 import { applyLeaveAction, cancelLeaveAction } from "@/app/(app)/me/leave/actions";
 
@@ -50,6 +51,7 @@ export function LeaveApply({
   requests: LeaveRequestRow[];
 }) {
   const router = useRouter();
+  const { confirmAction } = useAppDialog();
   const [pending, startTransition] = useTransition();
   const [cancelPending, startCancelTransition] = useTransition();
   const [cancellingId, setCancellingId] = useState<number | null>(null);
@@ -101,13 +103,19 @@ export function LeaveApply({
     });
   }
 
-  function cancelRequest(requestId: number) {
-    if (!window.confirm("Cancel this pending leave request?")) return;
+  async function cancelRequest(request: LeaveRequestRow) {
+    const confirmed = await confirmAction({
+      title: "Cancel this leave request?",
+      description: `${request.leaveTypeName} · ${range(request.startDate, request.endDate)} · ${request.days} day${Number(request.days) === 1 ? "" : "s"}. HR will no longer be able to approve it.`,
+      confirmLabel: "Cancel leave request",
+      tone: "danger",
+    });
+    if (!confirmed) return;
     setCancelError(null);
-    setCancellingId(requestId);
+    setCancellingId(request.id);
     startCancelTransition(async () => {
       try {
-        const res = await cancelLeaveAction(requestId);
+        const res = await cancelLeaveAction(request.id);
         if (!res.ok) {
           setCancelError(res.error);
           return;
@@ -220,7 +228,7 @@ export function LeaveApply({
                       {r.status === "pending" ? (
                         <button
                           type="button"
-                          onClick={() => cancelRequest(r.id)}
+                          onClick={() => cancelRequest(r)}
                           disabled={cancelPending}
                           className="rounded-md border border-[var(--negative-border)] px-2.5 py-1 text-xs font-semibold text-[var(--negative-text)] transition-colors hover:bg-[var(--negative-subtle)] disabled:opacity-50"
                         >
