@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import type { LeaveRequestRow, BalanceLedgerRow } from "@/lib/dal/hr/leave";
@@ -34,11 +34,13 @@ export function LeaveManager({
   all,
   ledger,
   year,
+  focusedRequestId,
 }: {
   pending: LeaveRequestRow[];
   all: LeaveRequestRow[];
   ledger: BalanceLedgerRow[];
   year: number;
+  focusedRequestId: number | null;
 }) {
   const [tab, setTab] = useState<Tab>("approvals");
 
@@ -83,14 +85,31 @@ export function LeaveManager({
         ))}
       </div>
 
-      {tab === "approvals" && <Approvals pending={pending} />}
+      {tab === "approvals" && <Approvals pending={pending} focusedRequestId={focusedRequestId} />}
       {tab === "ledger" && <Ledger ledger={ledger} year={year} />}
       {tab === "all" && <AllRequests all={all} />}
     </div>
   );
 }
 
-function Approvals({ pending }: { pending: LeaveRequestRow[] }) {
+function Approvals({
+  pending,
+  focusedRequestId,
+}: {
+  pending: LeaveRequestRow[];
+  focusedRequestId: number | null;
+}) {
+  useEffect(() => {
+    if (!focusedRequestId) return;
+    const frame = requestAnimationFrame(() => {
+      document.getElementById(`leave-request-${focusedRequestId}`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusedRequestId, pending]);
+
   if (!pending.length) {
     return (
       <div className="rounded-xl border border-border bg-surface px-4 py-12 text-center text-sm text-text-muted">
@@ -101,13 +120,13 @@ function Approvals({ pending }: { pending: LeaveRequestRow[] }) {
   return (
     <div className="space-y-3">
       {pending.map((r) => (
-        <ApprovalCard key={r.id} r={r} />
+        <ApprovalCard key={r.id} r={r} focused={r.id === focusedRequestId} />
       ))}
     </div>
   );
 }
 
-function ApprovalCard({ r }: { r: LeaveRequestRow }) {
+function ApprovalCard({ r, focused }: { r: LeaveRequestRow; focused: boolean }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [rejecting, setRejecting] = useState(false);
@@ -132,7 +151,14 @@ function ApprovalCard({ r }: { r: LeaveRequestRow }) {
   }
 
   return (
-    <div className="rounded-xl border border-border bg-surface p-4">
+    <div
+      id={`leave-request-${r.id}`}
+      className={`scroll-mt-6 rounded-xl border bg-surface p-4 ${
+        focused
+          ? "border-[var(--primary)] ring-2 ring-[var(--primary-subtle)]"
+          : "border-border"
+      }`}
+    >
       <div className="flex flex-wrap items-center gap-3">
         <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--primary-subtle)] text-xs font-bold text-[var(--primary-text)]">
           {initials(r.employeeName)}
