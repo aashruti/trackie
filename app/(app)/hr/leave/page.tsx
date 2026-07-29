@@ -9,9 +9,15 @@ import {
 } from "@/lib/dal/hr/leave";
 import { LeaveManager } from "@/components/hr/leave-manager";
 
-export default async function HrLeavePage() {
+export default async function HrLeavePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ request?: string }>;
+}) {
   const session = await auth();
   const user = session!.user;
+  const requestParam = (await searchParams).request;
+  const focusedRequestId = requestParam && /^\d+$/.test(requestParam) ? Number(requestParam) : null;
   const { currentYear: YEAR, years } = await getYearContext();
   const actor = { id: Number(user.id), roles: user.roles };
 
@@ -39,7 +45,13 @@ export default async function HrLeavePage() {
     <>
       <Topbar section="HR" title="Leave" user={user} years={years} currentYear={YEAR} />
       <main className="mx-auto w-full max-w-[1440px] px-6 py-6">
-        <LeaveManager pending={pending} all={all} ledger={ledger} year={calYear} />
+        <LeaveManager
+          pending={pending}
+          all={all}
+          ledger={ledger}
+          year={calYear}
+          focusedRequestId={focusedRequestId}
+        />
       </main>
     </>
   );

@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth/config";
 import { applyForLeave, hrRecipientEmails, type ApplyLeaveInput } from "@/lib/dal/hr/leave";
 import { notifyLeaveRequested, notifyLeaveSubmitted } from "@/lib/email/hr-leave";
 import { isUserError } from "@/lib/dal/errors";
+import { appBaseUrl } from "@/lib/http/base-url";
 
 async function actor() {
   const session = await auth();
@@ -30,6 +31,7 @@ export async function applyLeaveAction(input: ApplyLeaveInput): Promise<ActionRe
   let emailSent = false;
   try {
     const recipients = await hrRecipientEmails();
+    const reviewUrl = `${await appBaseUrl()}/hr/leave?request=${created.requestId}`;
     const [hrResult, employeeResult] = await Promise.all([
       notifyLeaveRequested(recipients, {
         employeeName: created.employeeName,
@@ -37,6 +39,7 @@ export async function applyLeaveAction(input: ApplyLeaveInput): Promise<ActionRe
         startDate: created.startDate,
         endDate: created.endDate,
         days: created.days,
+        reviewUrl,
       }),
       // Internal employee accounts are provisioned by HR/Admin, so delivery
       // must not be suppressed merely because the verification link has not

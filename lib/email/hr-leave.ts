@@ -31,21 +31,32 @@ const shell = (body: string) =>
 
 /** New leave request → notify HR / approvers. */
 export async function notifyLeaveRequested(
-  recipients: string[],
-  req: { employeeName: string; leaveTypeName: string; startDate: string; endDate: string; days: number },
+  recipients: { to: string[]; cc: string[] },
+  req: {
+    employeeName: string;
+    leaveTypeName: string;
+    startDate: string;
+    endDate: string;
+    days: number;
+    reviewUrl: string;
+  },
 ) {
-  if (!recipients.length) return { sent: false, skippedReason: "no-recipients" as const };
+  if (!recipients.to.length) return { sent: false, skippedReason: "no-recipients" as const };
   const html = shell(
     `<h2 style="margin:0 0 8px">Leave request awaiting approval</h2>
      <p><b>${esc(req.employeeName)}</b> requested <b>${esc(req.leaveTypeName)}</b> leave.</p>
      <p style="margin:4px 0"><b>Dates:</b> ${range(req.startDate, req.endDate)} · <b>${req.days}</b> day(s)</p>
-     <p>Review it in Trackie → HR → Leave.</p>`,
+     <p style="margin:16px 0">
+       <a href="${esc(req.reviewUrl)}" style="display:inline-block;background:#E5A50A;color:#020617;text-decoration:none;font-weight:600;padding:10px 18px;border-radius:6px">Review leave request</a>
+     </p>
+     <p>Sign in to Trackie to approve or reject this request.</p>`,
   );
   return sendEmail({
-    to: recipients,
+    to: recipients.to,
+    cc: recipients.cc,
     subject: `Leave request — ${req.employeeName} (${req.days}d ${req.leaveTypeName})`,
     html,
-    text: `${req.employeeName} requested ${req.leaveTypeName} leave for ${range(req.startDate, req.endDate)} (${req.days} days). Review in Trackie → HR → Leave.`,
+    text: `${req.employeeName} requested ${req.leaveTypeName} leave for ${range(req.startDate, req.endDate)} (${req.days} days). Review and decide: ${req.reviewUrl}`,
   });
 }
 

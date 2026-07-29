@@ -94,31 +94,48 @@ describe("getOrCreateEmployeeForUser — everyone can reach leave self-service",
   });
 });
 
-describe("hrRecipientEmails — internal HR accounts do not require verification", () => {
+describe("hrRecipientEmails — explicit HR role only, with Dhaval in CC", () => {
   const RUN = String(Date.now()).slice(-7);
-  let userId = 0;
-  const email = `unverified-hr-${RUN}@test.local`;
+  const userIds: number[] = [];
+  const hrEmail = `unverified-hr-${RUN}@test.local`;
+  const superEmail = `super-only-${RUN}@test.local`;
 
-  it("includes an unverified HR-role user", async () => {
-    const [user] = await db
+  it("puts an unverified HR user in To, excludes super-admin-only users, and CCs Dhaval", async () => {
+    const [hrUser] = await db
       .insert(users)
       .values({
         name: "Unverified HR Notification Test",
-        email,
+        email: hrEmail,
         passwordHash: "x",
         role: "hr",
         emailVerifiedAt: null,
       })
       .returning({ id: users.id });
-    userId = user.id;
-    await db.insert(userRoles).values({ userId, role: "hr" });
+    const [superUser] = await db
+      .insert(users)
+      .values({
+        name: "Super Admin Notification Test",
+        email: superEmail,
+        passwordHash: "x",
+        role: "super-admin",
+      })
+      .returning({ id: users.id });
+    userIds.push(hrUser.id, superUser.id);
+    await db.insert(userRoles).values([
+      { userId: hrUser.id, role: "hr" },
+      { userId: superUser.id, role: "super-admin" },
+    ]);
 
-    await expect(hrRecipientEmails()).resolves.toContain(email);
+    const recipients = await hrRecipientEmails();
+    expect(recipients.to).toContain(hrEmail);
+    expect(recipients.to).not.toContain(superEmail);
+    expect(recipients.cc).toEqual(["dhaval@datagami.in"]);
   });
 
   afterAll(async () => {
-    if (!userId) return;
-    await db.delete(userRoles).where(eq(userRoles.userId, userId));
-    await db.delete(users).where(eq(users.id, userId));
+    for (const userId of userIds) {
+      await db.delete(userRoles).where(eq(userRoles.userId, userId));
+      await db.delete(users).where(eq(users.id, userId));
+    }
   });
 });

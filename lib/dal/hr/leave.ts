@@ -4,7 +4,6 @@ import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
   employeeProfiles,
-  hrSettings,
   leaveBalances,
   leaveRequests,
   leaveTypes,
@@ -12,7 +11,7 @@ import {
   userRoles,
   attendanceRecords,
 } from "@/lib/db/schema";
-import { assertHrAccess, canManageHr, type SessionUser } from "@/lib/dal/authz";
+import { assertHrAccess, type SessionUser } from "@/lib/dal/authz";
 import { UserError } from "@/lib/dal/errors";
 import type { AttendanceDayType, LeaveRequestStatus } from "@/lib/db/enums";
 
@@ -755,25 +754,24 @@ export async function listMyBalances(
   });
 }
 
-// Controlled addresses always kept in the loop on HR notifications — no email
-// verification needed (like the shared HR inbox). The CEO wants visibility on
-// every leave request.
-const ALWAYS_CC = ["dhaval@datagami.in"];
+const HR_NOTIFICATION_CC = "dhaval@datagami.in";
+
+export type HrEmailRecipients = {
+  to: string[];
+  cc: string[];
+};
 
 /**
  * Recipients for leave-application notifications:
- *  - individual HR / super-admin users, plus
- *  - the shared HR inbox from hr_settings.notification_email, plus
- *  - the CEO (ALWAYS_CC) — controlled addresses need no verification.
- * HR/Admin accounts are internally provisioned, so a pending verification link
- * must not suppress operational leave notifications.
- * Deduplicated, lowercased.
+ *  - To: users with the explicit HR role (verification is not required for
+ *    internally provisioned accounts).
+ *  - CC: Dhaval, unless he also has the HR role and is already in To.
+ * Super-admin alone does not opt a user into operational HR email.
  */
-export async function hrRecipientEmails(): Promise<string[]> {
-  const [rows, roleRows, settings] = await Promise.all([
+export async function hrRecipientEmails(): Promise<HrEmailRecipients> {
+  const [rows, roleRows] = await Promise.all([
     db.select({ id: users.id, email: users.email }).from(users),
     db.select({ userId: userRoles.userId, role: userRoles.role }).from(userRoles),
-    db.select({ email: hrSettings.notificationEmail }).from(hrSettings).limit(1),
   ]);
   const rolesByUser = new Map<number, typeof roleRows[number]["role"][]>();
   for (const r of roleRows) {
@@ -781,13 +779,15 @@ export async function hrRecipientEmails(): Promise<string[]> {
     list.push(r.role);
     rolesByUser.set(r.userId, list);
   }
-  const hrUsers = rows
-    .filter((r) => canManageHr({ id: r.id, roles: rolesByUser.get(r.id) ?? [] }))
-    .map((r) => r.email);
-  const shared = settings[0]?.email?.trim();
-  const all = [...hrUsers, ...ALWAYS_CC];
-  if (shared) all.push(shared);
-  return [...new Set(all.map((e) => e.toLowerCase()))];
+  const to = [...new Set(
+    rows
+      .filter((r) => (rolesByUser.get(r.id) ?? []).includes("hr"))
+      .map((r) => r.email.trim().toLowerCase()),
+  )];
+  return {
+    to,
+    cc: to.includes(HR_NOTIFICATION_CC) ? [] : [HR_NOTIFICATION_CC],
+  };
 }
 
 /** Inclusive list of ISO dates between start and end (bounded to 366). */

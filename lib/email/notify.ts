@@ -17,6 +17,7 @@ import { EmailClient } from "@azure/communication-email";
  */
 export type EmailInput = {
   to: string | string[];
+  cc?: string | string[];
   subject: string;
   html: string;
   text?: string;
@@ -36,11 +37,12 @@ function client(): EmailClient | null {
 export async function sendEmail(input: EmailInput): Promise<EmailResult> {
   const sender = process.env.ACS_SENDER_ADDRESS;
   const to = Array.isArray(input.to) ? input.to : [input.to];
+  const cc = input.cc ? (Array.isArray(input.cc) ? input.cc : [input.cc]) : [];
   const c = client();
 
   if (!c || !sender) {
     console.info(
-      `[email:skipped] ACS not configured — would send "${input.subject}" to ${to.join(", ")}`,
+      `[email:skipped] ACS not configured — would send "${input.subject}" to ${to.join(", ")}${cc.length ? `; cc ${cc.join(", ")}` : ""}`,
     );
     return { sent: false, skippedReason: "acs-not-configured" };
   }
@@ -53,7 +55,10 @@ export async function sendEmail(input: EmailInput): Promise<EmailResult> {
         html: input.html,
         plainText: input.text,
       },
-      recipients: { to: to.map((address) => ({ address })) },
+      recipients: {
+        to: to.map((address) => ({ address })),
+        ...(cc.length ? { cc: cc.map((address) => ({ address })) } : {}),
+      },
       replyTo: input.replyTo ? [{ address: input.replyTo }] : undefined,
     });
     const result = await poller.pollUntilDone();
