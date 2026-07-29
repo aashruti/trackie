@@ -6,6 +6,7 @@ import {
   PRIORITY_META,
   STATUS_META,
   TASK_COLUMNS,
+  type Option,
   type TaskDetailRow,
 } from "@/lib/board/constants";
 import { TASK_COMMENT_KINDS, TASK_PRIORITIES, type TaskStatus, type TaskPriority, type TaskCommentKind } from "@/lib/db/enums";
@@ -15,17 +16,21 @@ const KIND_LABEL: Record<TaskCommentKind, string> = { worklog: "Worklog", commen
 
 export function TaskDetailDialog({
   task,
+  users,
   pending,
   onClose,
   onSetStatus,
   onSetPriority,
+  onSetAssignee,
   onComment,
 }: {
   task: TaskDetailRow;
+  users: Option[];
   pending: boolean;
   onClose: () => void;
   onSetStatus: (status: TaskStatus) => void;
   onSetPriority: (priority: TaskPriority) => void;
+  onSetAssignee: (assigneeId: number | null) => void;
   onComment: (input: { kind: TaskCommentKind; body: string }) => void;
 }) {
   const [kind, setKind] = useState<TaskCommentKind>("worklog");
@@ -33,6 +38,8 @@ export function TaskDetailDialog({
   const panelRef = useRef<HTMLDivElement>(null);
   const p = PRIORITY_META[task.priority];
   const s = STATUS_META[task.status];
+  const currentAssigneeIsEligible = task.assigneeId == null || users.some((user) => user.id === task.assigneeId);
+  const assigneeValue = currentAssigneeIsEligible ? String(task.assigneeId ?? "") : "";
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -119,6 +126,30 @@ export function TaskDetailDialog({
                 {task.startDate || task.dueDate ? `${fmtDay(task.startDate) || "—"} → ${fmtDay(task.dueDate) || "—"}` : "—"}
               </span>
             </Fact>
+          </div>
+
+          {/* Assignee picker */}
+          <div className="mb-[18px]">
+            <Overline>Assignee</Overline>
+            <select
+              aria-label="Assignee"
+              value={assigneeValue}
+              onChange={(event) => onSetAssignee(event.target.value ? Number(event.target.value) : null)}
+              disabled={pending}
+              className="w-full rounded-md border border-border-strong bg-surface px-3 py-2 text-sm text-text-primary outline-none focus:ring-2 focus:ring-[var(--ring)] disabled:opacity-60"
+            >
+              <option value="">Unassigned</option>
+              {users.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.name}
+                </option>
+              ))}
+            </select>
+            {!currentAssigneeIsEligible && (
+              <p className="mt-1.5 text-xs text-[var(--pending-text)]">
+                The current assignee is not eligible for this board. Choose an eligible user to reassign the task.
+              </p>
+            )}
           </div>
 
           {/* Status picker (lifecycle) */}

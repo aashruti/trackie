@@ -6,16 +6,17 @@ import {
   oems,
   programs as programsTable,
   tasks as tasksTable,
+  userRoles,
   users,
 } from "@/lib/db/schema";
 import { eq, inArray } from "drizzle-orm";
-import { createTask, listTasks, listTaskOptions, countTasksByStatus } from "./tasks";
+import { createTask, listTasks, listTaskOptions, countTasksByStatus, updateTaskAssignee } from "./tasks";
 
 // Board separation: one `tasks` table serves the team board and the delivery
 // board, split by the `board` column. Delivery tasks may carry a program.
 
 const RUN = String(Date.now()).slice(-6);
-const fx = { oemId: 0, accountId: 0, methodId: 0, programId: 0, userId: 0, actorId: 0 };
+const fx = { oemId: 0, accountId: 0, methodId: 0, programId: 0, userId: 0, actorId: 0, salesId: 0 };
 const createdTasks: number[] = [];
 
 beforeAll(async () => {
@@ -48,6 +49,16 @@ beforeAll(async () => {
     .values({ name: `Board Actor ${RUN}`, email: `board-actor-${RUN}@test.local`, passwordHash: "x", role: "delivery" })
     .returning({ id: users.id });
   fx.actorId = actorUser.id;
+  const [salesUser] = await db
+    .insert(users)
+    .values({ name: `Board Sales ${RUN}`, email: `board-sales-${RUN}@test.local`, passwordHash: "x", role: "sales" })
+    .returning({ id: users.id });
+  fx.salesId = salesUser.id;
+  await db.insert(userRoles).values([
+    { userId: fx.userId, role: "delivery" },
+    { userId: fx.actorId, role: "delivery" },
+    { userId: fx.salesId, role: "sales" },
+  ]);
 });
 
 afterAll(async () => {
@@ -58,6 +69,7 @@ afterAll(async () => {
   await db.delete(oems).where(eq(oems.id, fx.oemId));
   await db.delete(users).where(eq(users.id, fx.userId));
   await db.delete(users).where(eq(users.id, fx.actorId));
+  await db.delete(users).where(eq(users.id, fx.salesId));
 });
 
 describe("board-aware tasks", () => {
@@ -134,5 +146,29 @@ describe("board-aware tasks", () => {
     const options = await listTaskOptions();
     const prog = options.programs.find((p) => p.id === fx.programId)!;
     expect(prog).toMatchObject({ name: `BoardProgram-${RUN}`, accountId: fx.accountId });
+  });
+
+  it("delivery options contain Delivery users only", async () => {
+    const options = await listTaskOptions(undefined, "delivery");
+    expect(options.users.map((user) => user.id)).toEqual(expect.arrayContaining([fx.userId, fx.actorId]));
+    expect(options.users.map((user) => user.id)).not.toContain(fx.salesId);
+  });
+
+  it("reassigns delivery tasks between Delivery users and rejects Sales users", async () => {
+    const { id } = await createTask(fx.actorId, { title: `Reassign delivery task ${RUN}`, board: "delivery", assigneeId: fx.userId, status: "open" });
+    createdTasks.push(id);
+
+    await updateTaskAssignee({ id: fx.actorId, roles: ["delivery"] }, id, fx.actorId);
+    const [reassigned] = await db.select({ assigneeId: tasksTable.assigneeId, updatedBy: tasksTable.updatedBy }).from(tasksTable).where(eq(tasksTable.id, id));
+    expect(reassigned).toEqual({ assigneeId: fx.actorId, updatedBy: fx.actorId });
+
+    await expect(updateTaskAssignee({ id: fx.actorId, roles: ["delivery"] }, id, fx.salesId)).rejects.toThrow(/doesn't have the Delivery role/);
+    await expect(updateTaskAssignee({ id: fx.salesId, roles: ["sales"] }, id, fx.userId)).rejects.toThrow(/Delivery team/);
+  });
+
+  it("rejects creating a delivery task assigned to a non-Delivery user", async () => {
+    await expect(createTask(fx.actorId, { title: "Invalid delivery assignee", board: "delivery", assigneeId: fx.salesId })).rejects.toThrow(
+      /doesn't have the Delivery role/,
+    );
   });
 });

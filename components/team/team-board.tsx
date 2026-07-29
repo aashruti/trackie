@@ -19,7 +19,7 @@ import {
 } from "@/lib/board/constants";
 import type { TaskStatus, TaskPriority, TaskCommentKind, TaskBoard } from "@/lib/db/enums";
 import { fmtDay, isOverdue, todayISO } from "@/lib/dates";
-import { moveTaskAction, addTaskCommentAction, updateTaskPriorityAction } from "@/app/(app)/team/actions";
+import { moveTaskAction, addTaskCommentAction, updateTaskAssigneeAction, updateTaskPriorityAction } from "@/app/(app)/team/actions";
 
 const selectCls =
   "h-9 rounded-md border border-border-strong bg-surface px-2.5 text-sm text-text-primary outline-none focus:ring-2 focus:ring-[var(--ring)]";
@@ -27,6 +27,7 @@ const selectCls =
 type Action =
   | { kind: "move"; id: number; status: TaskStatus }
   | { kind: "priority"; id: number; priority: TaskPriority }
+  | { kind: "assignee"; id: number; assigneeId: number | null; assigneeName: string | null }
   | { kind: "comment"; id: number; comment: TaskComment };
 
 export function TeamBoard({
@@ -67,6 +68,9 @@ export function TeamBoard({
       if (t.id !== a.id) return t;
       if (a.kind === "move") return { ...t, status: a.status };
       if (a.kind === "priority") return { ...t, priority: a.priority };
+      if (a.kind === "assignee") {
+        return { ...t, assigneeId: a.assigneeId, assigneeName: a.assigneeName };
+      }
       return { ...t, comments: [a.comment, ...t.comments], commentCount: t.commentCount + 1 };
     }),
   );
@@ -127,6 +131,13 @@ export function TeamBoard({
     startTransition(async () => {
       apply({ kind: "priority", id, priority });
       await updateTaskPriorityAction(id, priority);
+    });
+  }
+  function reassign(id: number, assigneeId: number | null) {
+    const assigneeName = users.find((user) => user.id === assigneeId)?.name ?? null;
+    startTransition(async () => {
+      apply({ kind: "assignee", id, assigneeId, assigneeName });
+      await updateTaskAssigneeAction(id, assigneeId);
     });
   }
   function comment(id: number, input: { kind: TaskCommentKind; body: string }) {
@@ -354,10 +365,12 @@ export function TeamBoard({
       {open && (
         <TaskDetailDialog
           task={open}
+          users={users}
           pending={pending}
           onClose={() => setOpenId(null)}
           onSetStatus={(s) => move(open.id, s)}
           onSetPriority={(p) => setPriority(open.id, p)}
+          onSetAssignee={(assigneeId) => reassign(open.id, assigneeId)}
           onComment={(input) => comment(open.id, input)}
         />
       )}
