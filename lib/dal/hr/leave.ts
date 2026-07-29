@@ -762,14 +762,16 @@ const ALWAYS_CC = ["dhaval@datagami.in"];
 
 /**
  * Recipients for leave-application notifications:
- *  - individual HR / super-admin users who have VERIFIED their email, plus
+ *  - individual HR / super-admin users, plus
  *  - the shared HR inbox from hr_settings.notification_email, plus
  *  - the CEO (ALWAYS_CC) — controlled addresses need no verification.
+ * HR/Admin accounts are internally provisioned, so a pending verification link
+ * must not suppress operational leave notifications.
  * Deduplicated, lowercased.
  */
 export async function hrRecipientEmails(): Promise<string[]> {
   const [rows, roleRows, settings] = await Promise.all([
-    db.select({ id: users.id, email: users.email, verified: users.emailVerifiedAt }).from(users),
+    db.select({ id: users.id, email: users.email }).from(users),
     db.select({ userId: userRoles.userId, role: userRoles.role }).from(userRoles),
     db.select({ email: hrSettings.notificationEmail }).from(hrSettings).limit(1),
   ]);
@@ -779,11 +781,11 @@ export async function hrRecipientEmails(): Promise<string[]> {
     list.push(r.role);
     rolesByUser.set(r.userId, list);
   }
-  const verified = rows
-    .filter((r) => canManageHr({ id: r.id, roles: rolesByUser.get(r.id) ?? [] }) && r.verified != null)
+  const hrUsers = rows
+    .filter((r) => canManageHr({ id: r.id, roles: rolesByUser.get(r.id) ?? [] }))
     .map((r) => r.email);
   const shared = settings[0]?.email?.trim();
-  const all = [...verified, ...ALWAYS_CC];
+  const all = [...hrUsers, ...ALWAYS_CC];
   if (shared) all.push(shared);
   return [...new Set(all.map((e) => e.toLowerCase()))];
 }
