@@ -36,5 +36,9 @@ describe("notifyLeaveRequested", () => {
       html: expect.stringContaining(reviewUrl),
       text: expect.stringContaining(reviewUrl),
     }));
+    const html = sendEmail.mock.calls[0][0].html as string;
+    expect(html).toContain("TRACKIE");
+    expect(html).toContain("Datagami");
+    expect(html).toContain("Leave request awaiting approval");
   });
 });
