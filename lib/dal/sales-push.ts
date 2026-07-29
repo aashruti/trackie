@@ -1,8 +1,15 @@
 import "server-only";
 
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { accounts, invoices, oems, userAccounts, users } from "@/lib/db/schema";
+import {
+  accounts,
+  invoices,
+  oems,
+  userAccounts,
+  userRoles,
+  users,
+} from "@/lib/db/schema";
 import { todayISO } from "@/lib/dates";
 import { computeInvoice } from "@/lib/money/compute";
 import type { Category, Semester, Status } from "@/lib/money/types";
@@ -135,6 +142,12 @@ export async function getSalesPushData(
           })
           .from(userAccounts)
           .innerJoin(users, eq(userAccounts.userId, users.id))
+          // user_accounts is shared by Sales and Delivery scoping. Only people
+          // who actually hold the Sales role belong on the Sales Push board.
+          .innerJoin(
+            userRoles,
+            and(eq(userRoles.userId, users.id), eq(userRoles.role, "sales")),
+          )
           .where(inArray(userAccounts.accountId, accountIds)),
       ])
     : [[], []];
