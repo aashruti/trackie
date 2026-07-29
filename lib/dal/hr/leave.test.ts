@@ -1,8 +1,8 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { users, employeeProfiles } from "@/lib/db/schema";
-import { getOrCreateEmployeeForUser, monthsAccruedToDate } from "./leave";
+import { users, userRoles, employeeProfiles } from "@/lib/db/schema";
+import { getOrCreateEmployeeForUser, hrRecipientEmails, monthsAccruedToDate } from "./leave";
 
 /** Pro-rata accrual months for Earned leave (1.5/mo), given date-of-joining. */
 describe("monthsAccruedToDate — pro-rata for mid-year joiners", () => {
@@ -91,5 +91,34 @@ describe("getOrCreateEmployeeForUser — everyone can reach leave self-service",
     // check (which sees the transaction's own uncommitted delete) would fail.
     for (const id of created) await db.delete(employeeProfiles).where(eq(employeeProfiles.userId, id));
     for (const id of created) await db.delete(users).where(eq(users.id, id));
+  });
+});
+
+describe("hrRecipientEmails — internal HR accounts do not require verification", () => {
+  const RUN = String(Date.now()).slice(-7);
+  let userId = 0;
+  const email = `unverified-hr-${RUN}@test.local`;
+
+  it("includes an unverified HR-role user", async () => {
+    const [user] = await db
+      .insert(users)
+      .values({
+        name: "Unverified HR Notification Test",
+        email,
+        passwordHash: "x",
+        role: "hr",
+        emailVerifiedAt: null,
+      })
+      .returning({ id: users.id });
+    userId = user.id;
+    await db.insert(userRoles).values({ userId, role: "hr" });
+
+    await expect(hrRecipientEmails()).resolves.toContain(email);
+  });
+
+  afterAll(async () => {
+    if (!userId) return;
+    await db.delete(userRoles).where(eq(userRoles.userId, userId));
+    await db.delete(users).where(eq(users.id, userId));
   });
 });
