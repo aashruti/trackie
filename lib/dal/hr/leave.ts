@@ -720,6 +720,35 @@ export async function listMyRequests(user: SessionUser): Promise<LeaveRequestRow
   return rows.map(mapRequest);
 }
 
+/** An employee may withdraw only their own request while it is still pending. */
+export async function cancelMyLeaveRequest(user: SessionUser, requestId: number): Promise<void> {
+  if (!Number.isInteger(requestId) || requestId <= 0) throw new UserError("Invalid leave request.");
+  const me = await getEmployeeForUser(user.id);
+  if (!me) throw new UserError("You are not registered as an employee");
+
+  const cancelled = await db
+    .update(leaveRequests)
+    .set({ status: "cancelled", updatedBy: user.id })
+    .where(and(
+      eq(leaveRequests.id, requestId),
+      eq(leaveRequests.employeeId, me.employeeId),
+      eq(leaveRequests.status, "pending"),
+    ))
+    .returning({ id: leaveRequests.id });
+  if (cancelled.length) return;
+
+  const [ownRequest] = await db
+    .select({ status: leaveRequests.status })
+    .from(leaveRequests)
+    .where(and(
+      eq(leaveRequests.id, requestId),
+      eq(leaveRequests.employeeId, me.employeeId),
+    ))
+    .limit(1);
+  if (!ownRequest) throw new UserError("Leave request not found.");
+  throw new UserError("Only a pending leave request can be cancelled.");
+}
+
 /** The caller's own balances (single-employee ledger) for a year. */
 export async function listMyBalances(
   user: SessionUser,
