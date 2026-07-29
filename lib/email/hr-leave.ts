@@ -1,16 +1,12 @@
 import "server-only";
 
 import { sendEmail } from "./notify";
-
-/** Escape user-supplied text before inlining into email HTML (names, notes). */
-function esc(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+import {
+  brandedEmail,
+  emailButton,
+  emailDetailTable,
+  escapeEmailHtml as esc,
+} from "./brand";
 
 function d(iso: string): string {
   const dt = new Date(iso + "T00:00:00Z");
@@ -26,9 +22,6 @@ function range(start: string, end: string): string {
   return start === end ? d(start) : `${d(start)} → ${d(end)}`;
 }
 
-const shell = (body: string) =>
-  `<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#0F172A;line-height:1.5">${body}<hr style="border:none;border-top:1px solid #E2E8F0;margin:20px 0"/><p style="color:#64748B;font-size:12px">Trackie · Datagami HR</p></div>`;
-
 /** New leave request → notify HR / approvers. */
 export async function notifyLeaveRequested(
   recipients: { to: string[]; cc: string[] },
@@ -42,15 +35,20 @@ export async function notifyLeaveRequested(
   },
 ) {
   if (!recipients.to.length) return { sent: false, skippedReason: "no-recipients" as const };
-  const html = shell(
-    `<h2 style="margin:0 0 8px">Leave request awaiting approval</h2>
-     <p><b>${esc(req.employeeName)}</b> requested <b>${esc(req.leaveTypeName)}</b> leave.</p>
-     <p style="margin:4px 0"><b>Dates:</b> ${range(req.startDate, req.endDate)} · <b>${req.days}</b> day(s)</p>
-     <p style="margin:16px 0">
-       <a href="${esc(req.reviewUrl)}" style="display:inline-block;background:#E5A50A;color:#020617;text-decoration:none;font-weight:600;padding:10px 18px;border-radius:6px">Review leave request</a>
-     </p>
-     <p>Sign in to Trackie to approve or reject this request.</p>`,
-  );
+  const html = brandedEmail({
+    preheader: `${req.employeeName} requested ${req.days} day(s) of ${req.leaveTypeName} leave.`,
+    eyebrow: "Leave management",
+    title: "Leave request awaiting approval",
+    body: `<p style="margin:0">A new leave request needs your review.</p>
+      ${emailDetailTable([
+        { label: "Employee", value: req.employeeName },
+        { label: "Leave type", value: req.leaveTypeName },
+        { label: "Dates", value: range(req.startDate, req.endDate) },
+        { label: "Duration", value: `${req.days} day(s)` },
+      ])}
+      ${emailButton(req.reviewUrl, "Review leave request")}
+      <p style="margin:14px 0 0;color:#64748B;font-size:13px;line-height:20px">Sign in to Trackie to approve or reject this request.</p>`,
+  });
   return sendEmail({
     to: recipients.to,
     cc: recipients.cc,
@@ -65,12 +63,19 @@ export async function notifyLeaveSubmitted(
   employeeEmail: string,
   req: { employeeName: string; leaveTypeName: string; startDate: string; endDate: string; days: number },
 ) {
-  const html = shell(
-    `<h2 style="margin:0 0 8px">Leave request submitted</h2>
-     <p>Hi ${esc(req.employeeName)}, your <b>${esc(req.leaveTypeName)}</b> leave request has been submitted for approval.</p>
-     <p style="margin:4px 0"><b>Dates:</b> ${range(req.startDate, req.endDate)} · <b>${req.days}</b> day(s)</p>
-     <p>You'll get an email once HR approves or rejects it.</p>`,
-  );
+  const html = brandedEmail({
+    preheader: `Your ${req.leaveTypeName} leave request has been submitted.`,
+    eyebrow: "Leave request",
+    title: "Request submitted",
+    body: `<p style="margin:0">Hi <strong>${esc(req.employeeName)}</strong>, your leave request has been sent to HR for approval.</p>
+      ${emailDetailTable([
+        { label: "Leave type", value: req.leaveTypeName },
+        { label: "Dates", value: range(req.startDate, req.endDate) },
+        { label: "Duration", value: `${req.days} day(s)` },
+        { label: "Status", value: "Awaiting approval" },
+      ])}
+      <p style="margin:0;color:#64748B;font-size:13px;line-height:20px">You’ll receive another email once HR approves or rejects it.</p>`,
+  });
   return sendEmail({
     to: employeeEmail,
     subject: `Leave request submitted — ${req.leaveTypeName} (${range(req.startDate, req.endDate)})`,
@@ -94,13 +99,19 @@ export async function notifyLeaveDecision(
 ) {
   const approved = info.decision === "approved";
   const color = approved ? "#047857" : "#B91C1C";
-  const html = shell(
-    `<h2 style="margin:0 0 8px">Leave ${info.decision}</h2>
-     <p>Hi ${esc(info.employeeName)}, your <b>${esc(info.leaveTypeName)}</b> leave request was
-        <b style="color:${color}">${info.decision}</b>.</p>
-     <p style="margin:4px 0"><b>Dates:</b> ${range(info.startDate, info.endDate)} · <b>${info.days}</b> day(s)</p>
-     ${info.note ? `<p style="margin:4px 0"><b>Note:</b> ${esc(info.note)}</p>` : ""}`,
-  );
+  const html = brandedEmail({
+    preheader: `Your ${info.leaveTypeName} leave request was ${info.decision}.`,
+    eyebrow: "Leave decision",
+    title: `Leave ${info.decision}`,
+    body: `<p style="margin:0">Hi <strong>${esc(info.employeeName)}</strong>, HR has reviewed your leave request.</p>
+      ${emailDetailTable([
+        { label: "Leave type", value: info.leaveTypeName },
+        { label: "Dates", value: range(info.startDate, info.endDate) },
+        { label: "Duration", value: `${info.days} day(s)` },
+      ])}
+      <p style="margin:18px 0 0">Status: <strong style="color:${color};text-transform:capitalize">${info.decision}</strong></p>
+      ${info.note ? `<div style="margin-top:16px;padding:12px 14px;background:#F8FAFC;border-left:3px solid #CBD5E1;border-radius:4px"><strong>HR note</strong><br>${esc(info.note)}</div>` : ""}`,
+  });
   return sendEmail({
     to: employeeEmail,
     subject: `Leave ${info.decision} — ${info.leaveTypeName} (${range(info.startDate, info.endDate)})`,
