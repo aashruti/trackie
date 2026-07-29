@@ -41,7 +41,7 @@ export default async function DeliveryBoardPage({
   const [tasks, options] = await Promise.all([
     // All six columns on one screen (backlog included) — delivery triages in place.
     listTasksWithComments({ statuses: [...TASK_STATUSES], doneWithinDays, board: "delivery", accountScope: scope }),
-    listTaskOptions(scope),
+    listTaskOptions(scope, "delivery"),
   ]);
 
   return (

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth/config";
-import { addTaskComment, createTask, moveTask, updateTaskPriority, type NewTaskInput } from "@/lib/dal/tasks";
+import { addTaskComment, createTask, moveTask, updateTaskAssignee, updateTaskPriority, type NewTaskInput } from "@/lib/dal/tasks";
 import { canAccessDelivery } from "@/lib/dal/authz";
 import type { TaskStatus, TaskPriority, TaskCommentKind } from "@/lib/db/enums";
 import { initials } from "@/lib/board/constants";
@@ -11,7 +11,7 @@ import { initials } from "@/lib/board/constants";
 async function requireActor() {
   const session = await auth();
   if (!session?.user) throw new Error("Not authenticated");
-  return { id: Number(session.user.id), code: initials(session.user.name ?? "U") };
+  return { id: Number(session.user.id), code: initials(session.user.name ?? "U"), roles: session.user.roles };
 }
 
 /** Creating on the delivery board (or with program context) needs delivery access. */
@@ -61,6 +61,13 @@ export async function addTaskAction(input: NewTaskInput) {
 export async function updateTaskPriorityAction(id: number, priority: TaskPriority) {
   const { id: actorId } = await requireActor();
   await updateTaskPriority(actorId, id, priority);
+  revalidateBoard();
+  return { ok: true };
+}
+
+export async function updateTaskAssigneeAction(id: number, assigneeId: number | null) {
+  const actor = await requireActor();
+  await updateTaskAssignee({ id: actor.id, roles: actor.roles }, id, assigneeId);
   revalidateBoard();
   return { ok: true };
 }

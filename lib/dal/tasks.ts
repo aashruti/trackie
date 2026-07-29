@@ -1,10 +1,11 @@
 import "server-only";
 import { and, asc, desc, eq, gte, inArray, lte, ne, or, isNull, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { tasks, taskComments, accounts, oems, users, userAccounts, programs } from "@/lib/db/schema";
+import { tasks, taskComments, accounts, oems, users, userAccounts, userRoles, programs } from "@/lib/db/schema";
 import type { TaskStatus, TaskPriority, TaskCommentKind, TaskBoard } from "@/lib/db/enums";
 import type { TaskRow, TaskComment, TaskDetailRow, Option, ProgramOption } from "@/lib/board/constants";
 import { todayISO } from "@/lib/dates";
+import { assertDeliveryAccess, type SessionUser } from "./authz";
 
 /**
  * Board reads/writes. Available to every authenticated role (the page +
@@ -160,18 +161,31 @@ export async function listUserOptions(): Promise<Option[]> {
  * `scope`: undefined/null = all universities (team board, super-admin); an array
  * = only those universities' accounts and their programs (a scoped delivery
  * user), so the pickers and filters never name a university they can't see. The
- * user list stays global — createTask validates assignee-on-account separately.
+ * Team-board user options stay global. Delivery-board options include only
+ * users who hold the Delivery role; createTask enforces the same rule so a
+ * direct Server Action call cannot bypass the picker.
  */
-export async function listTaskOptions(scope?: number[] | null): Promise<{
+export async function listTaskOptions(
+  scope?: number[] | null,
+  board: TaskBoard = "team",
+): Promise<{
   accounts: Option[];
   users: Option[];
   programs: ProgramOption[];
 }> {
   const acctScope = scope == null ? undefined : inArray(accounts.id, scope.length ? scope : [-1]);
   const progScope = scope == null ? undefined : inArray(programs.accountId, scope.length ? scope : [-1]);
+  const userQuery =
+    board === "delivery"
+      ? db
+          .select({ id: users.id, name: users.name })
+          .from(users)
+          .innerJoin(userRoles, and(eq(userRoles.userId, users.id), eq(userRoles.role, "delivery")))
+          .orderBy(asc(users.name))
+      : db.select({ id: users.id, name: users.name }).from(users).orderBy(asc(users.name));
   const [accRows, userRows, programRows] = await Promise.all([
     db.select({ id: accounts.id, name: accounts.name }).from(accounts).where(acctScope).orderBy(asc(accounts.name)),
-    db.select({ id: users.id, name: users.name }).from(users).orderBy(asc(users.name)),
+    userQuery,
     db
       .select({ id: programs.id, name: programs.name, accountId: programs.accountId, status: programs.status })
       .from(programs)
@@ -222,8 +236,38 @@ export async function assertAssignable(
   }
 }
 
+/** Delivery tasks may only be assigned to users holding the Delivery role. */
+async function assertDeliveryAssignee(assigneeId: number | null): Promise<void> {
+  if (assigneeId == null) return;
+  const [user] = await db
+    .select({ name: users.name, deliveryRole: userRoles.role })
+    .from(users)
+    .leftJoin(userRoles, and(eq(userRoles.userId, users.id), eq(userRoles.role, "delivery")))
+    .where(eq(users.id, assigneeId))
+    .limit(1);
+  if (!user) throw new Error("Assignee not found");
+  if (user.deliveryRole !== "delivery") {
+    throw new Error(`${user.name} doesn't have the Delivery role`);
+  }
+}
+
 export async function updateTaskPriority(actorId: number, id: number, priority: TaskPriority): Promise<void> {
   await db.update(tasks).set({ priority, updatedBy: actorId }).where(eq(tasks.id, id));
+}
+
+/** Reassign a task while preserving each board's assignee rules. */
+export async function updateTaskAssignee(actor: SessionUser, id: number, assigneeId: number | null): Promise<void> {
+  const [task] = await db.select({ board: tasks.board, accountId: tasks.accountId }).from(tasks).where(eq(tasks.id, id)).limit(1);
+  if (!task) throw new Error("Task not found");
+
+  if (task.board === "delivery") {
+    assertDeliveryAccess(actor);
+    await assertDeliveryAssignee(assigneeId);
+  } else {
+    await assertAssignable(assigneeId, task.accountId);
+  }
+
+  await db.update(tasks).set({ assigneeId, updatedBy: actor.id }).where(eq(tasks.id, id));
 }
 
 export async function moveTask(actorId: number, id: number, status: TaskStatus): Promise<void> {
@@ -273,9 +317,10 @@ export async function createTask(actorId: number, input: NewTaskInput): Promise<
     accountId = program.accountId; // program implies its account
   }
 
-  // The user_accounts membership rule is a sales-side constraint; delivery
-  // staff work across accounts without assignments, so their board skips it.
+  // Team tasks enforce account membership. Delivery staff work across accounts,
+  // but only users with the Delivery role may be assigned on their board.
   if (board === "team") await assertAssignable(assigneeId, accountId);
+  else await assertDeliveryAssignee(assigneeId);
 
   const [row] = await db
     .insert(tasks)
