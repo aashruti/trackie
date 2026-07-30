@@ -4,6 +4,7 @@ import { asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
   accounts,
+  accountStayOptions,
   deliveryActivities,
   deliveryEvents,
   deliveryMethods,
@@ -15,6 +16,7 @@ import { assertDeliveryAccess, scopeAccountIds, type SessionUser } from "@/lib/d
 import { assignedIds } from "@/lib/dal/accounts";
 import type { ProgramStatus } from "@/lib/db/enums";
 import type { ProgramActivity, ProgramEvent } from "./programs";
+import type { PreferredStayOption } from "@/lib/dal/account-admin";
 
 /**
  * The renewal/annual report: everything delivery did for an account, program by
@@ -46,6 +48,7 @@ export type AccountDeliveryReport = {
     longitude: number | null;
     guestHouseAvailable: boolean | null;
     guestHouseCostPerNight: number | null;
+    preferredStays: PreferredStayOption[];
     oemName: string;
   };
   totals: { programs: number; events: number; activities: number; allocated: number; spent: number };
@@ -64,7 +67,7 @@ export async function getAccountDeliveryReport(
   // doesn't exist, so this never distinguishes "scoped out" from "no such account".
   if (scope && !scope.includes(accountId)) return null;
 
-  const [[account], programRows] = await Promise.all([
+  const [[account], programRows, stayRows] = await Promise.all([
     db
       .select({
         id: accounts.id,
@@ -97,6 +100,11 @@ export async function getAccountDeliveryReport(
       .innerJoin(oems, eq(programs.oemId, oems.id))
       .where(eq(programs.accountId, accountId))
       .orderBy(asc(programs.name)),
+    db
+      .select()
+      .from(accountStayOptions)
+      .where(eq(accountStayOptions.accountId, accountId))
+      .orderBy(asc(accountStayOptions.name), asc(accountStayOptions.id)),
   ]);
   if (!account) return null;
 
@@ -185,6 +193,14 @@ export async function getAccountDeliveryReport(
       latitude: account.latitude == null ? null : Number(account.latitude),
       longitude: account.longitude == null ? null : Number(account.longitude),
       guestHouseCostPerNight: account.guestHouseCostPerNight == null ? null : Number(account.guestHouseCostPerNight),
+      preferredStays: stayRows.map((stay) => ({
+        id: stay.id,
+        name: stay.name,
+        address: stay.address,
+        costPerNight: stay.costPerNight == null ? null : Number(stay.costPerNight),
+        bookingUrl: stay.bookingUrl,
+        contactPhone: stay.contactPhone,
+      })),
     },
     totals: {
       programs: reportPrograms.length,

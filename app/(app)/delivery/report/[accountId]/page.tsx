@@ -86,6 +86,7 @@ export default async function DeliveryReportPage({
             guestHouseAvailable: report.account.guestHouseAvailable,
             guestHouseCostPerNight: report.account.guestHouseCostPerNight,
           }}
+          preferredStays={report.account.preferredStays}
           canEdit
         />
 

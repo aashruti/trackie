@@ -1,8 +1,9 @@
 import "server-only";
-import { asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
   accounts,
+  accountStayOptions,
   oems,
   invoices,
   academicYears,
@@ -263,6 +264,126 @@ export async function updateAccountLogistics(
     .returning({ id: accounts.id });
   if (!updated.length) throw new UserError("Account not found.");
   return { id: updated[0].id };
+}
+
+export interface PreferredStayOption {
+  id: number;
+  name: string;
+  address: string | null;
+  costPerNight: number | null;
+  bookingUrl: string | null;
+  contactPhone: string | null;
+}
+
+export interface PreferredStayInput {
+  name: string;
+  address?: string | null;
+  costPerNight?: number | null;
+  bookingUrl?: string | null;
+  contactPhone?: string | null;
+}
+
+function optionalStayText(value: string | null | undefined, label: string, maxLength: number) {
+  const clean = value?.trim() ?? "";
+  if (clean.length > maxLength) throw new UserError(`${label} is too long`);
+  return clean || null;
+}
+
+function normalizePreferredStay(input: PreferredStayInput) {
+  const name = input.name.trim();
+  if (!name) throw new UserError("Stay name is required");
+  if (name.length > 120) throw new UserError("Stay name is too long");
+
+  const cost = input.costPerNight ?? null;
+  if (cost != null && (!Number.isFinite(cost) || cost < 0)) {
+    throw new UserError("Cost per night must be zero or more");
+  }
+
+  const bookingUrl = optionalStayText(input.bookingUrl, "Booking link", 1000);
+  if (bookingUrl) {
+    try {
+      const url = new URL(bookingUrl);
+      if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("protocol");
+    } catch {
+      throw new UserError("Enter a valid http or https booking link");
+    }
+  }
+
+  return {
+    name,
+    address: optionalStayText(input.address, "Address", 500),
+    costPerNight: cost == null ? null : String(cost),
+    bookingUrl,
+    contactPhone: optionalStayText(input.contactPhone, "Contact phone", 50),
+  };
+}
+
+async function assertCanEditPreferredStays(user: SessionUser, accountId: number) {
+  const assigned = user.roles.includes("super-admin") ? [] : await assignedIds(user.id);
+  if (!canEditAccountLogistics(user, accountId, assigned)) {
+    throw new UserError("Not authorized to edit stays for this account");
+  }
+  const [account] = await db
+    .select({ id: accounts.id })
+    .from(accounts)
+    .where(eq(accounts.id, accountId))
+    .limit(1);
+  if (!account) throw new UserError("Account not found.");
+}
+
+export async function createPreferredStay(
+  user: SessionUser,
+  accountId: number,
+  input: PreferredStayInput,
+): Promise<PreferredStayOption> {
+  await assertCanEditPreferredStays(user, accountId);
+  const [row] = await db
+    .insert(accountStayOptions)
+    .values({
+      accountId,
+      ...normalizePreferredStay(input),
+      createdBy: user.id,
+      updatedBy: user.id,
+    })
+    .returning();
+  return {
+    ...row,
+    costPerNight: row.costPerNight == null ? null : Number(row.costPerNight),
+  };
+}
+
+export async function updatePreferredStay(
+  user: SessionUser,
+  accountId: number,
+  stayId: number,
+  input: PreferredStayInput,
+): Promise<PreferredStayOption> {
+  await assertCanEditPreferredStays(user, accountId);
+  const [row] = await db
+    .update(accountStayOptions)
+    .set({ ...normalizePreferredStay(input), updatedBy: user.id })
+    .where(and(eq(accountStayOptions.id, stayId), eq(accountStayOptions.accountId, accountId)))
+    .returning();
+  if (!row) throw new UserError("Preferred stay not found.");
+  return {
+    ...row,
+    costPerNight: row.costPerNight == null ? null : Number(row.costPerNight),
+  };
+}
+
+export async function deletePreferredStay(
+  user: SessionUser,
+  accountId: number,
+  stayId: number,
+): Promise<void> {
+  await assertCanEditPreferredStays(user, accountId);
+  const [stay] = await db
+    .select({ id: accountStayOptions.id })
+    .from(accountStayOptions)
+    .where(and(eq(accountStayOptions.id, stayId), eq(accountStayOptions.accountId, accountId)))
+    .limit(1);
+  if (!stay) throw new UserError("Preferred stay not found.");
+  await stampedDelete(accountStayOptions, stay.id, user.id);
 }
 
 export interface NewInvoice {
@@ -580,9 +701,13 @@ export async function deleteAccount(
     await db.update(payments).set({ updatedBy: user.id }).where(inArray(payments.invoiceId, invoiceIds));
   }
   // user_accounts CASCADEs from the account; tasks.account_id is SET NULL (an
-  // audited UPDATE, which also reads updated_by). Both hang off accountId.
+  // audited UPDATE), and preferred stays CASCADE. All hang off accountId.
   await db.update(userAccounts).set({ updatedBy: user.id }).where(eq(userAccounts.accountId, accountId));
   await db.update(tasks).set({ updatedBy: user.id }).where(eq(tasks.accountId, accountId));
+  await db
+    .update(accountStayOptions)
+    .set({ updatedBy: user.id })
+    .where(eq(accountStayOptions.accountId, accountId));
 
   // Delete invoices first — payments and cohorts cascade from invoice deletion.
   // Non-atomic on neon-http (no transactions): if a new invoice is created for

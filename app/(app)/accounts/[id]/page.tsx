@@ -132,6 +132,7 @@ export default async function AccountDetailPage({
             guestHouseAvailable: detail.guestHouseAvailable,
             guestHouseCostPerNight: detail.guestHouseCostPerNight,
           }}
+          preferredStays={detail.preferredStays}
           canEdit
         />
 

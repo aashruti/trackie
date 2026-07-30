@@ -7,15 +7,19 @@ import { updateInvoice, setCohorts, type InvoiceEdit, type CohortInput } from "@
 import { addPayment, deletePayment, type NewPayment } from "@/lib/dal/payments";
 import {
   createInvoice,
+  createPreferredStay,
   deleteAccount,
   deleteBill,
+  deletePreferredStay,
   getBillDeletionPreview,
   updateAccount,
   updateAccountLogistics,
+  updatePreferredStay,
   type AccountEdit,
   type AccountLogisticsInput,
   type BillDeletionPreview,
   type NewInvoice,
+  type PreferredStayInput,
 } from "@/lib/dal/account-admin";
 import { isUserError } from "@/lib/dal/errors";
 import type { Role } from "@/lib/db/enums";
@@ -186,5 +190,59 @@ export async function updateAccountLogisticsAction(
   } catch (e) {
     console.error("[accounts:update-logistics]", e);
     return { ok: false, error: isUserError(e) ? e.message : "Could not update university logistics." };
+  }
+}
+
+function revalidateAccountStays(accountId: number) {
+  revalidatePath(`/accounts/${accountId}`);
+  revalidatePath(`/delivery/report/${accountId}`);
+}
+
+export async function createPreferredStayAction(
+  accountId: number,
+  input: PreferredStayInput,
+): Promise<ActionResult> {
+  const session = await auth();
+  if (!session?.user) throw new Error("Not authenticated");
+  try {
+    await createPreferredStay(sessionUser(session), accountId, input);
+    revalidateAccountStays(accountId);
+    return { ok: true };
+  } catch (e) {
+    console.error("[accounts:create-preferred-stay]", e);
+    return { ok: false, error: isUserError(e) ? e.message : "Could not add the preferred stay." };
+  }
+}
+
+export async function updatePreferredStayAction(
+  accountId: number,
+  stayId: number,
+  input: PreferredStayInput,
+): Promise<ActionResult> {
+  const session = await auth();
+  if (!session?.user) throw new Error("Not authenticated");
+  try {
+    await updatePreferredStay(sessionUser(session), accountId, stayId, input);
+    revalidateAccountStays(accountId);
+    return { ok: true };
+  } catch (e) {
+    console.error("[accounts:update-preferred-stay]", e);
+    return { ok: false, error: isUserError(e) ? e.message : "Could not update the preferred stay." };
+  }
+}
+
+export async function deletePreferredStayAction(
+  accountId: number,
+  stayId: number,
+): Promise<ActionResult> {
+  const session = await auth();
+  if (!session?.user) throw new Error("Not authenticated");
+  try {
+    await deletePreferredStay(sessionUser(session), accountId, stayId);
+    revalidateAccountStays(accountId);
+    return { ok: true };
+  } catch (e) {
+    console.error("[accounts:delete-preferred-stay]", e);
+    return { ok: false, error: isUserError(e) ? e.message : "Could not remove the preferred stay." };
   }
 }
