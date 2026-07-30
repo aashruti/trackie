@@ -20,6 +20,7 @@ import {
   getBillDeletionPreview,
   listOems,
   updateAccount,
+  updateAccountLogistics,
 } from "./account-admin";
 import { getAccountDetail } from "./account-detail";
 import { computeInvoice } from "@/lib/money/compute";
@@ -29,6 +30,7 @@ const YEAR = "FY26–27";
 
 describe("account-admin", () => {
   let accountId: number | null = null;
+  let deliveryUserId: number | null = null;
 
   it("super-admin creates an account + invoice end to end", async () => {
     const oems = await listOems();
@@ -37,6 +39,10 @@ describe("account-admin", () => {
     const acc = await createAccount(SUPER, {
       name: "Test University (admin-created)",
       type: "university",
+      latitude: 18.5204,
+      longitude: 73.8567,
+      guestHouseAvailable: true,
+      guestHouseCostPerNight: 1200,
       oemId: ibm.id,
     });
     accountId = acc.id;
@@ -54,6 +60,10 @@ describe("account-admin", () => {
 
     const detail = await getAccountDetail(SUPER, acc.id, YEAR);
     expect(detail!.name).toMatch(/Test University/);
+    expect(detail!.latitude).toBe(18.5204);
+    expect(detail!.longitude).toBe(73.8567);
+    expect(detail!.guestHouseAvailable).toBe(true);
+    expect(detail!.guestHouseCostPerNight).toBe(1200);
     expect(detail!.invoices.length).toBe(1);
     expect(detail!.totals.netMargin).toBe(100 * (20000 - 17000)); // 300000
 
@@ -127,7 +137,72 @@ describe("account-admin", () => {
     ).rejects.toThrow();
   });
 
+  it("lets assigned Delivery maintain shared logistics and validates the values", async () => {
+    expect(accountId).toBeTruthy();
+    const run = String(Date.now()).slice(-9);
+    const [deliveryUser] = await db
+      .insert(users)
+      .values({
+        name: `Logistics Delivery ${run}`,
+        email: `logistics-delivery-${run}@test.local`,
+        passwordHash: "x",
+        role: "delivery",
+      })
+      .returning({ id: users.id });
+    deliveryUserId = deliveryUser.id;
+    await db.insert(userAccounts).values({
+      userId: deliveryUser.id,
+      accountId: accountId!,
+      createdBy: SUPER.id,
+      updatedBy: SUPER.id,
+    });
+
+    await updateAccountLogistics(
+      { id: deliveryUser.id, roles: ["delivery"] },
+      accountId!,
+      {
+        latitude: 19.076,
+        longitude: 72.8777,
+        guestHouseAvailable: true,
+        guestHouseCostPerNight: 1500,
+      },
+    );
+    const detail = await getAccountDetail(SUPER, accountId!, YEAR);
+    expect(detail).toMatchObject({
+      latitude: 19.076,
+      longitude: 72.8777,
+      guestHouseAvailable: true,
+      guestHouseCostPerNight: 1500,
+    });
+
+    await expect(
+      updateAccountLogistics(
+        { id: deliveryUser.id, roles: ["delivery"] },
+        accountId!,
+        { latitude: 19.076, longitude: null, guestHouseAvailable: null, guestHouseCostPerNight: null },
+      ),
+    ).rejects.toThrow(/both latitude and longitude/);
+    await expect(
+      updateAccountLogistics(
+        { id: deliveryUser.id, roles: ["delivery"] },
+        accountId!,
+        { latitude: null, longitude: null, guestHouseAvailable: false, guestHouseCostPerNight: 500 },
+      ),
+    ).rejects.toThrow(/only be set when a guest house is available/);
+    await expect(
+      updateAccountLogistics(
+        { id: 999, roles: ["delivery"] },
+        accountId!,
+        { latitude: null, longitude: null, guestHouseAvailable: null, guestHouseCostPerNight: null },
+      ),
+    ).rejects.toThrow(/Not authorized/);
+  });
+
   afterAll(async () => {
+    if (deliveryUserId) {
+      await db.delete(userAccounts).where(eq(userAccounts.userId, deliveryUserId));
+      await db.delete(users).where(eq(users.id, deliveryUserId));
+    }
     if (accountId) {
       const { db } = await import("@/lib/db/client");
       const t = await import("@/lib/db/schema");

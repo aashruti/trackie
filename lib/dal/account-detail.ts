@@ -37,6 +37,10 @@ export interface AccountDetail {
   name: string;
   type: string;
   city: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  guestHouseAvailable: boolean | null;
+  guestHouseCostPerNight: number | null;
   oem: string;
   oemId: number;
   selfSupplied: boolean;
@@ -83,6 +87,10 @@ export async function getAccountDetail(
       name: accounts.name,
       type: accounts.type,
       city: accounts.city,
+      latitude: accounts.latitude,
+      longitude: accounts.longitude,
+      guestHouseAvailable: accounts.guestHouseAvailable,
+      guestHouseCostPerNight: accounts.guestHouseCostPerNight,
       oem: oems.name,
       oemId: accounts.oemId,
       isSelf: oems.isSelf,
@@ -168,6 +176,10 @@ export async function getAccountDetail(
     name: acc.name,
     type: acc.type,
     city: acc.city,
+    latitude: acc.latitude == null ? null : Number(acc.latitude),
+    longitude: acc.longitude == null ? null : Number(acc.longitude),
+    guestHouseAvailable: acc.guestHouseAvailable,
+    guestHouseCostPerNight: acc.guestHouseCostPerNight == null ? null : Number(acc.guestHouseCostPerNight),
     oem: acc.oem,
     oemId: acc.oemId,
     selfSupplied: acc.isSelf,

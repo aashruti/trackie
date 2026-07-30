@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  canEdit, canViewFinance, assertFinanceAccess, canAccessLeads, assertLeadsAccess, scopeAccountIds,
+  canEdit, canEditAccountLogistics, canViewFinance, assertFinanceAccess, canAccessLeads, assertLeadsAccess, scopeAccountIds,
   canAccessDelivery, canManageDelivery,
   canManageGroups, assertGroupsManage, canManageHr, assertHrAccess,
   type SessionUser,
@@ -57,6 +57,17 @@ describe("finance edit / leads / groups — sales inherits admin's finance acces
     }
     expect(() => assertLeadsAccess(delivery)).toThrow();
     expect(() => assertGroupsManage(sales)).not.toThrow();
+  });
+});
+
+describe("shared account logistics", () => {
+  it("allows assigned Sales and Delivery users without exposing finance editing", () => {
+    expect(canEditAccountLogistics(superAdmin, 99, [])).toBe(true);
+    expect(canEditAccountLogistics(sales, 10, [10])).toBe(true);
+    expect(canEditAccountLogistics(delivery, 10, [10])).toBe(true);
+    expect(canEditAccountLogistics(delivery, 20, [10])).toBe(false);
+    expect(canEditAccountLogistics(hr, 10, [10])).toBe(false);
+    expect(canEdit(delivery, 10, [10])).toBe(false);
   });
 });
 

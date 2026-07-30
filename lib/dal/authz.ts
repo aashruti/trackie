@@ -22,6 +22,13 @@ export function canEdit(user: SessionUser, accountId: number, assigned: number[]
   return false;
 }
 
+/** Shared campus logistics: assigned Sales or Delivery users may maintain it. */
+export function canEditAccountLogistics(user: SessionUser, accountId: number, assigned: number[]): boolean {
+  if (isSuper(user)) return true;
+  if (has(user, "sales") || has(user, "delivery")) return assigned.includes(accountId);
+  return false;
+}
+
 /**
  * VIEW the finance surfaces (accounts, reports, OEM report, portfolio). Sales &
  * super only. Load-bearing now that delivery is account-scoped: delivery/hr may

@@ -11,7 +11,9 @@ import {
   deleteBill,
   getBillDeletionPreview,
   updateAccount,
+  updateAccountLogistics,
   type AccountEdit,
+  type AccountLogisticsInput,
   type BillDeletionPreview,
   type NewInvoice,
 } from "@/lib/dal/account-admin";
@@ -167,5 +169,22 @@ export async function updateAccountAction(
   } catch (e) {
     console.error("[accounts:update]", e);
     return { ok: false, error: isUserError(e) ? e.message : "Could not update the account." };
+  }
+}
+
+export async function updateAccountLogisticsAction(
+  accountId: number,
+  input: AccountLogisticsInput,
+): Promise<ActionResult> {
+  const session = await auth();
+  if (!session?.user) throw new Error("Not authenticated");
+  try {
+    await updateAccountLogistics(sessionUser(session), accountId, input);
+    revalidatePath(`/accounts/${accountId}`);
+    revalidatePath(`/delivery/report/${accountId}`);
+    return { ok: true };
+  } catch (e) {
+    console.error("[accounts:update-logistics]", e);
+    return { ok: false, error: isUserError(e) ? e.message : "Could not update university logistics." };
   }
 }

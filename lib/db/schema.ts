@@ -15,6 +15,7 @@ import {
   jsonb,
   unique,
   index,
+  check,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import {
@@ -107,12 +108,25 @@ export const accounts = pgTable("accounts", {
   name: text("name").notNull(),
   type: accountTypeEnum("type").notNull().default("university"),
   city: text("city"),
+  latitude: numeric("latitude", { precision: 9, scale: 6 }),
+  longitude: numeric("longitude", { precision: 9, scale: 6 }),
+  guestHouseAvailable: boolean("guest_house_available"),
+  guestHouseCostPerNight: numeric("guest_house_cost_per_night", { precision: 12, scale: 2 }),
   oemId: integer("oem_id")
     .notNull()
     .references(() => oems.id),
   // Null → ungrouped. set null so deleting a group never touches accounts.
   groupId: integer("group_id").references(() => accountGroups.id, { onDelete: "set null" }),
-});
+}, (table) => [
+  check("accounts_coordinates_pair_check", sql`(${table.latitude} IS NULL) = (${table.longitude} IS NULL)`),
+  check("accounts_latitude_range_check", sql`${table.latitude} IS NULL OR ${table.latitude} BETWEEN -90 AND 90`),
+  check("accounts_longitude_range_check", sql`${table.longitude} IS NULL OR ${table.longitude} BETWEEN -180 AND 180`),
+  check("accounts_guest_house_cost_check", sql`${table.guestHouseCostPerNight} IS NULL OR ${table.guestHouseCostPerNight} >= 0`),
+  check(
+    "accounts_guest_house_cost_requires_available_check",
+    sql`${table.guestHouseCostPerNight} IS NULL OR ${table.guestHouseAvailable} IS TRUE`,
+  ),
+]);
 
 export const academicYears = pgTable("academic_years", {
   id: serial("id").primaryKey(),

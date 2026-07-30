@@ -38,7 +38,16 @@ export type ReportProgram = {
 };
 
 export type AccountDeliveryReport = {
-  account: { id: number; name: string; city: string | null; oemName: string };
+  account: {
+    id: number;
+    name: string;
+    city: string | null;
+    latitude: number | null;
+    longitude: number | null;
+    guestHouseAvailable: boolean | null;
+    guestHouseCostPerNight: number | null;
+    oemName: string;
+  };
   totals: { programs: number; events: number; activities: number; allocated: number; spent: number };
   programs: ReportProgram[];
 };
@@ -57,7 +66,16 @@ export async function getAccountDeliveryReport(
 
   const [[account], programRows] = await Promise.all([
     db
-      .select({ id: accounts.id, name: accounts.name, city: accounts.city, oemName: oems.name })
+      .select({
+        id: accounts.id,
+        name: accounts.name,
+        city: accounts.city,
+        latitude: accounts.latitude,
+        longitude: accounts.longitude,
+        guestHouseAvailable: accounts.guestHouseAvailable,
+        guestHouseCostPerNight: accounts.guestHouseCostPerNight,
+        oemName: oems.name,
+      })
       .from(accounts)
       .innerJoin(oems, eq(accounts.oemId, oems.id))
       .where(eq(accounts.id, accountId))
@@ -162,7 +180,12 @@ export async function getAccountDeliveryReport(
   });
 
   return {
-    account,
+    account: {
+      ...account,
+      latitude: account.latitude == null ? null : Number(account.latitude),
+      longitude: account.longitude == null ? null : Number(account.longitude),
+      guestHouseCostPerNight: account.guestHouseCostPerNight == null ? null : Number(account.guestHouseCostPerNight),
+    },
     totals: {
       programs: reportPrograms.length,
       events: eventRows.length,
