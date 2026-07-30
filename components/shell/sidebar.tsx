@@ -35,6 +35,7 @@ const HR: Item[] = [
 ];
 
 const DELIVERY: Item[] = [
+  { label: "Accounts", href: "/delivery/accounts", icon: "M4 7h16M4 12h16M4 17h10" },
   { label: "Programs", href: "/delivery/programs", icon: "M4 19.5A2.5 2.5 0 016.5 17H20M4 19.5A2.5 2.5 0 006.5 22H20V2H6.5A2.5 2.5 0 004 4.5z" },
   { label: "Delivery board", href: "/delivery/board", icon: "M4 5h16v6H4zM4 13h7v6H4z" },
   { label: "Delivery settings", href: "/delivery/settings", icon: "M12 9a3 3 0 100 6 3 3 0 000-6M4 12h2M18 12h2M12 4v2M12 18v2M6 6l1.5 1.5M16.5 16.5L18 18M18 6l-1.5 1.5M7.5 16.5L6 18" },
@@ -143,10 +144,9 @@ export function Sidebar({
   const isSuper = roles.includes("super-admin");
   // Additive by role set — a user stacking {sales, hr} sees both sections, not
   // just one. Finance is for super-admin & sales; HR is for super-admin & hr;
-  // Delivery is for super-admin & delivery (sales reaches the delivery report
-  // through the account page instead, not the Delivery nav group — sales lost
-  // canAccessDelivery in the admin→sales split); the "Me" self-service group
-  // appears for anyone flagged as an employee. Admin group stays super-only.
+  // Delivery is for super-admin & delivery; Sales keeps only compact read-only
+  // logistics metadata on the Finance account page. The "Me" self-service
+  // group appears for anyone flagged as an employee. Admin stays super-only.
   const showFinance = isSuper || roles.includes("sales");
   const showHr = isSuper || roles.includes("hr");
   const showDelivery = isSuper || roles.includes("delivery");

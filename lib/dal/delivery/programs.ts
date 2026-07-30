@@ -370,10 +370,16 @@ export async function deleteProgram(user: SessionUser, id: number): Promise<void
   if (!n) throw new UserError("Program not found.");
 }
 
-/** Account picker options — module-gated (delivery has no user_accounts scoping). */
+/** Account picker options — the same assigned-university scope as every Delivery surface. */
 export async function listAccountOptions(user: SessionUser): Promise<{ id: number; name: string }[]> {
   assertDeliveryAccess(user);
-  return db.select({ id: accounts.id, name: accounts.name }).from(accounts).orderBy(asc(accounts.name));
+  const assigned = user.roles.includes("super-admin") ? [] : await assignedIds(user.id);
+  const scope = scopeAccountIds(user, assigned);
+  return db
+    .select({ id: accounts.id, name: accounts.name })
+    .from(accounts)
+    .where(scope ? inArray(accounts.id, scope.length ? scope : [-1]) : undefined)
+    .orderBy(asc(accounts.name));
 }
 
 /** Provider picker options (IBM, Datagami, …). */

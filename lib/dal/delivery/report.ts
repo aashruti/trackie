@@ -19,9 +19,8 @@ import type { ProgramActivity, ProgramEvent } from "./programs";
 import type { PreferredStayOption } from "@/lib/dal/account-admin";
 
 /**
- * The renewal/annual report: everything delivery did for an account, program by
- * program, event by event, activity by activity — chronological, printable.
- * Sales (admin role) takes this to renewals, so it is READ-gated only.
+ * The renewal/annual report: everything Delivery did for an account, program by
+ * program, event by event, activity by activity — chronological and printable.
  */
 
 export type ReportProgram = {
