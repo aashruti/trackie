@@ -12,7 +12,7 @@ import { AccountReportButton } from "@/components/accounts/account-report";
 import { PrintButton } from "@/components/reports/print-button";
 import { DeleteAccountButton } from "@/components/accounts/delete-account-button";
 import { EditAccountButton } from "@/components/accounts/edit-account-button";
-import { AccountLogisticsCard } from "@/components/accounts/account-logistics-card";
+import { AccountLogisticsMeta } from "@/components/accounts/account-logistics-meta";
 import { getAccountDetail } from "@/lib/dal/account-detail";
 import { listOems } from "@/lib/dal/account-admin";
 import { getYearContext } from "@/lib/dal/years";
@@ -55,6 +55,7 @@ export default async function AccountDetailPage({
   ]);
   if (!detail) notFound();
   const canAccessGroups = canManageGroups({ id: Number(user.id), roles: user.roles });
+  const canOpenDelivery = canAccessDelivery({ id: Number(user.id), roles: user.roles });
 
   return (
     <>
@@ -82,12 +83,12 @@ export default async function AccountDetailPage({
               {user.roles.includes("super-admin") && (
                 <DeleteAccountButton accountId={detail.id} accountName={detail.name} />
               )}
-              {canAccessDelivery({ id: Number(user.id), roles: user.roles }) && (
+              {canOpenDelivery && (
                 <Link
-                  href={`/delivery/report/${detail.id}`}
+                  href={`/delivery/accounts/${detail.id}`}
                   className="no-print rounded-md border border-border-strong px-3 py-1.5 text-sm font-medium text-text-secondary hover:bg-surface-hover"
                 >
-                  Delivery report
+                  Delivery account
                 </Link>
               )}
               <AccountReportButton detail={detail} year={YEAR} />
@@ -111,6 +112,12 @@ export default async function AccountDetailPage({
               </Link>
             )}
           </p>
+          <AccountLogisticsMeta
+            city={detail.city}
+            guestHouseAvailable={detail.guestHouseAvailable}
+            guestHouseCostPerNight={detail.guestHouseCostPerNight}
+            preferredStayCount={detail.preferredStays.length}
+          />
         </div>
 
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
@@ -121,20 +128,6 @@ export default async function AccountDetailPage({
           <Kpi label="Outstanding to OEM" value={detail.totals.outstandingToOem} tone="pending" />
           <Kpi label="Net margin" value={detail.totals.netMargin} tone="positive" />
         </div>
-
-        <AccountLogisticsCard
-          accountId={detail.id}
-          accountName={detail.name}
-          city={detail.city}
-          logistics={{
-            latitude: detail.latitude,
-            longitude: detail.longitude,
-            guestHouseAvailable: detail.guestHouseAvailable,
-            guestHouseCostPerNight: detail.guestHouseCostPerNight,
-          }}
-          preferredStays={detail.preferredStays}
-          canEdit
-        />
 
         <ReservesStrip reserves={detail.reserves} />
 

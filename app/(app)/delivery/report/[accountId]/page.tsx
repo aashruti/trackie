@@ -18,7 +18,7 @@ function fmtDate(iso: string | null): string {
 /**
  * The renewal / annual delivery report: a printable narrative of everything the
  * delivery team did for an account — per program, per event, per activity.
- * Sales (admin) can open it and hand the PDF over at renewal time.
+ * Delivery and Super Admin can open it and export the operating history.
  */
 export default async function DeliveryReportPage({
   params,
@@ -38,7 +38,7 @@ export default async function DeliveryReportPage({
       <>
         <Topbar section="Delivery" title="Delivery report" user={user} years={years} currentYear={YEAR} />
         <main className="mx-auto w-full max-w-[1440px] px-6 py-6">
-          <p className="text-sm text-text-secondary">The delivery report is available to the Delivery team / Admin / Super Admin only.</p>
+          <p className="text-sm text-text-secondary">The delivery report is available to the Delivery team / Super Admin only.</p>
         </main>
       </>
     );
@@ -54,7 +54,7 @@ export default async function DeliveryReportPage({
       <Topbar section="Delivery" title="Delivery report" user={user} years={years} currentYear={YEAR} />
       <main className="mx-auto w-full max-w-[1100px] space-y-6 px-6 py-6">
         <div className="no-print flex items-center justify-between">
-          <Link href={`/accounts/${report.account.id}`} className="text-sm text-text-secondary hover:text-text-primary">
+          <Link href={`/delivery/accounts/${report.account.id}`} className="text-sm text-text-secondary hover:text-text-primary">
             ← {report.account.name}
           </Link>
           <PrintButton label="Print / PDF" />

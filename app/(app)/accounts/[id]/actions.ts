@@ -185,6 +185,8 @@ export async function updateAccountLogisticsAction(
   try {
     await updateAccountLogistics(sessionUser(session), accountId, input);
     revalidatePath(`/accounts/${accountId}`);
+    revalidatePath("/delivery/accounts");
+    revalidatePath(`/delivery/accounts/${accountId}`);
     revalidatePath(`/delivery/report/${accountId}`);
     return { ok: true };
   } catch (e) {
@@ -195,6 +197,8 @@ export async function updateAccountLogisticsAction(
 
 function revalidateAccountStays(accountId: number) {
   revalidatePath(`/accounts/${accountId}`);
+  revalidatePath("/delivery/accounts");
+  revalidatePath(`/delivery/accounts/${accountId}`);
   revalidatePath(`/delivery/report/${accountId}`);
 }
 

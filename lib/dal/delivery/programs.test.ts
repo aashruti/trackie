@@ -7,12 +7,14 @@ import {
   deleteProgram,
   getProgramCalendar,
   getProgramDetail,
+  listAccountOptions,
   listPrograms,
   setProgramStatus,
   updateProgram,
 } from "./programs";
 import { addActivity, createEvent, deleteActivity, deleteEvent, setEventStatus, updateEvent } from "./events";
 import { getAccountDeliveryReport } from "./report";
+import { listDeliveryAccounts } from "./accounts";
 import { getDeliveryDashboard } from "./dashboard";
 import type { SessionUser } from "@/lib/dal/authz";
 
@@ -437,6 +439,30 @@ describe("account scoping — delivery reads are filtered to assigned universiti
     const superNames = await namesFor(SUPER);
     expect(superNames).toContain(`ScopeProgA-${RUN}`);
     expect(superNames).toContain(`ScopeProgB-${RUN}`);
+  });
+
+  it("delivery account directory and program picker only expose assigned universities", async () => {
+    const scopedAccounts = await listDeliveryAccounts(DELIVERY_A);
+    expect(scopedAccounts.map((account) => account.id)).toContain(scope.accountAId);
+    expect(scopedAccounts.map((account) => account.id)).not.toContain(scope.accountBId);
+    expect(scopedAccounts.find((account) => account.id === scope.accountAId)).toMatchObject({
+      programCount: 1,
+      activeProgramCount: 1,
+      preferredStayCount: 0,
+    });
+
+    const scopedPicker = await listAccountOptions(DELIVERY_A);
+    expect(scopedPicker.map((account) => account.id)).toContain(scope.accountAId);
+    expect(scopedPicker.map((account) => account.id)).not.toContain(scope.accountBId);
+
+    const allAccounts = await listDeliveryAccounts(DELIVERY_ALL);
+    expect(allAccounts.map((account) => account.id)).toEqual(
+      expect.arrayContaining([scope.accountAId, scope.accountBId]),
+    );
+    const superAccounts = await listDeliveryAccounts(SUPER);
+    expect(superAccounts.map((account) => account.id)).toEqual(
+      expect.arrayContaining([scope.accountAId, scope.accountBId]),
+    );
   });
 
   it("getProgramDetail: a program outside scope is null, not another account's data", async () => {

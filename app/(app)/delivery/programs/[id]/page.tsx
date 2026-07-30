@@ -99,12 +99,20 @@ export default async function ProgramDetailPage({
             </p>
             {detail.description && <p className="mt-1 max-w-3xl text-sm text-text-muted">{detail.description}</p>}
           </div>
-          <Link
-            href={`/delivery/report/${detail.accountId}`}
-            className="no-print inline-flex h-9 items-center rounded-md border border-border-strong px-3 text-sm font-medium text-text-secondary hover:bg-surface-hover"
-          >
-            Account delivery report
-          </Link>
+          <div className="no-print flex flex-wrap gap-2">
+            <Link
+              href={`/delivery/accounts/${detail.accountId}`}
+              className="inline-flex h-9 items-center rounded-md border border-border-strong px-3 text-sm font-medium text-text-secondary hover:bg-surface-hover"
+            >
+              Account profile
+            </Link>
+            <Link
+              href={`/delivery/report/${detail.accountId}`}
+              className="inline-flex h-9 items-center rounded-md border border-border-strong px-3 text-sm font-medium text-text-secondary hover:bg-surface-hover"
+            >
+              Delivery report
+            </Link>
+          </div>
         </div>
 
         {/* KPI cards */}
