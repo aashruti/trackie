@@ -1,14 +1,22 @@
 import "server-only";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { inArray } from "drizzle-orm";
-import { accounts, accountGroups, invoices, academicYears, oems, cohorts } from "@/lib/db/schema";
+import {
+  accounts,
+  accountGroups,
+  accountStayOptions,
+  invoices,
+  academicYears,
+  oems,
+  cohorts,
+} from "@/lib/db/schema";
 import { computeAccount } from "@/lib/money/compute";
 import type { InvoiceInputWithStatus, Status } from "@/lib/money/types";
 import { canManageGroups, type SessionUser } from "./authz";
 import { assignedIds } from "./accounts";
 import { loadPaymentLites, loadPaymentLedger, type PaymentEntry } from "./payments";
 import { todayISO } from "@/lib/dates";
+import type { PreferredStayOption } from "./account-admin";
 
 function effStatus(dbStatus: Status, dueDate: string | null | undefined, today: string): Status {
   if (dueDate && dueDate < today && (dbStatus === "raised" || dbStatus === "partially-paid")) {
@@ -41,6 +49,7 @@ export interface AccountDetail {
   longitude: number | null;
   guestHouseAvailable: boolean | null;
   guestHouseCostPerNight: number | null;
+  preferredStays: PreferredStayOption[];
   oem: string;
   oemId: number;
   selfSupplied: boolean;
@@ -104,10 +113,17 @@ export async function getAccountDetail(
     .limit(1);
   if (!acc) return null;
 
-  const invRows = await db
-    .select()
-    .from(invoices)
-    .where(and(eq(invoices.accountId, acc.id), eq(invoices.yearId, year.id)));
+  const [invRows, stayRows] = await Promise.all([
+    db
+      .select()
+      .from(invoices)
+      .where(and(eq(invoices.accountId, acc.id), eq(invoices.yearId, year.id))),
+    db
+      .select()
+      .from(accountStayOptions)
+      .where(eq(accountStayOptions.accountId, acc.id))
+      .orderBy(asc(accountStayOptions.name), asc(accountStayOptions.id)),
+  ]);
 
   // Cohort distribution per invoice (old-student enrollment-year breakdown).
   const invoiceIds = invRows.map((r) => r.id);
@@ -180,6 +196,14 @@ export async function getAccountDetail(
     longitude: acc.longitude == null ? null : Number(acc.longitude),
     guestHouseAvailable: acc.guestHouseAvailable,
     guestHouseCostPerNight: acc.guestHouseCostPerNight == null ? null : Number(acc.guestHouseCostPerNight),
+    preferredStays: stayRows.map((stay) => ({
+      id: stay.id,
+      name: stay.name,
+      address: stay.address,
+      costPerNight: stay.costPerNight == null ? null : Number(stay.costPerNight),
+      bookingUrl: stay.bookingUrl,
+      contactPhone: stay.contactPhone,
+    })),
     oem: acc.oem,
     oemId: acc.oemId,
     selfSupplied: acc.isSelf,

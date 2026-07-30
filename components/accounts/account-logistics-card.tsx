@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation";
 import { updateAccountLogisticsAction } from "@/app/(app)/accounts/[id]/actions";
 import { Card } from "@/components/ui/card";
 import { Money } from "@/components/ui/money";
+import {
+  PreferredStayOptions,
+  type PreferredStayOption,
+} from "@/components/accounts/preferred-stay-options";
 
 export interface AccountLogistics {
   latitude: number | null;
@@ -43,12 +47,14 @@ export function AccountLogisticsCard({
   accountName,
   city,
   logistics,
+  preferredStays,
   canEdit,
 }: {
   accountId: number;
   accountName: string;
   city: string | null;
   logistics: AccountLogistics;
+  preferredStays: PreferredStayOption[];
   canEdit: boolean;
 }) {
   const router = useRouter();
@@ -243,6 +249,13 @@ export function AccountLogisticsCard({
             )}
           </div>
         </div>
+
+        <PreferredStayOptions
+          accountId={accountId}
+          guestHouseAvailable={logistics.guestHouseAvailable}
+          stays={preferredStays}
+          canEdit={canEdit}
+        />
       </Card>
 
       {open && (

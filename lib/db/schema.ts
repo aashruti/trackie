@@ -128,6 +128,28 @@ export const accounts = pgTable("accounts", {
   ),
 ]);
 
+// External accommodation alternatives for university visits. Kept as rows
+// rather than account columns so each campus can maintain any number of
+// preferred booking choices shared by Sales and Delivery.
+export const accountStayOptions = pgTable("account_stay_options", {
+  id: serial("id").primaryKey(),
+  ...baseColumns,
+  accountId: integer("account_id")
+    .notNull()
+    .references(() => accounts.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  address: text("address"),
+  costPerNight: numeric("cost_per_night", { precision: 12, scale: 2 }),
+  bookingUrl: text("booking_url"),
+  contactPhone: text("contact_phone"),
+}, (table) => [
+  index("account_stay_options_account_id_idx").on(table.accountId),
+  check(
+    "account_stay_options_cost_check",
+    sql`${table.costPerNight} IS NULL OR ${table.costPerNight} >= 0`,
+  ),
+]);
+
 export const academicYears = pgTable("academic_years", {
   id: serial("id").primaryKey(),
   ...baseColumns,

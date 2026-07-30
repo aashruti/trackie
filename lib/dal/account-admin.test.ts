@@ -3,6 +3,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
   accounts,
+  accountStayOptions,
   auditLog,
   cohorts,
   invoices,
@@ -15,12 +16,15 @@ import {
 import {
   createAccount,
   createInvoice,
+  createPreferredStay,
   deleteAccount,
   deleteBill,
+  deletePreferredStay,
   getBillDeletionPreview,
   listOems,
   updateAccount,
   updateAccountLogistics,
+  updatePreferredStay,
 } from "./account-admin";
 import { getAccountDetail } from "./account-detail";
 import { computeInvoice } from "@/lib/money/compute";
@@ -174,6 +178,78 @@ describe("account-admin", () => {
       guestHouseAvailable: true,
       guestHouseCostPerNight: 1500,
     });
+
+    const deliveryActor = { id: deliveryUser.id, roles: ["delivery" as const] };
+    const firstStay = await createPreferredStay(deliveryActor, accountId!, {
+      name: "  Campus Residency  ",
+      address: "Near the main gate",
+      costPerNight: 2400,
+      bookingUrl: "https://stay.example.com/campus",
+      contactPhone: "+91 98765 43210",
+    });
+    const secondStay = await createPreferredStay(deliveryActor, accountId!, {
+      name: "Budget Inn",
+      costPerNight: null,
+    });
+    await updatePreferredStay(deliveryActor, accountId!, secondStay.id, {
+      name: "Budget Inn",
+      address: "Railway station road",
+      costPerNight: 1800,
+      bookingUrl: "",
+      contactPhone: "",
+    });
+
+    const withStays = await getAccountDetail(SUPER, accountId!, YEAR);
+    expect(withStays!.preferredStays).toEqual([
+      {
+        id: secondStay.id,
+        name: "Budget Inn",
+        address: "Railway station road",
+        costPerNight: 1800,
+        bookingUrl: null,
+        contactPhone: null,
+      },
+      {
+        id: firstStay.id,
+        name: "Campus Residency",
+        address: "Near the main gate",
+        costPerNight: 2400,
+        bookingUrl: "https://stay.example.com/campus",
+        contactPhone: "+91 98765 43210",
+      },
+    ]);
+
+    await expect(
+      createPreferredStay(deliveryActor, accountId!, {
+        name: "Bad link",
+        bookingUrl: "javascript:alert(1)",
+      }),
+    ).rejects.toThrow(/valid http or https/);
+    await expect(
+      createPreferredStay(deliveryActor, accountId!, { name: "Negative", costPerNight: -1 }),
+    ).rejects.toThrow(/zero or more/);
+    await expect(
+      createPreferredStay({ id: 999, roles: ["delivery"] }, accountId!, { name: "No access" }),
+    ).rejects.toThrow(/Not authorized/);
+
+    await deletePreferredStay(deliveryActor, accountId!, firstStay.id);
+    const afterDelete = await db
+      .select({ id: accountStayOptions.id })
+      .from(accountStayOptions)
+      .where(eq(accountStayOptions.accountId, accountId!));
+    expect(afterDelete).toEqual([{ id: secondStay.id }]);
+    const [stayDeleteAudit] = await db
+      .select({ actorId: auditLog.actorId })
+      .from(auditLog)
+      .where(
+        and(
+          eq(auditLog.tableName, "account_stay_options"),
+          eq(auditLog.rowId, String(firstStay.id)),
+          eq(auditLog.op, "DELETE"),
+        ),
+      )
+      .limit(1);
+    expect(stayDeleteAudit?.actorId).toBe(deliveryUser.id);
 
     await expect(
       updateAccountLogistics(
