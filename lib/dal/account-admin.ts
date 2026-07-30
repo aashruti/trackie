@@ -11,7 +11,7 @@ import {
   userAccounts,
   tasks,
 } from "@/lib/db/schema";
-import { canEdit, type SessionUser } from "./authz";
+import { canEdit, canEditAccountLogistics, type SessionUser } from "./authz";
 import { assignedIds } from "./accounts";
 import { stampedDelete, stampedDeleteWhere } from "./audit";
 import { UserError } from "./errors";
@@ -75,17 +75,28 @@ export async function insertAccount(
     name: string;
     type: "university" | "programme";
     city?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
+    guestHouseAvailable?: boolean | null;
+    guestHouseCostPerNight?: number | null;
     oemId: number;
   },
 ): Promise<{ id: number }> {
   const name = input.name.trim();
   if (!name) throw new Error("Account name is required");
+  const logistics = normalizeAccountLogistics({
+    latitude: input.latitude ?? null,
+    longitude: input.longitude ?? null,
+    guestHouseAvailable: input.guestHouseAvailable ?? null,
+    guestHouseCostPerNight: input.guestHouseCostPerNight ?? null,
+  });
   const [row] = await db
     .insert(accounts)
     .values({
       name,
       type: input.type,
       city: input.city ?? null,
+      ...logistics,
       oemId: input.oemId,
       createdBy: actorId,
       updatedBy: actorId,
@@ -98,6 +109,10 @@ export interface NewAccount {
   name: string;
   type: "university" | "programme";
   city?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  guestHouseAvailable?: boolean | null;
+  guestHouseCostPerNight?: number | null;
   oemId?: number;
   newOemName?: string;
   newOemIsSelf?: boolean;
@@ -116,7 +131,16 @@ export async function createAccount(
     oemId = oem.id;
   }
 
-  return insertAccount(user.id, { name: input.name, type: input.type, city: input.city, oemId });
+  return insertAccount(user.id, {
+    name: input.name,
+    type: input.type,
+    city: input.city,
+    latitude: input.latitude,
+    longitude: input.longitude,
+    guestHouseAvailable: input.guestHouseAvailable,
+    guestHouseCostPerNight: input.guestHouseCostPerNight,
+    oemId,
+  });
 }
 
 export interface AccountEdit {
@@ -124,6 +148,42 @@ export interface AccountEdit {
   type?: "university" | "programme";
   city?: string | null;
   oemId?: number;
+}
+
+export interface AccountLogisticsInput {
+  latitude: number | null;
+  longitude: number | null;
+  guestHouseAvailable: boolean | null;
+  guestHouseCostPerNight: number | null;
+}
+
+function normalizeAccountLogistics(input: AccountLogisticsInput) {
+  const hasLatitude = input.latitude != null;
+  const hasLongitude = input.longitude != null;
+  if (hasLatitude !== hasLongitude) {
+    throw new UserError("Enter both latitude and longitude, or leave both blank");
+  }
+  if (hasLatitude && (!Number.isFinite(input.latitude) || input.latitude! < -90 || input.latitude! > 90)) {
+    throw new UserError("Latitude must be between -90 and 90");
+  }
+  if (hasLongitude && (!Number.isFinite(input.longitude) || input.longitude! < -180 || input.longitude! > 180)) {
+    throw new UserError("Longitude must be between -180 and 180");
+  }
+
+  const cost = input.guestHouseCostPerNight;
+  if (cost != null && (!Number.isFinite(cost) || cost < 0)) {
+    throw new UserError("Guest house cost must be zero or more");
+  }
+  if (cost != null && input.guestHouseAvailable !== true) {
+    throw new UserError("Guest house cost can only be set when a guest house is available");
+  }
+
+  return {
+    latitude: input.latitude == null ? null : String(input.latitude),
+    longitude: input.longitude == null ? null : String(input.longitude),
+    guestHouseAvailable: input.guestHouseAvailable,
+    guestHouseCostPerNight: cost == null ? null : String(cost),
+  };
 }
 
 /**
@@ -176,6 +236,29 @@ export async function updateAccount(
   const updated = await db
     .update(accounts)
     .set({ ...patch, updatedBy: user.id })
+    .where(eq(accounts.id, accountId))
+    .returning({ id: accounts.id });
+  if (!updated.length) throw new UserError("Account not found.");
+  return { id: updated[0].id };
+}
+
+/**
+ * Campus logistics is shared operational data. Assigned Sales and Delivery
+ * users may maintain it without granting Delivery access to finance fields.
+ */
+export async function updateAccountLogistics(
+  user: SessionUser,
+  accountId: number,
+  input: AccountLogisticsInput,
+): Promise<{ id: number }> {
+  const assigned = user.roles.includes("super-admin") ? [] : await assignedIds(user.id);
+  if (!canEditAccountLogistics(user, accountId, assigned)) {
+    throw new UserError("Not authorized to edit logistics for this account");
+  }
+
+  const updated = await db
+    .update(accounts)
+    .set({ ...normalizeAccountLogistics(input), updatedBy: user.id })
     .where(eq(accounts.id, accountId))
     .returning({ id: accounts.id });
   if (!updated.length) throw new UserError("Account not found.");

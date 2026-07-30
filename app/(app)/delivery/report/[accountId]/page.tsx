@@ -8,6 +8,7 @@ import { getAccountDeliveryReport } from "@/lib/dal/delivery/report";
 import { PrintButton } from "@/components/reports/print-button";
 import { Money } from "@/components/ui/money";
 import { ACTIVITY_TYPE_META, EVENT_STATUS_META, PROGRAM_STATUS_META } from "@/components/delivery/meta";
+import { AccountLogisticsCard } from "@/components/accounts/account-logistics-card";
 
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
@@ -74,6 +75,19 @@ export default async function DeliveryReportPage({
             <ReportStat label="Spent" money={report.totals.spent} negative={report.totals.spent > report.totals.allocated} />
           </div>
         </header>
+
+        <AccountLogisticsCard
+          accountId={report.account.id}
+          accountName={report.account.name}
+          city={report.account.city}
+          logistics={{
+            latitude: report.account.latitude,
+            longitude: report.account.longitude,
+            guestHouseAvailable: report.account.guestHouseAvailable,
+            guestHouseCostPerNight: report.account.guestHouseCostPerNight,
+          }}
+          canEdit
+        />
 
         {report.programs.length === 0 && (
           <p className="rounded-xl border border-dashed border-border px-6 py-10 text-center text-sm text-text-muted">

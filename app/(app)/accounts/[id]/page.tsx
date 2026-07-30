@@ -12,6 +12,7 @@ import { AccountReportButton } from "@/components/accounts/account-report";
 import { PrintButton } from "@/components/reports/print-button";
 import { DeleteAccountButton } from "@/components/accounts/delete-account-button";
 import { EditAccountButton } from "@/components/accounts/edit-account-button";
+import { AccountLogisticsCard } from "@/components/accounts/account-logistics-card";
 import { getAccountDetail } from "@/lib/dal/account-detail";
 import { listOems } from "@/lib/dal/account-admin";
 import { getYearContext } from "@/lib/dal/years";
@@ -120,6 +121,19 @@ export default async function AccountDetailPage({
           <Kpi label="Outstanding to OEM" value={detail.totals.outstandingToOem} tone="pending" />
           <Kpi label="Net margin" value={detail.totals.netMargin} tone="positive" />
         </div>
+
+        <AccountLogisticsCard
+          accountId={detail.id}
+          accountName={detail.name}
+          city={detail.city}
+          logistics={{
+            latitude: detail.latitude,
+            longitude: detail.longitude,
+            guestHouseAvailable: detail.guestHouseAvailable,
+            guestHouseCostPerNight: detail.guestHouseCostPerNight,
+          }}
+          canEdit
+        />
 
         <ReservesStrip reserves={detail.reserves} />
 

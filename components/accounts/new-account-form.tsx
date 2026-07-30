@@ -11,6 +11,10 @@ export function NewAccountForm({ oems }: { oems: OemRow[] }) {
   const [name, setName] = useState("");
   const [type, setType] = useState<"university" | "programme">("university");
   const [city, setCity] = useState("");
+  const [latitude, setLatitude] = useState("");
+  const [longitude, setLongitude] = useState("");
+  const [guestHouse, setGuestHouse] = useState("unknown");
+  const [guestHouseCost, setGuestHouseCost] = useState("");
   const [oemChoice, setOemChoice] = useState<string>(oems[0] ? String(oems[0].id) : "new");
   const [newOemName, setNewOemName] = useState("");
   const [newOemIsSelf, setNewOemIsSelf] = useState(false);
@@ -27,12 +31,34 @@ export function NewAccountForm({ oems }: { oems: OemRow[] }) {
       setError("Account name is required.");
       return;
     }
+    const parsedLatitude = latitude.trim() ? Number(latitude) : null;
+    const parsedLongitude = longitude.trim() ? Number(longitude) : null;
+    const parsedGuestHouseCost = guestHouse === "yes" && guestHouseCost.trim() ? Number(guestHouseCost) : null;
+    if ((parsedLatitude == null) !== (parsedLongitude == null)) {
+      setError("Enter both latitude and longitude, or leave both blank.");
+      return;
+    }
+    if (
+      (parsedLatitude != null && (!Number.isFinite(parsedLatitude) || parsedLatitude < -90 || parsedLatitude > 90)) ||
+      (parsedLongitude != null && (!Number.isFinite(parsedLongitude) || parsedLongitude < -180 || parsedLongitude > 180))
+    ) {
+      setError("Enter valid latitude and longitude coordinates.");
+      return;
+    }
+    if (parsedGuestHouseCost != null && (!Number.isFinite(parsedGuestHouseCost) || parsedGuestHouseCost < 0)) {
+      setError("Guest house cost must be zero or more.");
+      return;
+    }
     startTransition(async () => {
       try {
         await createAccountAction({
           name,
           type,
           city: city || null,
+          latitude: parsedLatitude,
+          longitude: parsedLongitude,
+          guestHouseAvailable: guestHouse === "unknown" ? null : guestHouse === "yes",
+          guestHouseCostPerNight: parsedGuestHouseCost,
           oemId: isNewOem ? undefined : Number(oemChoice),
           newOemName: isNewOem ? newOemName : undefined,
           newOemIsSelf: isNewOem ? newOemIsSelf : undefined,
@@ -47,7 +73,7 @@ export function NewAccountForm({ oems }: { oems: OemRow[] }) {
   }
 
   return (
-    <Card className="max-w-2xl p-6">
+    <Card className="max-w-3xl p-6">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <label className="block sm:col-span-2">
           <span className="text-xs font-medium text-text-secondary">Account name</span>
@@ -66,6 +92,72 @@ export function NewAccountForm({ oems }: { oems: OemRow[] }) {
           <span className="text-xs font-medium text-text-secondary">City (optional)</span>
           <input value={city} onChange={(e) => setCity(e.target.value)} className={inputCls} placeholder="e.g. Mumbai, MH" />
         </label>
+
+        <div className="sm:col-span-2 rounded-lg border border-border-subtle bg-surface-sunken p-4">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-semibold text-text-primary">University logistics</h3>
+              <p className="mt-0.5 text-xs text-text-muted">Optional shared details for Sales and Delivery.</p>
+            </div>
+            <a
+              href={`https://www.openstreetmap.org/search?query=${encodeURIComponent([name, city].filter(Boolean).join(", "))}`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs font-medium text-[var(--info-text)] hover:underline"
+            >
+              Find coordinates ↗
+            </a>
+          </div>
+          <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <label className="block">
+              <span className="text-xs font-medium text-text-secondary">Latitude</span>
+              <input
+                type="number"
+                min="-90"
+                max="90"
+                step="0.000001"
+                value={latitude}
+                onChange={(event) => setLatitude(event.target.value)}
+                className={inputCls}
+                placeholder="e.g. 22.719568"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-text-secondary">Longitude</span>
+              <input
+                type="number"
+                min="-180"
+                max="180"
+                step="0.000001"
+                value={longitude}
+                onChange={(event) => setLongitude(event.target.value)}
+                className={inputCls}
+                placeholder="e.g. 75.857727"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-text-secondary">Guest house</span>
+              <select value={guestHouse} onChange={(event) => setGuestHouse(event.target.value)} className={inputCls}>
+                <option value="unknown">Not recorded</option>
+                <option value="yes">Available</option>
+                <option value="no">Not available</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-text-secondary">Cost per night (₹)</span>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={guestHouseCost}
+                onChange={(event) => setGuestHouseCost(event.target.value)}
+                disabled={guestHouse !== "yes"}
+                className={`${inputCls} disabled:cursor-not-allowed disabled:opacity-50`}
+                placeholder="e.g. 1500"
+              />
+            </label>
+          </div>
+        </div>
 
         <label className="block sm:col-span-2">
           <span className="text-xs font-medium text-text-secondary">OEM</span>
