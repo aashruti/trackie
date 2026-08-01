@@ -3,7 +3,6 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
-import { Money } from "@/components/ui/money";
 import type { RosterRow, ShiftRow, CandidateUser, EmployeeInput } from "@/lib/dal/hr/employees";
 import {
   createEmployeeAction,
@@ -103,14 +102,13 @@ export function EmployeesRoster({
               <th className="px-4 py-3">Alt code</th>
               <th className="px-4 py-3 text-right">Bio #</th>
               <th className="px-4 py-3">Shift</th>
-              <th className="px-4 py-3 text-right">Monthly salary</th>
               <th className="px-4 py-3 text-right">Status</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-12 text-center text-sm text-text-muted">
+                <td colSpan={7} className="px-4 py-12 text-center text-sm text-text-muted">
                   {employees.length === 0
                     ? "No employees yet. Add a person to get started."
                     : "No matches."}
@@ -136,9 +134,6 @@ export function EmployeesRoster({
                 <td className="px-4 py-3 text-text-secondary">{e.altCodes.join(", ") || "—"}</td>
                 <td className="px-4 py-3 text-right tabular text-text-secondary">{e.biometricId ?? "—"}</td>
                 <td className="px-4 py-3 text-text-secondary">{e.shiftName ?? "—"}</td>
-                <td className="px-4 py-3 text-right">
-                  <Money value={e.monthlySalary} />
-                </td>
                 <td className="px-4 py-3 text-right">
                   <Badge tone={e.status === "active" ? "positive" : "neutral"}>
                     {e.status === "active" ? "Active" : "Inactive"}
