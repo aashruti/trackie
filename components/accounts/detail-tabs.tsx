@@ -39,6 +39,7 @@ export function DetailTabs({
   currentYear,
   canEdit = false,
   isSuperAdmin = false,
+  selfSupplied = false,
 }: {
   invoices: Inv[];
   oem: string;
@@ -47,6 +48,7 @@ export function DetailTabs({
   canEdit?: boolean;
   /** Super-admins alone may delete a bill of any status (spec §8). */
   isSuperAdmin?: boolean;
+  selfSupplied?: boolean;
 }) {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Ladder");
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -77,6 +79,8 @@ export function DetailTabs({
                 key={i}
                 accountId={accountId}
                 invoiceId={inv.id}
+                oem={oem}
+                selfSupplied={selfSupplied}
                 category={inv.category}
                 semester={inv.semester}
                 initial={{
@@ -86,6 +90,7 @@ export function DetailTabs({
                   gstRate: inv.gstRate,
                   tdsRate: inv.tdsRate,
                   advanceAdj: inv.advanceAdj,
+                  oemAdvanceAdj: inv.oemAdvanceAdj,
                   invoiceDate: inv.invoiceDate,
                   dueDate: inv.dueDate,
                   status: inv.status,
@@ -97,6 +102,7 @@ export function DetailTabs({
                 key={i}
                 inv={inv}
                 accountId={accountId}
+                oem={oem}
                 currentYear={currentYear}
                 canEdit={canEdit}
                 isSuperAdmin={isSuperAdmin}
@@ -131,9 +137,15 @@ export function DetailTabs({
                   <Money value={inv.netMargin} compact tone="auto" className="text-base font-bold" />
                 </div>
               </div>
-              {inv.advanceAdj > 0 && (
+              {(inv.advanceAdj > 0 || (!selfSupplied && inv.oemAdvanceAdj > 0)) && (
                 <p className="mt-3 text-[11px] text-text-muted">
-                  Advance of <Money value={inv.advanceAdj} className="text-[11px]" /> netted from the OEM transfer.
+                  University bill adjustment <Money value={inv.advanceAdj} className="text-[11px]" />
+                  {!selfSupplied && (
+                    <>
+                      <span className="mx-1.5">·</span>
+                      {oem} payment adjustment <Money value={inv.oemAdvanceAdj} className="text-[11px]" />
+                    </>
+                  )}
                 </p>
               )}
             </Card>

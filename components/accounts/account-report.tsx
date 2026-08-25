@@ -45,7 +45,8 @@ function buildCsv(detail: AccountDetail, year: string): string {
   L.push(
     row(
       "Stream", "Students", "Price to uni", "Price to Datagami", "GST %", "TDS %",
-      "Taxable (full)", "Advance prepaid", "Billing", "After TDS", "Received", "Outstanding",
+      "Taxable (full)", "University bill adjustment", "OEM payment adjustment",
+      "Billing", "After TDS", "Received", "Outstanding",
       "Payable to OEM", "Paid to OEM", "Outstanding to OEM", "Net margin", "Status",
     ),
   );
@@ -54,7 +55,8 @@ function buildCsv(detail: AccountDetail, year: string): string {
       row(
         streamLabel(i.category, i.semester), i.students, i.priceToUni, i.priceToDatagami,
         Math.round(i.gstRate * 100), Math.round(i.tdsRate * 100),
-        i.taxableIn, i.advanceAdj, i.billing, i.afterTds, i.received, i.outstanding,
+        i.taxableIn, i.advanceAdj, i.oemAdvanceAdj,
+        i.billing, i.afterTds, i.received, i.outstanding,
         i.payable, i.paidToOem, i.outstandingToOem, i.netMargin, i.status,
       ),
     );

@@ -3,10 +3,14 @@
 import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Money } from "@/components/ui/money";
+import { useAppDialog } from "@/components/ui/app-dialog";
 import { StatusBadge } from "@/components/ui/badge";
 import { PaymentForm } from "./payment-form";
 import { DeleteBillDialog } from "./delete-bill-dialog";
-import { billDeletionPreviewAction } from "@/app/(app)/accounts/[id]/actions";
+import {
+  billDeletionPreviewAction,
+  deletePaymentAction,
+} from "@/app/(app)/accounts/[id]/actions";
 import type { BillDeletionPreview } from "@/lib/dal/account-admin";
 import type { InvoiceComputed, Status } from "@/lib/money/types";
 import type { Direction, PaymentEntry } from "@/lib/dal/payments";
@@ -58,6 +62,7 @@ export type LadderInvoice = InvoiceComputed & {
 export function InvoiceLadder({
   inv,
   accountId,
+  oem,
   currentYear,
   canEdit = false,
   isSuperAdmin = false,
@@ -65,6 +70,7 @@ export function InvoiceLadder({
 }: {
   inv: LadderInvoice;
   accountId: number;
+  oem: string;
   currentYear?: string;
   canEdit?: boolean;
   /** Super-admins alone may delete a bill of any status (spec §8). */
@@ -86,10 +92,37 @@ export function InvoiceLadder({
     0,
   );
   const [paying, setPaying] = useState<Direction | null>(null);
+  const [editingPayment, setEditingPayment] = useState<PaymentEntry | null>(null);
+  const [deletingPaymentId, setDeletingPaymentId] = useState<number | null>(null);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [preview, setPreview] = useState<BillDeletionPreview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const { confirmAction } = useAppDialog();
+
+  async function removePayment(payment: PaymentEntry) {
+    const kind = payment.direction === "receipt" ? "receipt" : "OEM payment";
+    const confirmed = await confirmAction({
+      title: `Delete this ${kind}?`,
+      description: `This removes the ${fmt(payment.amount)} entry dated ${fmtDay(payment.paidOn)} and recalculates the bill totals. This cannot be undone.`,
+      confirmLabel: "Delete entry",
+      tone: "danger",
+    });
+    if (!confirmed) return;
+
+    setPaymentError(null);
+    setDeletingPaymentId(payment.id);
+    try {
+      const result = await deletePaymentAction(accountId, payment.id);
+      if (!result.ok) setPaymentError(result.error);
+      else if (editingPayment?.id === payment.id) setEditingPayment(null);
+    } catch (e) {
+      setPaymentError(e instanceof Error ? e.message : "Could not delete the payment entry.");
+    } finally {
+      setDeletingPaymentId(null);
+    }
+  }
 
   // Fetch the cascade first, then open — the dialog's whole job is to show
   // what is about to be destroyed, so it never opens without that answer.
@@ -136,14 +169,22 @@ export function InvoiceLadder({
           {canEdit && (
             <>
               <button
-                onClick={() => setPaying("receipt")}
+                type="button"
+                onClick={() => {
+                  setEditingPayment(null);
+                  setPaying("receipt");
+                }}
                 className="rounded-md border border-border-strong bg-surface px-2.5 py-1 text-xs font-medium text-[var(--positive-text)] hover:bg-surface-hover"
               >
                 Record receipt
               </button>
               {!self && (
                 <button
-                  onClick={() => setPaying("oem-payment")}
+                  type="button"
+                  onClick={() => {
+                    setEditingPayment(null);
+                    setPaying("oem-payment");
+                  }}
                   className="rounded-md border border-border-strong bg-surface px-2.5 py-1 text-xs font-medium text-[var(--info-text)] hover:bg-surface-hover"
                 >
                   Pay OEM
@@ -183,7 +224,6 @@ export function InvoiceLadder({
             {inv.cohorts.map((c) => {
               const yos = yearOfStudy(c.enrollmentYear, currentYear);
               const ptu = c.priceToUni ?? inv.priceToUni;
-              const ptd = c.priceToDatagami ?? inv.priceToDatagami;
               return (
                 <div key={c.enrollmentYear} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-4 text-xs">
                   <span>
@@ -223,7 +263,7 @@ export function InvoiceLadder({
           <Line label="Taxable" value={inv.taxableIn} />
           {inv.advanceAdj > 0 && (
             <>
-              <Line label="Advance prepaid" value={inv.advanceAdj} op="−" tone="info" />
+              <Line label="University bill adjustment" value={inv.advanceAdj} op="−" tone="info" />
               <Line label="Net taxable" value={inv.billedTaxableIn} strong />
             </>
           )}
@@ -253,7 +293,7 @@ export function InvoiceLadder({
               Outflow · Datagami → OEM
             </div>
             <Line label="Taxable" value={inv.taxableOut} />
-            {inv.advanceAdj > 0 && <Line label="Advance adjusted" value={inv.advanceAdj} op="−" tone="info" />}
+            {inv.oemAdvanceAdj > 0 && <Line label={`${oem} payment adjustment`} value={inv.oemAdvanceAdj} op="−" tone="info" />}
             <Line label="OEM taxable (net)" value={inv.oemTaxableNet} strong />
             <Line label="GST" value={inv.gstOut} op="+" tone="muted" />
             <Line label="TDS withheld" value={inv.tdsOut} op="−" tone="muted" />
@@ -285,6 +325,16 @@ export function InvoiceLadder({
         />
       )}
 
+      {editingPayment && (
+        <PaymentForm
+          accountId={accountId}
+          invoiceId={inv.id}
+          direction={editingPayment.direction}
+          payment={editingPayment}
+          onClose={() => setEditingPayment(null)}
+        />
+      )}
+
       {deleteOpen && (
         <DeleteBillDialog
           accountId={accountId}
@@ -301,61 +351,97 @@ export function InvoiceLadder({
           <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-text-muted">
             Payment ledger
           </div>
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-[10px] uppercase tracking-wide text-text-muted">
-                <th className="pb-1 text-left font-medium">Particulars</th>
-                <th className="pb-1 pl-3 text-left font-medium">Date</th>
-                <th className="pb-1 pl-3 text-left font-medium">Mode</th>
-                <th className="pb-1 pl-3 text-right font-medium">Debit</th>
-                <th className="pb-1 pl-3 text-right font-medium">Credit</th>
-              </tr>
-            </thead>
-            <tbody>
-              {inv.ledger.map((p) => {
-                const isCredit = p.direction === "receipt";
-                return (
-                  <tr key={p.id} className="border-t border-border-subtle/60">
-                    <td className="py-1 pr-3">
-                      <span
-                        className={
-                          isCredit
-                            ? "text-[var(--positive-text)]"
-                            : "text-[var(--info-text)]"
-                        }
-                      >
-                        {isCredit ? "Received" : "Paid OEM"}
-                      </span>
-                    </td>
-                    <td className="py-1 pl-3 text-text-secondary">{p.paidOn}</td>
-                    <td className="py-1 pl-3 text-text-muted">
-                      {p.mode}
-                      {p.ref ? ` · ${p.ref}` : ""}
-                    </td>
-                    <td className="py-1 pl-3 text-right">
-                      {!isCredit && <Money value={p.amount} className="font-medium" />}
-                    </td>
-                    <td className="py-1 pl-3 text-right">
-                      {isCredit && <Money value={p.amount} className="font-medium" />}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-            <tfoot>
-              <tr className="border-t border-border-subtle font-semibold">
-                <td className="pt-1.5 pr-3 text-text-secondary" colSpan={3}>
-                  Total
-                </td>
-                <td className="pt-1.5 pl-3 text-right">
-                  <Money value={ledgerDebit} className="font-semibold" />
-                </td>
-                <td className="pt-1.5 pl-3 text-right">
-                  <Money value={ledgerCredit} className="font-semibold" />
-                </td>
-              </tr>
-            </tfoot>
-          </table>
+          {paymentError && (
+            <p className="mb-2 rounded-md border border-[var(--negative-border)] bg-[var(--negative-subtle)] px-3 py-2 text-xs text-[var(--negative-text)]">
+              {paymentError}
+            </p>
+          )}
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-xs">
+              <thead>
+                <tr className="text-[10px] uppercase tracking-wide text-text-muted">
+                  <th className="pb-1 text-left font-medium">Particulars</th>
+                  <th className="pb-1 pl-3 text-left font-medium">Date</th>
+                  <th className="pb-1 pl-3 text-left font-medium">Mode</th>
+                  <th className="pb-1 pl-3 text-right font-medium">Debit</th>
+                  <th className="pb-1 pl-3 text-right font-medium">Credit</th>
+                  {canEdit && <th className="pb-1 pl-3 text-right font-medium">Actions</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {inv.ledger.map((p) => {
+                  const isCredit = p.direction === "receipt";
+                  return (
+                    <tr key={p.id} className="border-t border-border-subtle/60">
+                      <td className="py-1 pr-3">
+                        <span
+                          className={
+                            isCredit
+                              ? "text-[var(--positive-text)]"
+                              : "text-[var(--info-text)]"
+                          }
+                        >
+                          {isCredit ? "Received" : "Paid OEM"}
+                        </span>
+                      </td>
+                      <td className="py-1 pl-3 text-text-secondary">{p.paidOn}</td>
+                      <td className="py-1 pl-3 text-text-muted">
+                        {p.mode}
+                        {p.ref ? ` · ${p.ref}` : ""}
+                      </td>
+                      <td className="py-1 pl-3 text-right">
+                        {!isCredit && <Money value={p.amount} className="font-medium" />}
+                      </td>
+                      <td className="py-1 pl-3 text-right">
+                        {isCredit && <Money value={p.amount} className="font-medium" />}
+                      </td>
+                      {canEdit && (
+                        <td className="whitespace-nowrap py-1 pl-3 text-right">
+                          <button
+                            type="button"
+                            aria-label={`Edit ${isCredit ? "receipt" : "OEM payment"} from ${p.paidOn}`}
+                            onClick={() => {
+                              setPaymentError(null);
+                              setPaying(null);
+                              setEditingPayment(p);
+                            }}
+                            disabled={deletingPaymentId === p.id}
+                            className="font-medium text-[var(--primary-text)] hover:underline disabled:opacity-50"
+                          >
+                            Edit
+                          </button>
+                          <span className="mx-1.5 text-border-strong">·</span>
+                          <button
+                            type="button"
+                            aria-label={`Delete ${isCredit ? "receipt" : "OEM payment"} from ${p.paidOn}`}
+                            onClick={() => removePayment(p)}
+                            disabled={deletingPaymentId !== null}
+                            className="font-medium text-[var(--negative-text)] hover:underline disabled:opacity-50"
+                          >
+                            {deletingPaymentId === p.id ? "Deleting…" : "Delete"}
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-border-subtle font-semibold">
+                  <td className="pt-1.5 pr-3 text-text-secondary" colSpan={3}>
+                    Total
+                  </td>
+                  <td className="pt-1.5 pl-3 text-right">
+                    <Money value={ledgerDebit} className="font-semibold" />
+                  </td>
+                  <td className="pt-1.5 pl-3 text-right">
+                    <Money value={ledgerCredit} className="font-semibold" />
+                  </td>
+                  {canEdit && <td />}
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         </div>
       )}
     </Card>

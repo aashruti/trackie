@@ -181,6 +181,7 @@ export function PricingMaster({
                       gstRate: inv.gstRate,
                       tdsRate: inv.tdsRate,
                       advanceAdj: inv.advanceAdj,
+                      oemAdvanceAdj: inv.oemAdvanceAdj,
                       cohortPricing: d.batches.length
                         ? d.batches.map((b) => ({
                             count: b.count,

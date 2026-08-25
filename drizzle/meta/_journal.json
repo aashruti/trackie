@@ -162,6 +162,13 @@
       "when": 1785501000000,
       "tag": "0023_account_stay_options",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1787644800000,
+      "tag": "0024_split_advance_adjustments",
+      "breakpoints": true
     }
   ]
 }

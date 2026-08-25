@@ -31,13 +31,33 @@ describe("computeInvoice", () => {
     expect(c.afterTds).toBe(4_121_280);
   });
 
-  it("nets the advance token PRE-tax on the OEM payable only", () => {
+  it("keeps legacy one-adjustment inputs applied to both sides", () => {
     const c = computeInvoice(pillaiNew);
     expect(c.taxableOut).toBe(3_330_000); // FULL: 180*18500 (used for margin)
     expect(c.oemTaxableNet).toBe(2_330_000); // 3_330_000 - 1_000_000 advance token
     expect(c.gstOut).toBe(419_400); // on the netted amount
     expect(c.tdsOut).toBe(233_000);
     expect(c.payable).toBe(2_516_400); // 2_330_000 + 419_400 - 233_000  (matches Excel)
+  });
+
+  it("supports different adjustments for the University bill and OEM payment", () => {
+    const c = computeInvoice({
+      ...pillaiNew,
+      advanceAdj: 900_000,
+      oemAdvanceAdj: 600_000,
+    });
+
+    expect(c.billedTaxableIn).toBe(2_916_000); // 3,816,000 − 900,000 University adjustment
+    expect(c.billing).toBe(3_440_880);
+    expect(c.afterTds).toBe(3_149_280);
+    expect(c.oemTaxableNet).toBe(2_730_000); // 3,330,000 − 600,000 OEM adjustment
+    expect(c.payable).toBe(2_948_400);
+  });
+
+  it("can adjust the University bill without adjusting the OEM payment", () => {
+    const c = computeInvoice({ ...pillaiNew, oemAdvanceAdj: 0 });
+    expect(c.billedTaxableIn).toBe(2_816_000);
+    expect(c.oemTaxableNet).toBe(3_330_000);
   });
 
   it("computes student profit as students × price-diff, advance-INDEPENDENT", () => {

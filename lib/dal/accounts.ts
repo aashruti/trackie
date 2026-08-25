@@ -96,6 +96,7 @@ export async function listAccountsForUser(
       gstRate: Number(r.gstRate),
       tdsRate: Number(r.tdsRate),
       advanceAdj: Number(r.advanceAdj),
+      oemAdvanceAdj: Number(r.oemAdvanceAdj),
       status: effStatus(r.status, r.dueDate, today),
       payments: lites.get(r.id)?.receipts ?? [],
       oemPayments: lites.get(r.id)?.oemPayments ?? [],

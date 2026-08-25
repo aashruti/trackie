@@ -177,6 +177,7 @@ export async function getSalesPushData(
       gstRate: Number(invoice.gstRate),
       tdsRate: Number(invoice.tdsRate),
       advanceAdj: Number(invoice.advanceAdj),
+      oemAdvanceAdj: Number(invoice.oemAdvanceAdj),
       payments: ledger
         .filter((payment) => payment.direction === "receipt")
         .map((payment) => ({ amount: payment.amount })),

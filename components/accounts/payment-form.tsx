@@ -1,26 +1,30 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { recordPaymentAction } from "@/app/(app)/accounts/[id]/actions";
-import type { Direction, Mode } from "@/lib/dal/payments";
-
-const MODES: Mode[] = ["RTGS", "NEFT", "IMPS", "UPI", "Cheque"];
+import {
+  recordPaymentAction,
+  updatePaymentAction,
+} from "@/app/(app)/accounts/[id]/actions";
+import { MODES } from "@/lib/db/enums";
+import type { Direction, Mode, PaymentEntry } from "@/lib/dal/payments";
 
 export function PaymentForm({
   accountId,
   invoiceId,
   direction,
+  payment,
   onClose,
 }: {
   accountId: number;
   invoiceId: number;
   direction: Direction;
+  payment?: PaymentEntry;
   onClose: () => void;
 }) {
-  const [amount, setAmount] = useState(0);
-  const [paidOn, setPaidOn] = useState("");
-  const [mode, setMode] = useState<Mode>("RTGS");
-  const [ref, setRef] = useState("");
+  const [amount, setAmount] = useState(payment?.amount ?? 0);
+  const [paidOn, setPaidOn] = useState(payment?.paidOn ?? "");
+  const [mode, setMode] = useState<Mode>(payment?.mode ?? "RTGS");
+  const [ref, setRef] = useState(payment?.ref ?? "");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -36,10 +40,39 @@ export function PaymentForm({
     }
     startTransition(async () => {
       try {
-        await recordPaymentAction(accountId, invoiceId, { direction, amount, paidOn, mode, ref });
+        if (payment) {
+          const result = await updatePaymentAction(accountId, payment.id, {
+            amount,
+            paidOn,
+            mode,
+            ref,
+          });
+          if (!result.ok) {
+            setError(result.error);
+            return;
+          }
+        } else {
+          const result = await recordPaymentAction(accountId, invoiceId, {
+            direction,
+            amount,
+            paidOn,
+            mode,
+            ref,
+          });
+          if (!result.ok) {
+            setError(result.error);
+            return;
+          }
+        }
         onClose();
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to record payment");
+        setError(
+          e instanceof Error
+            ? e.message
+            : payment
+              ? "Failed to update payment"
+              : "Failed to record payment",
+        );
       }
     });
   }
@@ -47,13 +80,19 @@ export function PaymentForm({
   return (
     <div className="mt-3 rounded-lg border border-[var(--primary-border)] bg-surface-sunken p-4">
       <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-text-secondary">
-        {isReceipt ? "Record receipt · University → Datagami" : "Pay OEM · Datagami → OEM"}
+        {payment
+          ? `Edit ${isReceipt ? "receipt" : "OEM payment"}`
+          : isReceipt
+            ? "Record receipt · University → Datagami"
+            : "Pay OEM · Datagami → OEM"}
       </div>
       <div className="flex flex-wrap items-end gap-3">
         <label className="block">
           <span className="text-[11px] text-text-muted">Amount (₹)</span>
           <input
             type="number"
+            min="0.01"
+            step="0.01"
             autoFocus
             value={amount || ""}
             onChange={(e) => setAmount(parseFloat(e.target.value) || 0)}
@@ -89,15 +128,22 @@ export function PaymentForm({
       </div>
       {error && <p className="mt-2 text-xs text-[var(--negative-text)]">{error}</p>}
       <div className="mt-3 flex justify-end gap-2">
-        <button onClick={onClose} className="rounded-md border border-border-strong px-3 py-1.5 text-sm font-medium text-text-secondary hover:bg-surface-hover">
+        <button type="button" onClick={onClose} className="rounded-md border border-border-strong px-3 py-1.5 text-sm font-medium text-text-secondary hover:bg-surface-hover">
           Cancel
         </button>
         <button
+          type="button"
           onClick={save}
           disabled={pending}
           className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-fg hover:opacity-90 disabled:opacity-50"
         >
-          {pending ? "Saving…" : isReceipt ? "Add receipt" : "Add OEM payment"}
+          {pending
+            ? "Saving…"
+            : payment
+              ? "Save changes"
+              : isReceipt
+                ? "Add receipt"
+                : "Add OEM payment"}
         </button>
       </div>
     </div>

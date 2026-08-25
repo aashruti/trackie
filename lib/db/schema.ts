@@ -172,7 +172,10 @@ export const invoices = pgTable("invoices", {
   priceToDatagami: numeric("price_to_datagami").notNull().default("0"),
   gstRate: numeric("gst_rate").notNull().default("0.18"),
   tdsRate: numeric("tds_rate").notNull().default("0.10"),
+  // Advance/prepayment netted from the University bill's taxable value.
   advanceAdj: numeric("advance_adj").notNull().default("0"),
+  // Independently netted from the OEM's taxable payment value.
+  oemAdvanceAdj: numeric("oem_advance_adj").notNull().default("0"),
   invoiceDate: date("invoice_date"),
   dueDate: date("due_date"),
   status: statusEnum("status").notNull().default("raised"),

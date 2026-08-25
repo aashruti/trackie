@@ -93,11 +93,12 @@ describe("rolloverYear — counts + carried prices + promotion", () => {
       ? await db.select().from(cohorts).where(inArray(cohorts.invoiceId, created.map((r) => r.id)))
       : [];
 
-    // Draft, no advance streams; year-specific billing (advanceAdj / dates) resets.
+    // Draft, no advance streams; year-specific billing adjustments / dates reset.
     expect(created.every((r) => r.status === "draft")).toBe(true);
     expect(created.some((r) => r.category === "advance")).toBe(false);
     for (const r of created) {
       expect(Number(r.advanceAdj)).toBe(0);
+      expect(Number(r.oemAdvanceAdj)).toBe(0);
       expect(r.invoiceDate).toBeNull();
       expect(r.createdBy).toBe(SUPER.id);
       expect(r.updatedBy).toBe(SUPER.id);
@@ -173,7 +174,7 @@ describe("rolloverYear applies wizard edits", () => {
   it("overrides batch, promoted-batch and fresh-intake counts", async () => {
     const { db } = await import("@/lib/db/client");
     const { invoices, cohorts, academicYears } = await import("@/lib/db/schema");
-    const { and, eq } = await import("drizzle-orm");
+    const { eq } = await import("drizzle-orm");
 
     const [fromYear] = await db.select().from(academicYears).where(eq(academicYears.label, FROM));
     const src = await db.select().from(invoices).where(eq(invoices.yearId, fromYear.id));

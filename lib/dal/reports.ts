@@ -113,7 +113,8 @@ export async function getReportData(
     const inputs: InvoiceInputWithStatus[] = invRows.map((r) => ({
       category: r.category, semester: r.semester, students: r.students,
       priceToUni: Number(r.priceToUni), priceToDatagami: Number(r.priceToDatagami),
-      gstRate: Number(r.gstRate), tdsRate: Number(r.tdsRate), advanceAdj: Number(r.advanceAdj),
+      gstRate: Number(r.gstRate), tdsRate: Number(r.tdsRate),
+      advanceAdj: Number(r.advanceAdj), oemAdvanceAdj: Number(r.oemAdvanceAdj),
       status: r.status, payments: lites.get(r.id)?.receipts ?? [],
       oemPayments: lites.get(r.id)?.oemPayments ?? [], selfSupplied: a.isSelf,
       cohortPricing: cohortPx.get(r.id),

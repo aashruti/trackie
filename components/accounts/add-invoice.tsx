@@ -26,10 +26,12 @@ const SEMESTERS: { value: Semester; label: string }[] = [
 export function AddInvoice({
   accountId,
   yearLabel,
+  oem,
   selfSupplied,
 }: {
   accountId: number;
   yearLabel: string;
+  oem: string;
   selfSupplied: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -41,6 +43,7 @@ export function AddInvoice({
   const [gstPct, setGstPct] = useState(18);
   const [tdsPct, setTdsPct] = useState(10);
   const [advanceAdj, setAdvanceAdj] = useState(0);
+  const [oemAdvanceAdj, setOemAdvanceAdj] = useState(0);
   const [invoiceDate, setInvoiceDate] = useState(todayISO());
   const [dueDate, setDueDate] = useState("");
   const [status, setStatus] = useState<Status>("raised");
@@ -60,6 +63,7 @@ export function AddInvoice({
     gstRate: gstPct / 100,
     tdsRate: tdsPct / 100,
     advanceAdj,
+    oemAdvanceAdj,
     selfSupplied,
   });
 
@@ -71,6 +75,7 @@ export function AddInvoice({
     setPriceToUni(0);
     setPriceToDatagami(0);
     setAdvanceAdj(0);
+    setOemAdvanceAdj(0);
   }
 
   function save() {
@@ -86,6 +91,7 @@ export function AddInvoice({
           gstRate: gstPct / 100,
           tdsRate: tdsPct / 100,
           advanceAdj: isAdvance ? 0 : advanceAdj,
+          oemAdvanceAdj: isAdvance ? 0 : oemAdvanceAdj,
           invoiceDate: invoiceDate || null,
           dueDate: dueDate || null,
           status,
@@ -155,10 +161,16 @@ export function AddInvoice({
           <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">TDS %</span>
           <input type="number" value={tdsPct} onChange={(e) => setTdsPct(parseFloat(e.target.value) || 0)} className={`tabular ${inputCls}`} />
         </label>
+        {!isAdvance && (
+          <label className="block">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">University bill adj ₹</span>
+            <input type="number" value={advanceAdj || ""} onChange={(e) => setAdvanceAdj(parseFloat(e.target.value) || 0)} className={`tabular ${inputCls}`} />
+          </label>
+        )}
         {!isAdvance && !selfSupplied && (
           <label className="block">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">Advance adj ₹</span>
-            <input type="number" value={advanceAdj || ""} onChange={(e) => setAdvanceAdj(parseFloat(e.target.value) || 0)} className={`tabular ${inputCls}`} />
+            <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">{oem} payment adj ₹</span>
+            <input type="number" value={oemAdvanceAdj || ""} onChange={(e) => setOemAdvanceAdj(parseFloat(e.target.value) || 0)} className={`tabular ${inputCls}`} />
           </label>
         )}
         <label className="block">

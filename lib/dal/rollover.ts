@@ -112,7 +112,7 @@ export interface RolloverResult {
  * Roll a year's STUDENT COUNTS forward into a new (Draft) year.
  *
  * Counts-only by design (2026-07-22 spec): no billing details are carried —
- * prices, GST/TDS, advance adjustments and dates all take their schema
+ * prices, GST/TDS, both advance adjustments and dates all take their schema
  * defaults, and `advance` streams are not cloned at all. New-year prices are
  * entered on /pricing; bills are raised as and when needed.
  *
@@ -200,8 +200,9 @@ export async function rolloverYear(
   // Pure JS from here: build the target-year invoice plans per account.
   // Prices carry forward as editable defaults (last year's prices pre-fill the
   // new year — the accounts team adjusts only what changed). Only the *billing
-  // actions* stay year-specific: invoices are Draft with no dates, advanceAdj
-  // resets to 0, and advance streams are not cloned. Bills are raised as needed.
+  // actions* stay year-specific: invoices are Draft with no dates, both
+  // adjustment fields reset to 0, and advance streams are not cloned. Bills
+  // are raised as needed.
   interface PlanBatch {
     enrollmentYear: string;
     count: number;

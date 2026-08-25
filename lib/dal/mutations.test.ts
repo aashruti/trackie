@@ -16,11 +16,22 @@ async function pillaiNewInvoiceId() {
     .select()
     .from(invoices)
     .where(and(eq(invoices.accountId, pillai.id), eq(invoices.category, "new")));
-  return { id: inv.id, accountId: pillai.id, original: inv.students };
+  return {
+    id: inv.id,
+    accountId: pillai.id,
+    original: {
+      students: inv.students,
+      advanceAdj: Number(inv.advanceAdj),
+      oemAdvanceAdj: Number(inv.oemAdvanceAdj),
+    },
+  };
 }
 
 describe("updateInvoice", () => {
-  let restore: { id: number; original: number } | null = null;
+  let restore: {
+    id: number;
+    original: { students: number; advanceAdj: number; oemAdvanceAdj: number };
+  } | null = null;
 
   it("super-admin edit changes the computed margin and persists", async () => {
     const { id, accountId, original } = await pillaiNewInvoiceId();
@@ -41,6 +52,22 @@ describe("updateInvoice", () => {
     expect(invoiceRow.updatedBy).toBe(SUPER.id);
   });
 
+  it("persists different University and OEM adjustment amounts", async () => {
+    const { id, accountId, original } = await pillaiNewInvoiceId();
+    restore ??= { id, original };
+
+    await updateInvoice(SUPER, id, {
+      advanceAdj: 900_000,
+      oemAdvanceAdj: 600_000,
+    });
+    const detail = await getAccountDetail(SUPER, accountId, YEAR);
+    const invoice = detail!.invoices.find((candidate) => candidate.id === id)!;
+    expect(invoice.advanceAdj).toBe(900_000);
+    expect(invoice.oemAdvanceAdj).toBe(600_000);
+    expect(invoice.billedTaxableIn).toBe(invoice.taxableIn - 900_000);
+    expect(invoice.oemTaxableNet).toBe(invoice.taxableOut - 600_000);
+  });
+
   it("rejects a viewer / unassigned editor", async () => {
     const { id } = await pillaiNewInvoiceId();
     await expect(
@@ -52,7 +79,7 @@ describe("updateInvoice", () => {
   });
 
   afterAll(async () => {
-    if (restore) await updateInvoice(SUPER, restore.id, { students: restore.original });
+    if (restore) await updateInvoice(SUPER, restore.id, restore.original);
   });
 });
 

@@ -3,7 +3,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { auditLog, payments } from "@/lib/db/schema";
 import type { Role } from "@/lib/db/enums";
-import { addPayment, deletePayment } from "./payments";
+import { addPayment, deletePayment, updatePayment } from "./payments";
 import { getAccountDetail } from "./account-detail";
 import { listAccountsForUser } from "./accounts";
 
@@ -102,6 +102,49 @@ describe("payment ledger", () => {
       );
     expect(rows.length).toBe(1);
     expect(rows[0].actorId).toBe(OTHER.id);
+  });
+
+  it("updates an entry and stamps the editor", async () => {
+    const { accountId, invoiceId } = await pillai();
+    await addPayment(SUPER, invoiceId, {
+      direction: "receipt",
+      amount: 125,
+      paidOn: "2026-05-04",
+      mode: "UPI",
+      ref: "UTR-TEST-EDIT",
+    });
+    const before = await getAccountDetail(SUPER, accountId, YEAR);
+    const entry = before!.invoices
+      .find((i) => i.id === invoiceId)!
+      .ledger.find((payment) => payment.ref === "UTR-TEST-EDIT")!;
+    created.push(entry.id);
+
+    await updatePayment(OTHER, entry.id, {
+      amount: 250.5,
+      paidOn: "2026-05-05",
+      mode: "NEFT",
+      ref: "UTR-TEST-EDITED",
+    });
+
+    const [updated] = await db.select().from(payments).where(eq(payments.id, entry.id)).limit(1);
+    expect(updated).toMatchObject({
+      amount: "250.5",
+      paidOn: "2026-05-05",
+      mode: "NEFT",
+      ref: "UTR-TEST-EDITED",
+      updatedBy: OTHER.id,
+    });
+
+    await expect(
+      updatePayment(SUPER, entry.id, {
+        amount: 0,
+        paidOn: "2026-05-05",
+        mode: "UPI",
+      }),
+    ).rejects.toThrow("Amount must be greater than zero");
+
+    const [unchanged] = await db.select().from(payments).where(eq(payments.id, entry.id)).limit(1);
+    expect(unchanged.amount).toBe("250.5");
   });
 
   it("rejects a viewer", async () => {
