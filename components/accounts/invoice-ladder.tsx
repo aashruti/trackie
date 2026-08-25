@@ -62,6 +62,7 @@ export type LadderInvoice = InvoiceComputed & {
 export function InvoiceLadder({
   inv,
   accountId,
+  oem,
   currentYear,
   canEdit = false,
   isSuperAdmin = false,
@@ -69,6 +70,7 @@ export function InvoiceLadder({
 }: {
   inv: LadderInvoice;
   accountId: number;
+  oem: string;
   currentYear?: string;
   canEdit?: boolean;
   /** Super-admins alone may delete a bill of any status (spec §8). */
@@ -261,7 +263,7 @@ export function InvoiceLadder({
           <Line label="Taxable" value={inv.taxableIn} />
           {inv.advanceAdj > 0 && (
             <>
-              <Line label="Advance prepaid" value={inv.advanceAdj} op="−" tone="info" />
+              <Line label="University bill adjustment" value={inv.advanceAdj} op="−" tone="info" />
               <Line label="Net taxable" value={inv.billedTaxableIn} strong />
             </>
           )}
@@ -291,7 +293,7 @@ export function InvoiceLadder({
               Outflow · Datagami → OEM
             </div>
             <Line label="Taxable" value={inv.taxableOut} />
-            {inv.advanceAdj > 0 && <Line label="Advance adjusted" value={inv.advanceAdj} op="−" tone="info" />}
+            {inv.oemAdvanceAdj > 0 && <Line label={`${oem} payment adjustment`} value={inv.oemAdvanceAdj} op="−" tone="info" />}
             <Line label="OEM taxable (net)" value={inv.oemTaxableNet} strong />
             <Line label="GST" value={inv.gstOut} op="+" tone="muted" />
             <Line label="TDS withheld" value={inv.tdsOut} op="−" tone="muted" />

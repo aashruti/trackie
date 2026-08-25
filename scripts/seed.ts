@@ -83,6 +83,7 @@ async function main() {
           gstRate: String(inv.gstRate),
           tdsRate: String(inv.tdsRate),
           advanceAdj: String(inv.advanceAdj),
+          oemAdvanceAdj: String(inv.advanceAdj),
           invoiceDate: inv.invoiceDate,
           status: inv.status,
         })

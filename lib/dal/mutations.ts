@@ -21,6 +21,7 @@ export interface InvoiceEdit {
   gstRate?: number; // fraction, e.g. 0.18
   tdsRate?: number; // fraction
   advanceAdj?: number;
+  oemAdvanceAdj?: number;
   invoiceDate?: string | null;
   dueDate?: string | null;
   status?: Status;
@@ -108,6 +109,7 @@ export async function updateInvoice(
   if (edit.tdsRate != null)
     patch.tdsRate = String(Math.max(0, Math.min(1, edit.tdsRate)));
   if (edit.advanceAdj != null) patch.advanceAdj = String(num(edit.advanceAdj));
+  if (edit.oemAdvanceAdj != null) patch.oemAdvanceAdj = String(num(edit.oemAdvanceAdj));
   if (edit.invoiceDate !== undefined) patch.invoiceDate = edit.invoiceDate;
   if (edit.dueDate !== undefined) patch.dueDate = edit.dueDate;
   if (edit.status != null) patch.status = edit.status;

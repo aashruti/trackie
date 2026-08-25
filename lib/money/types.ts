@@ -21,7 +21,10 @@ export interface InvoiceInput {
   priceToDatagami: number;
   gstRate: number; // 0.18 default
   tdsRate: number; // 0.10 default
-  advanceAdj?: number; // amount netted off the OEM taxable, pre-tax
+  advanceAdj?: number; // amount netted off the University taxable bill, pre-tax
+  // Amount independently netted off the OEM taxable payment, pre-tax. When
+  // absent, legacy callers retain the old one-adjustment behaviour.
+  oemAdvanceAdj?: number;
   payments?: PaymentLite[]; // receipts: university → Datagami
   oemPayments?: PaymentLite[]; // payments out: Datagami → OEM
   selfSupplied?: boolean; // Datagami's own product — no external OEM transfer
@@ -32,8 +35,9 @@ export interface InvoiceInput {
 
 export interface InvoiceComputed extends InvoiceInput {
   advanceAdj: number; // always resolved (0 when absent)
+  oemAdvanceAdj: number; // resolved to advanceAdj for legacy inputs when absent
   taxableIn: number; // FULL value (students × priceToUni) — margin basis
-  billedTaxableIn: number; // billed to the university (taxableIn − advance prepaid)
+  billedTaxableIn: number; // billed to the university (taxableIn − University adjustment)
   gstIn: number;
   billing: number;
   tdsIn: number;

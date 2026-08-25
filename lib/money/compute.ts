@@ -11,13 +11,17 @@ import type {
  *
  * Rules (confirmed by Datagami; override both the UI prototype and the source Excel):
  *  - Student profit = students × (priceToUni − priceToDatagami). Advance-independent.
- *  - The advance is a token pass-through transferred to the OEM as-is; its ONLY
+ *  - An advance is a token pass-through transferred to the OEM as-is; its ONLY
  *    profit effect is the TDS Datagami fronts out of pocket: −(advance × tdsRate).
  *  - Student TDS is pass-through (never an out-of-pocket cost).
- *  - The advance is netted PRE-tax off the OEM payable only (oemTaxableNet).
+ *  - University-bill and OEM-payment adjustments are independent because the
+ *    amount netted on each side can differ.
  */
 export function computeInvoice(i: InvoiceInput): InvoiceComputed {
-  const adv = i.advanceAdj ?? 0;
+  const universityAdj = i.advanceAdj ?? 0;
+  // Backward-compatible default: callers that predate the split still apply
+  // the one supplied adjustment to both sides, matching historical behaviour.
+  const oemAdj = i.oemAdvanceAdj ?? universityAdj;
 
   // Per-cohort pricing (old students): sum each cohort at its locked price,
   // falling back to the invoice price when a cohort has none. Otherwise the
@@ -27,9 +31,9 @@ export function computeInvoice(i: InvoiceInput): InvoiceComputed {
     cp && cp.length > 0
       ? cp.reduce((s, c) => s + c.count * (c.priceToUni ?? i.priceToUni), 0)
       : i.students * i.priceToUni; // FULL — margin basis
-  // The advance is a prepayment of these fees, so the university is billed the
-  // NET amount once the count is known (advance was billed separately as a token).
-  const billedTaxableIn = taxableIn - adv;
+  // The University-side adjustment is a prepayment of these fees, so the bill
+  // is net of that amount once the count is known.
+  const billedTaxableIn = taxableIn - universityAdj;
   const gstIn = billedTaxableIn * i.gstRate;
   const billing = billedTaxableIn + gstIn;
   const tdsIn = billedTaxableIn * i.tdsRate;
@@ -47,7 +51,7 @@ export function computeInvoice(i: InvoiceInput): InvoiceComputed {
   // Self-supplied (Datagami is the "OEM"): no external transfer at all — no
   // payable, no OEM-side GST/TDS, no advance. Margin = revenue − internal cost.
   const self = i.selfSupplied === true;
-  const oemTaxableNet = self ? 0 : taxableOut - adv; // advance token netted PRE-tax
+  const oemTaxableNet = self ? 0 : taxableOut - oemAdj;
   const gstOut = self ? 0 : oemTaxableNet * i.gstRate;
   const tdsOut = self ? 0 : oemTaxableNet * i.tdsRate;
   const payable = self ? 0 : oemTaxableNet + gstOut - tdsOut;
@@ -68,7 +72,8 @@ export function computeInvoice(i: InvoiceInput): InvoiceComputed {
 
   return {
     ...i,
-    advanceAdj: adv,
+    advanceAdj: universityAdj,
+    oemAdvanceAdj: oemAdj,
     taxableIn,
     billedTaxableIn,
     gstIn,

@@ -158,6 +158,7 @@ export async function getAccountDetail(
     gstRate: Number(r.gstRate),
     tdsRate: Number(r.tdsRate),
     advanceAdj: Number(r.advanceAdj),
+    oemAdvanceAdj: Number(r.oemAdvanceAdj),
     status: effStatus(r.status, r.dueDate, today),
     invoiceDate: r.invoiceDate,
     dueDate: r.dueDate,

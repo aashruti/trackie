@@ -11,6 +11,8 @@ const STATUSES: Status[] = ["draft", "raised", "partially-paid", "paid", "overdu
 interface Props {
   accountId: number;
   invoiceId: number;
+  oem: string;
+  selfSupplied: boolean;
   category: Category;
   semester: Semester;
   initial: {
@@ -20,6 +22,7 @@ interface Props {
     gstRate: number;
     tdsRate: number;
     advanceAdj: number;
+    oemAdvanceAdj: number;
     invoiceDate: string | null;
     dueDate: string | null;
     status: Status;
@@ -56,13 +59,14 @@ function Field({
   );
 }
 
-export function InvoiceEditor({ accountId, invoiceId, category, semester, initial, onClose }: Props) {
+export function InvoiceEditor({ accountId, invoiceId, oem, selfSupplied, category, semester, initial, onClose }: Props) {
   const [students, setStudents] = useState(initial.students);
   const [priceToUni, setPriceToUni] = useState(initial.priceToUni);
   const [priceToDatagami, setPriceToDatagami] = useState(initial.priceToDatagami);
   const [gstPct, setGstPct] = useState(initial.gstRate * 100);
   const [tdsPct, setTdsPct] = useState(initial.tdsRate * 100);
   const [advanceAdj, setAdvanceAdj] = useState(initial.advanceAdj);
+  const [oemAdvanceAdj, setOemAdvanceAdj] = useState(initial.oemAdvanceAdj);
   const [invoiceDate, setInvoiceDate] = useState(initial.invoiceDate ?? "");
   const [dueDate, setDueDate] = useState(initial.dueDate ?? "");
   const [status, setStatus] = useState<Status>(initial.status);
@@ -78,6 +82,7 @@ export function InvoiceEditor({ accountId, invoiceId, category, semester, initia
     gstRate: gstPct / 100,
     tdsRate: tdsPct / 100,
     advanceAdj,
+    oemAdvanceAdj,
   });
 
   function save() {
@@ -91,6 +96,7 @@ export function InvoiceEditor({ accountId, invoiceId, category, semester, initia
           gstRate: gstPct / 100,
           tdsRate: tdsPct / 100,
           advanceAdj,
+          oemAdvanceAdj,
           invoiceDate: invoiceDate || null,
           dueDate: dueDate || null,
           status,
@@ -119,7 +125,14 @@ export function InvoiceEditor({ accountId, invoiceId, category, semester, initia
         <Field label="Price / Datagami" value={priceToDatagami} onChange={setPriceToDatagami} suffix="₹" />
         <Field label="GST" value={gstPct} onChange={setGstPct} suffix="%" />
         <Field label="TDS" value={tdsPct} onChange={setTdsPct} suffix="%" />
-        <Field label="Advance adj" value={advanceAdj} onChange={setAdvanceAdj} suffix="₹" />
+        {category !== "advance" && (
+          <>
+            <Field label="University bill adj" value={advanceAdj} onChange={setAdvanceAdj} suffix="₹" />
+            {!selfSupplied && (
+              <Field label={`${oem} payment adj`} value={oemAdvanceAdj} onChange={setOemAdvanceAdj} suffix="₹" />
+            )}
+          </>
+        )}
         <label className="block">
           <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">Invoice date</span>
           <input

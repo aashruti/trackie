@@ -395,6 +395,7 @@ export interface NewInvoice {
   gstRate: number; // fraction
   tdsRate: number; // fraction
   advanceAdj?: number;
+  oemAdvanceAdj?: number;
   invoiceDate?: string | null;
   dueDate?: string | null;
   status?: Status;
@@ -434,6 +435,7 @@ export async function createInvoice(
       gstRate: String(Math.max(0, Math.min(1, input.gstRate))),
       tdsRate: String(Math.max(0, Math.min(1, input.tdsRate))),
       advanceAdj: String(Math.max(0, input.advanceAdj ?? 0)),
+      oemAdvanceAdj: String(Math.max(0, input.oemAdvanceAdj ?? input.advanceAdj ?? 0)),
       invoiceDate: input.invoiceDate ?? null,
       dueDate: input.dueDate ?? null,
       status: input.status ?? "draft",
@@ -521,6 +523,7 @@ export async function getBillDeletionPreview(
       gstRate: invoices.gstRate,
       tdsRate: invoices.tdsRate,
       advanceAdj: invoices.advanceAdj,
+      oemAdvanceAdj: invoices.oemAdvanceAdj,
       invoiceDate: invoices.invoiceDate,
       cohortId: cohorts.id,
       cohortCount: cohorts.count,
@@ -556,6 +559,7 @@ export async function getBillDeletionPreview(
     gstRate: Number(inv.gstRate),
     tdsRate: Number(inv.tdsRate),
     advanceAdj: Number(inv.advanceAdj),
+    oemAdvanceAdj: Number(inv.oemAdvanceAdj),
     cohortPricing: cohortPricing.length ? cohortPricing : undefined,
   });
 

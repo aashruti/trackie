@@ -23,6 +23,7 @@ export interface PricingInvoiceRow {
   gstRate: number;
   tdsRate: number;
   advanceAdj: number;
+  oemAdvanceAdj: number;
   status: string;
   batches: PricingBatch[]; // non-empty → cohort-driven (students = Σ counts)
 }
@@ -104,6 +105,7 @@ export async function getPricingMaster(
       gstRate: Number(r.gstRate),
       tdsRate: Number(r.tdsRate),
       advanceAdj: Number(r.advanceAdj),
+      oemAdvanceAdj: Number(r.oemAdvanceAdj),
       status: r.status,
       batches: (batchesByInvoice.get(r.id) ?? []).sort((a, b) =>
         batchLabelDesc(a.enrollmentYear, b.enrollmentYear),

@@ -135,7 +135,12 @@ export default async function AccountDetailPage({
             edit affordances; the actual mutation is separately authorized
             per-account by canEdit() in the DAL. */}
         {user.roles.some((r) => r !== "viewer") && (
-          <AddInvoice accountId={detail.id} yearLabel={YEAR} selfSupplied={detail.selfSupplied} />
+          <AddInvoice
+            accountId={detail.id}
+            yearLabel={YEAR}
+            oem={detail.oem}
+            selfSupplied={detail.selfSupplied}
+          />
         )}
 
         {detail.invoices.length === 0 ? (
@@ -153,6 +158,7 @@ export default async function AccountDetailPage({
             currentYear={YEAR}
             canEdit={user.roles.some((r) => r !== "viewer")}
             isSuperAdmin={user.roles.includes("super-admin")}
+            selfSupplied={detail.selfSupplied}
           />
         )}
       </main>
