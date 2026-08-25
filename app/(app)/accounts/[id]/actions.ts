@@ -4,7 +4,13 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth/config";
 import { updateInvoice, setCohorts, type InvoiceEdit, type CohortInput } from "@/lib/dal/mutations";
-import { addPayment, deletePayment, type NewPayment } from "@/lib/dal/payments";
+import {
+  addPayment,
+  deletePayment,
+  updatePayment,
+  type NewPayment,
+  type PaymentEdit,
+} from "@/lib/dal/payments";
 import {
   createInvoice,
   createPreferredStay,
@@ -82,20 +88,50 @@ export async function recordPaymentAction(
   accountId: number,
   invoiceId: number,
   entry: NewPayment,
-) {
+): Promise<ActionResult> {
   const session = await auth();
   if (!session?.user) throw new Error("Not authenticated");
-  await addPayment(sessionUser(session), invoiceId, entry);
-  revalidatePath(`/accounts/${accountId}`);
-  return { ok: true };
+  try {
+    await addPayment(sessionUser(session), invoiceId, entry);
+    revalidatePath(`/accounts/${accountId}`);
+    return { ok: true };
+  } catch (e) {
+    console.error("[payments:create]", e);
+    return { ok: false, error: isUserError(e) ? e.message : "Could not record the payment entry." };
+  }
 }
 
-export async function deletePaymentAction(accountId: number, paymentId: number) {
+export async function updatePaymentAction(
+  accountId: number,
+  paymentId: number,
+  edit: PaymentEdit,
+): Promise<ActionResult> {
   const session = await auth();
   if (!session?.user) throw new Error("Not authenticated");
-  await deletePayment(sessionUser(session), paymentId);
-  revalidatePath(`/accounts/${accountId}`);
-  return { ok: true };
+  try {
+    await updatePayment(sessionUser(session), paymentId, edit);
+    revalidatePath(`/accounts/${accountId}`);
+    return { ok: true };
+  } catch (e) {
+    console.error("[payments:update]", e);
+    return { ok: false, error: isUserError(e) ? e.message : "Could not update the payment entry." };
+  }
+}
+
+export async function deletePaymentAction(
+  accountId: number,
+  paymentId: number,
+): Promise<ActionResult> {
+  const session = await auth();
+  if (!session?.user) throw new Error("Not authenticated");
+  try {
+    await deletePayment(sessionUser(session), paymentId);
+    revalidatePath(`/accounts/${accountId}`);
+    return { ok: true };
+  } catch (e) {
+    console.error("[payments:delete]", e);
+    return { ok: false, error: isUserError(e) ? e.message : "Could not delete the payment entry." };
+  }
 }
 
 /**
