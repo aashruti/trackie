@@ -8,10 +8,10 @@ import {
   TopAccountsChart,
   AgingChart,
 } from "@/components/dashboard/charts";
+import { Money } from "@/components/ui/money";
 import { AccountsTable } from "@/components/dashboard/accounts-table";
 import { TodayPanel } from "@/components/dashboard/today-panel";
 import { getYearContext } from "@/lib/dal/years";
-import { fmtCompact as fmtC } from "@/lib/money/format";
 import { myTasksToday } from "@/lib/dal/tasks";
 import { myFollowupsToday } from "@/lib/dal/leads";
 import { listOverdueInvoices } from "@/lib/dal/accounts";
@@ -131,7 +131,12 @@ async function FinancePanel({ actor, YEAR }: { actor: SessionUser; YEAR: string 
           label="Payable to OEMs"
           value={totals.payable}
           tone="info"
-          sublabel={`${fmtC(totals.paidToOem)} paid · ${fmtC(totals.outstandingToOem)} due`}
+          sublabel={
+            <>
+              <Money value={totals.paidToOem} compact tone="muted" /> paid ·{" "}
+              <Money value={totals.outstandingToOem} compact tone="muted" /> due
+            </>
+          }
         />
         <KpiCard label="Net margin" value={totals.netMargin} tone="positive" />
       </div>

@@ -1,5 +1,6 @@
 import { Card, CardHeader } from "@/components/ui/card";
-import { fmtCompact } from "@/lib/money/format";
+import { fmtExact } from "@/lib/money/format";
+import { Money } from "@/components/ui/money";
 import type { Portfolio } from "@/lib/dal/portfolio";
 
 /** Horizontal bar row. width is a 0–100 percentage. */
@@ -25,8 +26,8 @@ function Bar({
           style={{ width: `${Math.max(2, Math.min(100, pct))}%`, background: color }}
         />
       </div>
-      <div className="tabular w-16 shrink-0 text-right text-xs font-medium text-text-primary">
-        {fmtCompact(value)}
+      <div className="w-16 shrink-0 text-right text-xs font-medium">
+        <Money value={value} compact />
       </div>
     </div>
   );
@@ -92,7 +93,7 @@ export function AgingChart({ aging }: { aging: Portfolio["aging"] }) {
                 <div
                   key={s.label}
                   style={{ width: `${(s.value / total) * 100}%`, background: s.color }}
-                  title={`${s.label}: ${fmtCompact(s.value)}`}
+                  title={`${s.label}: ${fmtExact(s.value)}`}
                 />
               ),
           )}
@@ -102,9 +103,7 @@ export function AgingChart({ aging }: { aging: Portfolio["aging"] }) {
             <div key={s.label} className="flex items-center gap-2 text-xs">
               <span className="h-2.5 w-2.5 rounded-sm" style={{ background: s.color }} />
               <span className="text-text-secondary">{s.label}</span>
-              <span className="tabular ml-auto font-medium text-text-primary">
-                {fmtCompact(s.value)}
-              </span>
+              <Money value={s.value} compact className="ml-auto font-medium" />
             </div>
           ))}
         </div>

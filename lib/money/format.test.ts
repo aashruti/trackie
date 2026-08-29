@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fmt, fmtCompact, statusMeta } from "./format";
+import { fmt, fmtCompact, fmtExact, statusMeta } from "./format";
 
 describe("fmt", () => {
   it("formats with en-IN grouping and ₹", () => {
@@ -10,6 +10,24 @@ describe("fmt", () => {
   });
   it("renders em-dash for null/NaN", () => {
     expect(fmt(null)).toBe("—");
+  });
+});
+
+describe("fmtExact", () => {
+  it("keeps every rupee that fmtCompact rounds away", () => {
+    expect(fmtExact(159876)).toBe("₹1,59,876");
+    expect(fmtCompact(159876)).toBe("₹1.6L");
+  });
+  it("shows paise only when non-zero", () => {
+    expect(fmtExact(1234.5)).toBe("₹1,234.50");
+    expect(fmtExact(1234)).toBe("₹1,234");
+  });
+  it("uses a real minus sign for negatives", () => {
+    expect(fmtExact(-75600)).toBe("−₹75,600");
+  });
+  it("renders em-dash for null/NaN", () => {
+    expect(fmtExact(null)).toBe("—");
+    expect(fmtExact(NaN)).toBe("—");
   });
 });
 
