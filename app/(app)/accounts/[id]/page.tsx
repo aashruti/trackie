@@ -22,8 +22,8 @@ function Kpi({ label, value, tone }: { label: string; value: number; tone?: "def
   return (
     <Card className="flex min-h-24 flex-col p-4">
       <div className="text-xs font-medium uppercase tracking-wide text-text-muted">{label}</div>
-      <div className="mt-auto pt-1.5 text-xl font-semibold">
-        <Money value={value} compact tone={tone ?? "default"} />
+      <div className="mt-auto pt-1.5 text-base font-semibold">
+        <Money value={value} tone={tone ?? "default"} />
       </div>
     </Card>
   );

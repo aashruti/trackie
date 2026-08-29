@@ -17,7 +17,7 @@ function Bar({
 }) {
   return (
     <div className="flex items-center gap-3 py-1.5">
-      <div className="w-28 shrink-0 truncate text-xs text-text-secondary" title={label}>
+      <div className="w-24 shrink-0 truncate text-xs text-text-secondary" title={label}>
         {label}
       </div>
       <div className="relative h-5 flex-1 rounded bg-surface-sunken">
@@ -26,8 +26,8 @@ function Bar({
           style={{ width: `${Math.max(2, Math.min(100, pct))}%`, background: color }}
         />
       </div>
-      <div className="w-16 shrink-0 text-right text-xs font-medium">
-        <Money value={value} compact />
+      <div className="w-32 shrink-0 text-right text-xs font-medium">
+        <Money value={value} />
       </div>
     </div>
   );
@@ -103,7 +103,7 @@ export function AgingChart({ aging }: { aging: Portfolio["aging"] }) {
             <div key={s.label} className="flex items-center gap-2 text-xs">
               <span className="h-2.5 w-2.5 rounded-sm" style={{ background: s.color }} />
               <span className="text-text-secondary">{s.label}</span>
-              <Money value={s.value} compact className="ml-auto font-medium" />
+              <Money value={s.value} className="ml-auto font-medium" />
             </div>
           ))}
         </div>

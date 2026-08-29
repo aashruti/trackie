@@ -124,17 +124,17 @@ export function DetailTabs({
               <div className="flex items-center justify-between gap-2 text-center">
                 <div className="flex-1">
                   <div className="text-[11px] text-text-muted">University pays in</div>
-                  <Money value={inv.afterTds} compact className="text-base font-semibold" />
+                  <Money value={inv.afterTds} className="text-sm font-semibold" />
                 </div>
                 <span className="text-text-muted">→</span>
                 <div className="flex-1">
                   <div className="text-[11px] text-text-muted">Datagami pays OEM</div>
-                  <Money value={inv.payable} compact tone="info" className="text-base font-semibold" />
+                  <Money value={inv.payable} tone="info" className="text-sm font-semibold" />
                 </div>
                 <span className="text-text-muted">→</span>
                 <div className="flex-1">
                   <div className="text-[11px] text-text-muted">Margin</div>
-                  <Money value={inv.netMargin} compact tone="auto" className="text-base font-bold" />
+                  <Money value={inv.netMargin} tone="auto" className="text-sm font-bold" />
                 </div>
               </div>
               {(inv.advanceAdj > 0 || (!selfSupplied && inv.oemAdvanceAdj > 0)) && (

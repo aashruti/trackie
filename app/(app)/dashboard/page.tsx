@@ -118,7 +118,7 @@ async function FinancePanel({ actor, YEAR }: { actor: SessionUser; YEAR: string 
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 2xl:grid-cols-5">
         <KpiCard label="Total billed" value={totals.billed} />
         <KpiCard label="Received in bank" value={totals.received} tone="positive" />
         <KpiCard
@@ -133,8 +133,8 @@ async function FinancePanel({ actor, YEAR }: { actor: SessionUser; YEAR: string 
           tone="info"
           sublabel={
             <>
-              <Money value={totals.paidToOem} compact tone="muted" /> paid ·{" "}
-              <Money value={totals.outstandingToOem} compact tone="muted" /> due
+              <Money value={totals.paidToOem} tone="muted" /> paid ·{" "}
+              <Money value={totals.outstandingToOem} tone="muted" /> due
             </>
           }
         />

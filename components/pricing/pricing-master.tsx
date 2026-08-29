@@ -274,10 +274,10 @@ export function PricingMaster({
                             )}
                           </td>
                           <td className="px-3 py-2 text-right">
-                            <Money value={computed.billing} compact />
+                            <Money value={computed.billing} />
                           </td>
                           <td className="px-3 py-2 text-right">
-                            <Money value={computed.netMargin} compact tone="auto" />
+                            <Money value={computed.netMargin} tone="auto" />
                           </td>
                           <td className="px-5 py-2 text-right">
                             <StatusBadge status={inv.status as Status} />

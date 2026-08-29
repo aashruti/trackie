@@ -180,12 +180,12 @@ export function ReportsTabs({ data, year }: { data: ReportData; year: string }) 
             {aging.map((a) => (
               <div key={a.label} className="flex items-center justify-between px-5 py-3">
                 <span className="text-sm text-text-secondary">{a.label}</span>
-                <Money value={a.value} compact tone={a.tone} className="font-medium" />
+                <Money value={a.value} tone={a.tone} className="font-medium" />
               </div>
             ))}
             <div className="flex items-center justify-between bg-surface-sunken px-5 py-3 font-semibold">
               <span className="text-sm text-text-primary">Total outstanding</span>
-              <Money value={t.outstanding} compact className="text-text-primary" />
+              <Money value={t.outstanding} className="text-text-primary" />
             </div>
           </div>
         </Card>

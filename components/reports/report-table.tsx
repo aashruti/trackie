@@ -32,7 +32,7 @@ export function ReportTable<T extends object>({
     <Card className="print-card">
       <CardHeader title={title} subtitle={subtitle} />
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-[13px]">
           <thead>
             <tr className="border-b border-border-subtle text-xs text-text-muted">
               {columns.map((c) => {
@@ -81,7 +81,7 @@ export function ReportTable<T extends object>({
                     className={`px-4 py-2.5 ${c.align === "right" || c.money ? "text-right" : "text-left"} ${c.key === columns[0].key ? "font-medium text-text-primary" : "text-text-secondary"}`}
                   >
                     {c.money ? (
-                      <Money value={r[c.key] as number} compact tone={c.tone ?? "default"} />
+                      <Money value={r[c.key] as number} tone={c.tone ?? "default"} />
                     ) : (
                       String(r[c.key] ?? "")
                     )}
@@ -101,7 +101,7 @@ export function ReportTable<T extends object>({
                     {i === 0
                       ? (totals.label ?? "Total")
                       : c.money && totals[c.key] != null
-                        ? <Money value={totals[c.key] as number} compact tone={c.tone ?? "default"} />
+                        ? <Money value={totals[c.key] as number} tone={c.tone ?? "default"} />
                         : ""}
                   </td>
                 ))}

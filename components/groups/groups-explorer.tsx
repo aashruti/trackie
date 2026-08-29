@@ -54,7 +54,7 @@ export function GroupsExplorer({
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-border bg-surface">
-        <table className="w-full min-w-[960px] text-sm">
+        <table className="w-full min-w-[1100px] text-[13px]">
           <thead>
             <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-text-muted">
               <th className="px-4 py-2.5 font-semibold">Group</th>
@@ -85,15 +85,15 @@ export function GroupsExplorer({
                     </Link>
                   </td>
                   <td className="tabular px-4 py-3 text-right">{g.memberCount}</td>
-                  <td className="px-4 py-3 text-right"><Money value={g.sales.billing} compact /></td>
-                  <td className="px-4 py-3 text-right"><Money value={g.sales.received} compact tone="positive" /></td>
-                  <td className="px-4 py-3 text-right"><Money value={g.sales.outstanding} compact tone="pending" /></td>
-                  <td className="px-4 py-3 text-right"><Money value={g.sales.netMargin} compact tone="auto" /></td>
+                  <td className="px-4 py-3 text-right"><Money value={g.sales.billing} /></td>
+                  <td className="px-4 py-3 text-right"><Money value={g.sales.received} tone="positive" /></td>
+                  <td className="px-4 py-3 text-right"><Money value={g.sales.outstanding} tone="pending" /></td>
+                  <td className="px-4 py-3 text-right"><Money value={g.sales.netMargin} tone="auto" /></td>
                   <td className="px-4 py-3 text-right text-xs text-text-secondary">
-                    <Money value={g.delivery.allocated} compact /> · <Money value={g.delivery.spent} compact tone={g.delivery.spent > g.delivery.allocated ? "negative" : "default"} />
+                    <Money value={g.delivery.allocated} /> · <Money value={g.delivery.spent} tone={g.delivery.spent > g.delivery.allocated ? "negative" : "default"} />
                   </td>
-                  <td className="px-4 py-3 text-right"><Money value={g.delivery.result} compact tone="auto" /></td>
-                  <td className="px-4 py-3 text-right font-semibold"><Money value={g.groupNet} compact tone="auto" /></td>
+                  <td className="px-4 py-3 text-right"><Money value={g.delivery.result} tone="auto" /></td>
+                  <td className="px-4 py-3 text-right font-semibold"><Money value={g.groupNet} tone="auto" /></td>
                   <td className="px-4 py-3">
                     <ProfitBadge net={g.groupNet} />
                   </td>

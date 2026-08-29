@@ -144,10 +144,10 @@ export function LeadDetailDialog({
           {/* Key facts */}
           <div className="mb-3 grid grid-cols-3 overflow-hidden rounded-[10px] border border-border">
             <Fact label="Est. value">
-              <Money value={lead.value} compact className="text-base font-bold" />
+              <Money value={lead.value} className="text-base font-bold" />
             </Fact>
             <Fact label="Est. margin">
-              <Money value={lead.margin} compact tone="auto" className="text-base font-bold" />
+              <Money value={lead.margin} tone="auto" className="text-base font-bold" />
             </Fact>
             <Fact label="Est. students" last>
               <span className="tabular text-base font-bold text-text-primary">

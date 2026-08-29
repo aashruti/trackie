@@ -113,8 +113,8 @@ export function GroupDetailView({
         <Kpi label="Delivery spent · all time" value={detail.delivery.spent} negative={detail.delivery.spent > detail.delivery.allocated} />
         <div className="rounded-xl border border-border bg-surface p-4">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">Group net</div>
-          <div className="mt-1 text-xl font-bold"><Money value={detail.groupNet} tone="auto" /></div>
-          <div className="mt-0.5 text-[11px] text-text-muted">sales margin + delivery result (<Money value={detail.delivery.result} compact tone="auto" />)</div>
+          <div className="mt-1 text-base font-bold"><Money value={detail.groupNet} tone="auto" /></div>
+          <div className="mt-0.5 text-[11px] text-text-muted">sales margin + delivery result (<Money value={detail.delivery.result} tone="auto" />)</div>
         </div>
       </div>
 
@@ -173,9 +173,9 @@ export function GroupDetailView({
                   </Link>
                 </td>
                 <td className="px-4 py-2.5 text-xs text-text-secondary">{m.type} · {m.oem}</td>
-                <td className="px-4 py-2.5 text-right"><Money value={m.billing} compact /></td>
-                <td className="px-4 py-2.5 text-right"><Money value={m.netMargin} compact tone="auto" /></td>
-                <td className="px-4 py-2.5 text-right"><Money value={m.deliverySpent} compact /></td>
+                <td className="px-4 py-2.5 text-right"><Money value={m.billing} /></td>
+                <td className="px-4 py-2.5 text-right"><Money value={m.netMargin} tone="auto" /></td>
+                <td className="px-4 py-2.5 text-right"><Money value={m.deliverySpent} /></td>
                 <td className="px-4 py-2.5"><StatusBadge status={m.status as Status} /></td>
                 <td className="px-4 py-2.5 text-right">
                   <button
@@ -212,7 +212,7 @@ function Kpi({ label, value, negative }: { label: string; value: number; negativ
   return (
     <div className="rounded-xl border border-border bg-surface p-4">
       <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">{label}</div>
-      <div className="mt-1 text-xl font-bold">
+      <div className="mt-1 text-base font-bold">
         <Money value={value} tone={negative ? "negative" : "default"} />
       </div>
     </div>

@@ -109,7 +109,7 @@ export function ProgramDetailView({
             <p className="text-xs text-text-muted">
               {calendar.summary.events} event{calendar.summary.events === 1 ? "" : "s"} ·{" "}
               {calendar.summary.activities} activit{calendar.summary.activities === 1 ? "y" : "ies"} · cost{" "}
-              <Money value={calendar.summary.cost} compact />
+              <Money value={calendar.summary.cost} />
             </p>
           </div>
           <ProgramCalendarView days={calendar.days} cells={calendar.cells} />
@@ -276,16 +276,16 @@ function EventCard({
       <div className="border-t border-border-subtle px-4 py-3">
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
           <span className="text-text-muted">
-            Budget <Money value={event.budget} compact className="font-semibold" /> · Spent{" "}
-            <Money value={event.spent} compact tone={over ? "negative" : "default"} className="font-semibold" />
+            Budget <Money value={event.budget} className="font-semibold" /> · Spent{" "}
+            <Money value={event.spent} tone={over ? "negative" : "default"} className="font-semibold" />
           </span>
           {over ? (
             <span className="font-semibold text-[var(--negative-text)]">
-              Over budget by <Money value={event.spent - event.budget} compact />
+              Over budget by <Money value={event.spent - event.budget} />
             </span>
           ) : (
             <span className="text-text-muted">
-              <Money value={event.budget - event.spent} compact /> remaining
+              <Money value={event.budget - event.spent} /> remaining
             </span>
           )}
         </div>
@@ -341,7 +341,7 @@ function EventCard({
                         </div>
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
-                        {a.cost > 0 && <Money value={a.cost} compact className="text-[13px] font-semibold" />}
+                        {a.cost > 0 && <Money value={a.cost} className="text-[13px] font-semibold" />}
                         {canManage && (
                           <button
                             onClick={async () => {
