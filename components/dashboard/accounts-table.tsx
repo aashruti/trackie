@@ -20,7 +20,7 @@ export function AccountsTable({ rows }: { rows: PortfolioRow[] }) {
         }
       />
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-[13px]">
           <thead>
             <tr className="border-b border-border-subtle text-left text-xs text-text-muted">
               <th className="px-5 py-2.5 font-medium">Account</th>
@@ -48,13 +48,13 @@ export function AccountsTable({ rows }: { rows: PortfolioRow[] }) {
                 </td>
                 <td className="px-3 py-3 text-text-secondary">{r.oem}</td>
                 <td className="px-3 py-3 text-right">
-                  <Money value={r.billed} compact />
+                  <Money value={r.billed} />
                 </td>
                 <td className="px-3 py-3 text-right">
-                  <Money value={r.received} compact tone="positive" />
+                  <Money value={r.received} tone="positive" />
                 </td>
                 <td className="px-3 py-3 text-right">
-                  <Money value={r.outstanding} compact tone="pending" />
+                  <Money value={r.outstanding} tone="pending" />
                 </td>
                 <td className="px-3 py-3 text-right">
                   <span className="inline-flex items-center gap-1.5">
@@ -63,7 +63,7 @@ export function AccountsTable({ rows }: { rows: PortfolioRow[] }) {
                         loss
                       </span>
                     )}
-                    <Money value={r.netMargin} compact tone="auto" />
+                    <Money value={r.netMargin} tone="auto" />
                   </span>
                 </td>
                 <td className="px-5 py-3">

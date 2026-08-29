@@ -226,10 +226,10 @@ export function LeadsBoard({
           <span className="tabular text-xl font-extrabold text-text-primary">{stats.activeCount}</span>
         </StatCell>
         <StatCell label="Open pipeline value">
-          <Money value={stats.pipelineValue} compact tone="pending" className="text-xl font-extrabold" />
+          <Money value={stats.pipelineValue} tone="pending" className="text-base font-extrabold" />
         </StatCell>
         <StatCell label="Won this year">
-          <Money value={stats.wonValue} compact tone="positive" className="text-xl font-extrabold" />
+          <Money value={stats.wonValue} tone="positive" className="text-base font-extrabold" />
         </StatCell>
         <StatCell label="Lost" last>
           <span className="tabular text-xl font-extrabold text-[var(--negative-text)]">{stats.lostCount}</span>
@@ -250,7 +250,7 @@ export function LeadsBoard({
                   <span className="tabular rounded-full bg-surface-sunken px-2 py-px text-xs font-bold text-text-muted">
                     {cards.length}
                   </span>
-                  <Money value={stageSum(cards)} compact tone="muted" className="ml-auto text-[11px] font-semibold" />
+                  <Money value={stageSum(cards)} tone="muted" className="ml-auto text-[11px] font-semibold" />
                 </div>
                 <div
                   onDragOver={(e) => {
@@ -357,7 +357,7 @@ function LeadCard({
       <div className="mb-2.5 text-[11.5px] text-text-muted">{lead.city}</div>
       <div className="mb-2.5 flex items-center justify-between gap-2">
         <span className="text-[10.5px] font-bold uppercase tracking-wide text-text-muted">Est. value</span>
-        <Money value={lead.value} compact className="text-sm font-bold" />
+        <Money value={lead.value} className="text-sm font-bold" />
       </div>
       {(() => {
         const overdue = !!lead.nextDate && isOverdue(lead.nextDate);

@@ -113,8 +113,8 @@ export default async function DeliveryReportPage({
               {program.description && <p className="mt-1 text-sm text-text-muted">{program.description}</p>}
               <p className="mt-2 text-sm text-text-secondary">
                 {program.events.length} event{program.events.length === 1 ? "" : "s"} · Allocated{" "}
-                <Money value={program.allocated} compact className="font-semibold" /> · Spent{" "}
-                <Money value={program.spent} compact className="font-semibold" tone={program.spent > program.allocated ? "negative" : "default"} />
+                <Money value={program.allocated} className="font-semibold" /> · Spent{" "}
+                <Money value={program.spent} className="font-semibold" tone={program.spent > program.allocated ? "negative" : "default"} />
               </p>
 
               {program.events.map((event) => {
@@ -136,13 +136,13 @@ export default async function DeliveryReportPage({
                       </span>
                     </div>
                     <div className="flex flex-wrap items-center gap-x-5 gap-y-1 px-4 py-2 text-xs text-text-secondary">
-                      <span>Budget <Money value={event.budget} compact className="font-semibold" /></span>
+                      <span>Budget <Money value={event.budget} className="font-semibold" /></span>
                       <span>
-                        Spent <Money value={event.spent} compact className="font-semibold" tone={event.spent > event.budget ? "negative" : "default"} />
+                        Spent <Money value={event.spent} className="font-semibold" tone={event.spent > event.budget ? "negative" : "default"} />
                       </span>
                       {event.spent > event.budget && (
                         <span className="font-semibold text-[var(--negative-text)]">
-                          Over by <Money value={event.spent - event.budget} compact />
+                          Over by <Money value={event.spent - event.budget} />
                         </span>
                       )}
                     </div>
@@ -174,7 +174,7 @@ export default async function DeliveryReportPage({
                                   {a.body && <div className="mt-0.5 whitespace-pre-wrap text-text-muted">{a.body}</div>}
                                 </td>
                                 <td className="tabular whitespace-nowrap px-2 py-1.5 text-right">
-                                  {a.cost > 0 ? <Money value={a.cost} compact /> : <span className="text-text-muted">—</span>}
+                                  {a.cost > 0 ? <Money value={a.cost} /> : <span className="text-text-muted">—</span>}
                                 </td>
                                 <td className="whitespace-nowrap px-4 py-1.5 text-text-muted">{a.author}</td>
                               </tr>
@@ -199,8 +199,8 @@ export default async function DeliveryReportPage({
           <footer className="print-card rounded-xl border border-border bg-surface px-6 py-4 text-sm text-text-secondary">
             Across {report.totals.programs} program{report.totals.programs === 1 ? "" : "s"}: {report.totals.events} event
             {report.totals.events === 1 ? "" : "s"}, {report.totals.activities} logged activit{report.totals.activities === 1 ? "y" : "ies"} —{" "}
-            <Money value={report.totals.spent} compact className="font-semibold" /> spent against{" "}
-            <Money value={report.totals.allocated} compact className="font-semibold" /> allocated.
+            <Money value={report.totals.spent} className="font-semibold" /> spent against{" "}
+            <Money value={report.totals.allocated} className="font-semibold" /> allocated.
           </footer>
         )}
       </main>
@@ -212,8 +212,8 @@ function ReportStat({ label, value, money, negative }: { label: string; value?: 
   return (
     <div className="rounded-lg border border-border-subtle bg-surface-sunken/50 px-3 py-2.5">
       <div className="text-[10.5px] font-semibold uppercase tracking-wide text-text-muted">{label}</div>
-      <div className="mt-0.5 text-base font-bold text-text-primary">
-        {money !== undefined ? <Money value={money} compact tone={negative ? "negative" : "default"} /> : value}
+      <div className="mt-0.5 text-sm font-bold text-text-primary">
+        {money !== undefined ? <Money value={money} tone={negative ? "negative" : "default"} /> : value}
       </div>
     </div>
   );

@@ -43,9 +43,8 @@ function Kpi({
       <p className="text-xs font-medium text-text-secondary">{label}</p>
       <Money
         value={value}
-        compact
         tone={tone}
-        className="mt-2 block text-2xl font-semibold tracking-tight"
+        className="mt-2 block text-lg font-semibold tracking-tight"
       />
       <p className="mt-1 text-xs text-text-muted">
         {count} {count === 1 ? "item" : "items"} · {hint}

@@ -14,7 +14,7 @@ function Item({
     <div className="flex-1 px-5 py-4">
       <div className="text-xs font-medium text-text-secondary">{label}</div>
       <div className="mt-1 text-lg font-semibold">
-        <Money value={value} compact tone="info" />
+        <Money value={value} tone="info" />
       </div>
       <div className="mt-0.5 text-[11px] text-text-muted">{hint}</div>
     </div>
@@ -43,7 +43,7 @@ export function ReservesStrip({ reserves }: { reserves: Portfolio["reserves"] })
         <div className="ml-auto flex items-center gap-1.5">
           <span className="text-[11px] text-text-muted">Reserve needed:</span>
           <span className="text-xs font-semibold text-[var(--info-text)]">
-            <Money value={reserveNeeded} compact tone="info" />
+            <Money value={reserveNeeded} tone="info" />
           </span>
           <span className="text-[10px] text-text-muted">(GST + TDS payable)</span>
         </div>

@@ -192,9 +192,9 @@ export function AddInvoice({
       <div className="mt-4 flex items-center justify-between rounded-lg bg-surface-sunken px-4 py-3 text-sm">
         <span className="text-text-secondary">Preview</span>
         <div className="flex items-center gap-5">
-          <span>Billing <Money value={c.billing} compact /></span>
-          {!selfSupplied && <span>Payable <Money value={c.payable} compact tone="info" /></span>}
-          <span className="font-semibold">Margin <Money value={c.netMargin} compact tone="auto" /></span>
+          <span>Billing <Money value={c.billing} /></span>
+          {!selfSupplied && <span>Payable <Money value={c.payable} tone="info" /></span>}
+          <span className="font-semibold">Margin <Money value={c.netMargin} tone="auto" /></span>
         </div>
       </div>
 

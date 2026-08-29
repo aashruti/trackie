@@ -20,8 +20,8 @@ export function KpiCard({
       <div className="text-xs font-medium uppercase tracking-wide text-text-muted">
         {label}
       </div>
-      <div className="mt-2 text-[28px] font-semibold leading-none">
-        <Money value={value} compact tone={tone} />
+      <div className="mt-2 text-lg font-semibold leading-none">
+        <Money value={value} tone={tone} />
       </div>
       {sublabel && <div className="mt-2 text-xs text-text-muted">{sublabel}</div>}
     </Card>

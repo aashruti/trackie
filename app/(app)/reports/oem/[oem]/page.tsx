@@ -15,8 +15,8 @@ function Stat({ label, value, tone }: { label: string; value: number; tone?: "de
   return (
     <div className="px-4 py-3">
       <div className="text-[11px] uppercase tracking-wide text-text-muted">{label}</div>
-      <div className="mt-1 text-lg font-semibold">
-        <Money value={value} compact tone={tone ?? "default"} />
+      <div className="mt-1 text-sm font-semibold">
+        <Money value={value} tone={tone ?? "default"} />
       </div>
     </div>
   );
@@ -87,7 +87,7 @@ export default async function OemReportPage({
         <Card className="print-card">
           <CardHeader title="Accounts" subtitle={`${report.accounts.length} under ${report.oem}`} />
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-[13px]">
               <thead>
                 <tr className="border-b border-border-subtle text-xs text-text-muted">
                   <th className="px-4 py-2.5 text-left font-medium">Account</th>
@@ -107,11 +107,11 @@ export default async function OemReportPage({
                       <Link href={`/accounts/${a.id}`} className="hover:text-[var(--primary-text)]">{a.name}</Link>
                     </td>
                     <td className="tabular px-3 py-2.5 text-right text-text-secondary">{a.students}</td>
-                    <td className="px-3 py-2.5 text-right"><Money value={a.billed} compact /></td>
-                    <td className="px-3 py-2.5 text-right"><Money value={a.received} compact tone="positive" /></td>
-                    <td className="px-3 py-2.5 text-right"><Money value={a.outstanding} compact tone="pending" /></td>
-                    <td className="px-3 py-2.5 text-right"><Money value={a.payable} compact tone="info" /></td>
-                    <td className="px-3 py-2.5 text-right"><Money value={a.netMargin} compact tone="auto" /></td>
+                    <td className="px-3 py-2.5 text-right"><Money value={a.billed} /></td>
+                    <td className="px-3 py-2.5 text-right"><Money value={a.received} tone="positive" /></td>
+                    <td className="px-3 py-2.5 text-right"><Money value={a.outstanding} tone="pending" /></td>
+                    <td className="px-3 py-2.5 text-right"><Money value={a.payable} tone="info" /></td>
+                    <td className="px-3 py-2.5 text-right"><Money value={a.netMargin} tone="auto" /></td>
                     <td className="px-4 py-2.5"><StatusBadge status={a.status} /></td>
                   </tr>
                 ))}
@@ -120,11 +120,11 @@ export default async function OemReportPage({
                 <tr className="border-t border-border-strong bg-surface-sunken font-semibold">
                   <td className="px-4 py-2.5">Total</td>
                   <td className="tabular px-3 py-2.5 text-right">{t.students}</td>
-                  <td className="px-3 py-2.5 text-right"><Money value={t.billed} compact /></td>
-                  <td className="px-3 py-2.5 text-right"><Money value={t.received} compact tone="positive" /></td>
-                  <td className="px-3 py-2.5 text-right"><Money value={t.outstanding} compact tone="pending" /></td>
-                  <td className="px-3 py-2.5 text-right"><Money value={t.payable} compact tone="info" /></td>
-                  <td className="px-3 py-2.5 text-right"><Money value={t.netMargin} compact tone="auto" /></td>
+                  <td className="px-3 py-2.5 text-right"><Money value={t.billed} /></td>
+                  <td className="px-3 py-2.5 text-right"><Money value={t.received} tone="positive" /></td>
+                  <td className="px-3 py-2.5 text-right"><Money value={t.outstanding} tone="pending" /></td>
+                  <td className="px-3 py-2.5 text-right"><Money value={t.payable} tone="info" /></td>
+                  <td className="px-3 py-2.5 text-right"><Money value={t.netMargin} tone="auto" /></td>
                   <td className="px-4 py-2.5" />
                 </tr>
               </tfoot>
@@ -138,7 +138,7 @@ export default async function OemReportPage({
             <p className="px-5 py-6 text-sm text-text-muted">No payments recorded yet.</p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full text-[13px]">
                 <thead>
                   <tr className="border-b border-border-subtle text-xs text-text-muted">
                     <th className="px-4 py-2.5 text-left font-medium">Account</th>
@@ -161,10 +161,10 @@ export default async function OemReportPage({
                         <td className="px-3 py-2.5 text-text-muted">{p.mode}</td>
                         <td className="px-3 py-2.5 text-text-muted">{p.ref ?? "—"}</td>
                         <td className="px-3 py-2.5 text-right">
-                          {!isCredit && <Money value={p.amount} compact tone="info" />}
+                          {!isCredit && <Money value={p.amount} tone="info" />}
                         </td>
                         <td className="px-4 py-2.5 text-right">
-                          {isCredit && <Money value={p.amount} compact tone="positive" />}
+                          {isCredit && <Money value={p.amount} tone="positive" />}
                         </td>
                       </tr>
                     );
@@ -173,8 +173,8 @@ export default async function OemReportPage({
                 <tfoot>
                   <tr className="border-t border-border-strong bg-surface-sunken font-semibold">
                     <td className="px-4 py-2.5" colSpan={5}>Total</td>
-                    <td className="px-3 py-2.5 text-right"><Money value={payDebit} compact tone="info" /></td>
-                    <td className="px-4 py-2.5 text-right"><Money value={payCredit} compact tone="positive" /></td>
+                    <td className="px-3 py-2.5 text-right"><Money value={payDebit} tone="info" /></td>
+                    <td className="px-4 py-2.5 text-right"><Money value={payCredit} tone="positive" /></td>
                   </tr>
                 </tfoot>
               </table>

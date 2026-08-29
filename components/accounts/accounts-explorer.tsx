@@ -195,7 +195,7 @@ export function AccountsExplorer({ rows, canCreate = false }: { rows: AccountRow
 
       <Card>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-[13px]">
             <thead>
               <tr className="border-b border-border-subtle text-left text-xs text-text-muted">
                 <SortTh col="name" label="Account" align="left" sk={sortKey} sd={sortDir} onSort={toggleSort} padLeft />
@@ -223,13 +223,13 @@ export function AccountsExplorer({ rows, canCreate = false }: { rows: AccountRow
                   </td>
                   <td className="px-3 py-3 text-text-secondary">{r.oem}</td>
                   <td className="px-3 py-3 text-right">
-                    <Money value={r.billing} compact />
+                    <Money value={r.billing} />
                   </td>
                   <td className="px-3 py-3 text-right">
-                    <Money value={r.received} compact tone="positive" />
+                    <Money value={r.received} tone="positive" />
                   </td>
                   <td className="px-3 py-3 text-right">
-                    <Money value={r.outstanding} compact tone="pending" />
+                    <Money value={r.outstanding} tone="pending" />
                   </td>
                   <td className="px-3 py-3 text-right">
                     <span className="inline-flex items-center gap-1.5">
@@ -238,7 +238,7 @@ export function AccountsExplorer({ rows, canCreate = false }: { rows: AccountRow
                           loss
                         </span>
                       )}
-                      <Money value={r.netMargin} compact tone="auto" />
+                      <Money value={r.netMargin} tone="auto" />
                     </span>
                   </td>
                   <td className="px-5 py-3">

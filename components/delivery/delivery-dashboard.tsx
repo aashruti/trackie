@@ -69,7 +69,7 @@ export function DeliveryDashboardPanel({ data }: { data: DeliveryDashboard }) {
                       <span className="block truncate text-[11px] text-text-muted">{e.programName}</span>
                     </span>
                     <span className="shrink-0 text-xs font-semibold text-[var(--negative-text)]">
-                      <Money value={e.spent} compact /> / <Money value={e.budget} compact />
+                      <Money value={e.spent} /> / <Money value={e.budget} />
                     </span>
                   </Link>
                 </li>

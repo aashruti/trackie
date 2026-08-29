@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fmt, fmtCompact, fmtExact, statusMeta } from "./format";
+import { fmt, fmtExact, statusMeta } from "./format";
 
 describe("fmt", () => {
   it("formats with en-IN grouping and ₹", () => {
@@ -11,12 +11,15 @@ describe("fmt", () => {
   it("renders em-dash for null/NaN", () => {
     expect(fmt(null)).toBe("—");
   });
+  it("never abbreviates large figures", () => {
+    expect(fmt(127168487.15)).toBe("₹12,71,68,487");
+  });
 });
 
 describe("fmtExact", () => {
-  it("keeps every rupee that fmtCompact rounds away", () => {
+  it("keeps every rupee", () => {
     expect(fmtExact(159876)).toBe("₹1,59,876");
-    expect(fmtCompact(159876)).toBe("₹1.6L");
+    expect(fmtExact(127168487.15)).toBe("₹12,71,68,487.15");
   });
   it("shows paise only when non-zero", () => {
     expect(fmtExact(1234.5)).toBe("₹1,234.50");
@@ -28,18 +31,6 @@ describe("fmtExact", () => {
   it("renders em-dash for null/NaN", () => {
     expect(fmtExact(null)).toBe("—");
     expect(fmtExact(NaN)).toBe("—");
-  });
-});
-
-describe("fmtCompact", () => {
-  it("crores", () => {
-    expect(fmtCompact(45000000)).toBe("₹4.5Cr");
-  });
-  it("lakhs", () => {
-    expect(fmtCompact(412128)).toBe("₹4.1L");
-  });
-  it("thousands", () => {
-    expect(fmtCompact(75600)).toBe("₹76K");
   });
 });
 
