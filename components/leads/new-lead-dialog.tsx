@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { addLeadAction } from "@/app/(app)/leads/actions";
 import { PEOPLE } from "@/lib/board/constants";
-import { fmtCompact } from "@/lib/money/format";
+import { fmtCompact, fmtExact } from "@/lib/money/format";
 
 const fieldCls =
   "mt-1 w-full rounded-md border border-border-strong bg-surface px-3 py-2 text-sm text-text-primary outline-none focus:ring-2 focus:ring-[var(--ring)]";
@@ -151,12 +151,12 @@ export function NewLeadDialog({ defaultOwner, onClose }: { defaultOwner: string;
               <div className="flex items-center justify-around rounded-md border border-border bg-surface-sunken px-3 py-2 text-center">
                 <div>
                   <div className="text-[10px] font-bold uppercase tracking-wide text-text-muted">Est. value</div>
-                  <div className="tabular text-sm font-bold text-text-primary">{fmtCompact(estValue)}</div>
+                  <div className="tabular text-sm font-bold text-text-primary" title={fmtExact(estValue)}>{fmtCompact(estValue)}</div>
                 </div>
                 <div className="h-7 w-px bg-border-subtle" />
                 <div>
                   <div className="text-[10px] font-bold uppercase tracking-wide text-text-muted">Est. margin</div>
-                  <div className="tabular text-sm font-bold" style={{ color: estMargin < 0 ? "var(--negative-text)" : "var(--positive-text)" }}>
+                  <div className="tabular text-sm font-bold" style={{ color: estMargin < 0 ? "var(--negative-text)" : "var(--positive-text)" }} title={fmtExact(estMargin)}>
                     {fmtCompact(estMargin)}
                   </div>
                 </div>

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Card } from "@/components/ui/card";
 import { Money } from "@/components/ui/money";
 
@@ -12,7 +13,7 @@ export function KpiCard({
   label: string;
   value: number;
   tone?: Tone;
-  sublabel?: string;
+  sublabel?: ReactNode;
 }) {
   return (
     <Card className="p-5">

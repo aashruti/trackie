@@ -8,6 +8,23 @@ export function fmt(v: number | null | undefined): string {
   return `${neg ? "−" : ""}₹${new Intl.NumberFormat("en-IN").format(abs)}`;
 }
 
+/**
+ * Exact rupee formatting: en-IN grouping, real minus sign, no rounding.
+ * Paise are shown only when non-zero. Used for the hover title on every
+ * figure so a rounded/compact display never hides the underlying number.
+ */
+export function fmtExact(v: number | null | undefined): string {
+  if (v == null || isNaN(v)) return "—";
+  const neg = v < 0;
+  const abs = Math.abs(v);
+  const hasPaise = Math.round(abs * 100) % 100 !== 0;
+  const body = new Intl.NumberFormat("en-IN", {
+    minimumFractionDigits: hasPaise ? 2 : 0,
+    maximumFractionDigits: hasPaise ? 2 : 0,
+  }).format(abs);
+  return `${neg ? "−" : ""}₹${body}`;
+}
+
 /** Compact rupee formatting: Cr / L / K for dense dashboards. */
 export function fmtCompact(v: number | null | undefined): string {
   if (v == null || isNaN(v)) return "—";
