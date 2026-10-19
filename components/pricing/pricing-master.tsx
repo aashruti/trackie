@@ -139,8 +139,33 @@ export function PricingMaster({
           className="w-64 rounded-md border border-border-strong bg-surface px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-[var(--ring)]"
           aria-label="Filter accounts"
         />
-        <div className="text-xs text-text-muted">
-          {rows.length} accounts · {totalStreams} streams
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="text-xs text-text-muted">
+            {rows.length} accounts · {totalStreams} streams
+          </div>
+          <div className="space-y-1">
+            {pending || payload.length > 0 || totalStreams === 0 ? (
+              <button
+                type="button"
+                disabled
+                className="rounded-md border border-border-strong px-3 py-1.5 text-sm font-medium text-text-secondary disabled:opacity-50"
+              >
+                Download master (.xlsx)
+              </button>
+            ) : (
+              <a
+                href={`/pricing/export?year=${encodeURIComponent(currentYear)}`}
+                className="inline-block rounded-md border border-border-strong px-3 py-1.5 text-sm font-medium text-text-secondary hover:bg-surface-hover"
+              >
+                Download master (.xlsx)
+              </a>
+            )}
+            <p className="text-xs text-text-muted">
+              {pending || payload.length > 0
+                ? "Save changes before downloading."
+                : `All accessible accounts · ${currentYear}`}
+            </p>
+          </div>
         </div>
       </Card>
 
