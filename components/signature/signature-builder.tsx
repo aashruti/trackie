@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { saveSignatureAction } from "@/app/(app)/me/signature/actions";
+import { Field, FormMessage, INPUT_CLASS as INPUT } from "@/components/ui/form";
 import {
   ACCENTS,
   BADGES,
@@ -9,15 +10,9 @@ import {
   LAYOUTS,
   renderSignatureHtml,
   renderSignatureText,
+  validateSignature,
   type SignatureFields,
 } from "@/lib/signature/render";
-
-const INPUT =
-  "w-full rounded-lg border border-border bg-surface px-3 py-2 text-[13px] text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-[var(--ring)]";
-
-const PILL = "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-medium text-text-secondary";
-const PILL_ON = "border-[var(--primary)] bg-[var(--primary-subtle)]";
-const PILL_OFF = "border-border hover:bg-surface-hover";
 
 type Msg = { ok: boolean; text: string };
 
@@ -26,11 +21,13 @@ export function SignatureBuilder({
   defaults,
   saved,
   assetBase,
+  testEnvironment,
 }: {
   initial: SignatureFields;
   defaults: SignatureFields;
   saved: boolean;
   assetBase: string;
+  testEnvironment: boolean;
 }) {
   const [f, setF] = useState(initial);
   const [lastSaved, setLastSaved] = useState(saved ? initial : null);
@@ -42,7 +39,6 @@ export function SignatureBuilder({
   // this is safe to inject into the preview.
   const html = useMemo(() => renderSignatureHtml(f, assetBase), [f, assetBase]);
   const dirty = !lastSaved || JSON.stringify(lastSaved) !== JSON.stringify(f);
-  const isLocal = /\/\/(localhost|127\.0\.0\.1)/.test(assetBase);
 
   function set<K extends keyof SignatureFields>(key: K, value: SignatureFields[K]) {
     setF((prev) => ({ ...prev, [key]: value }));
@@ -52,6 +48,7 @@ export function SignatureBuilder({
   // Switching layout also sets sensible show/hide choices for it. Anything typed
   // is kept, and each choice can still be changed afterwards.
   function chooseLayout(layout: string) {
+    if (layout === f.layout) return;
     const shown = layout !== "plain";
     setF((prev) => ({
       ...prev,
@@ -67,17 +64,31 @@ export function SignatureBuilder({
   function save() {
     setMsg(null);
     startTransition(async () => {
-      const res = await saveSignatureAction(f);
-      if (res.ok) {
-        setLastSaved(f);
-        setMsg({ ok: true, text: "Signature saved." });
-      } else {
-        setMsg({ ok: false, text: res.error });
+      try {
+        const res = await saveSignatureAction(f);
+        if (res.ok) {
+          setLastSaved(f);
+          setMsg({ ok: true, text: "Signature saved." });
+        } else {
+          setMsg({ ok: false, text: res.error });
+        }
+      } catch {
+        // A rejected action would otherwise reach the error page and lose the draft.
+        setMsg({ ok: false, text: "Could not save. Your edits are still here, so please try again." });
       }
     });
   }
 
+  // Copying skips Save, so it needs its own check: a signature with no name or a
+  // broken phone link would otherwise go straight into someone's mail settings.
+  function canCopy(): boolean {
+    const check = validateSignature(f);
+    if (!check.ok) setMsg({ ok: false, text: check.error });
+    return check.ok;
+  }
+
   async function copySignature() {
+    if (!canCopy()) return;
     try {
       await navigator.clipboard.write([
         new ClipboardItem({
@@ -106,6 +117,7 @@ export function SignatureBuilder({
   }
 
   async function copySource() {
+    if (!canCopy()) return;
     try {
       await navigator.clipboard.writeText(html);
       setMsg({ ok: true, text: "HTML source copied." });
@@ -145,7 +157,7 @@ export function SignatureBuilder({
               type="tel"
               className={INPUT}
               value={f.phone}
-              maxLength={25}
+              maxLength={60}
               placeholder="+91 98765 43210"
               onChange={(e) => set("phone", e.target.value)}
             />
@@ -154,53 +166,16 @@ export function SignatureBuilder({
           <div className="border-t border-border pt-4">
             <h3 className="mb-3 text-[13px] font-semibold text-text-primary">Customise</h3>
             <div className="flex flex-col gap-4">
-              <Field label="Layout">
-                <div className="flex flex-wrap gap-2">
-                  {LAYOUTS.map((l) => (
-                    <button
-                      key={l.value}
-                      type="button"
-                      onClick={() => chooseLayout(l.value)}
-                      aria-pressed={f.layout === l.value}
-                      className={`${PILL} ${f.layout === l.value ? PILL_ON : PILL_OFF}`}
-                    >
-                      {l.label}
-                    </button>
-                  ))}
-                </div>
-              </Field>
-              <Field label="Font">
-                <div className="flex flex-wrap gap-2">
-                  {FONTS.map((x) => (
-                    <button
-                      key={x.value}
-                      type="button"
-                      onClick={() => set("font", x.value)}
-                      aria-pressed={f.font === x.value}
-                      className={`${PILL} ${f.font === x.value ? PILL_ON : PILL_OFF}`}
-                    >
-                      {x.label}
-                    </button>
-                  ))}
-                </div>
-              </Field>
+              <Pills label="Layout" options={LAYOUTS} value={f.layout} onChange={chooseLayout} />
+              <Pills label="Font" options={FONTS} value={f.font} onChange={(v) => set("font", v)} />
               {f.layout === "card" && (
-                <Field label="Accent colour">
-                  <div className="flex flex-wrap gap-2">
-                    {ACCENTS.map((a) => (
-                      <button
-                        key={a.value}
-                        type="button"
-                        onClick={() => set("accentColor", a.value)}
-                        aria-pressed={f.accentColor === a.value}
-                        className={`${PILL} ${f.accentColor === a.value ? PILL_ON : PILL_OFF}`}
-                      >
-                        <span className="h-3 w-3 rounded-full" style={{ background: a.value }} />
-                        {a.label}
-                      </button>
-                    ))}
-                  </div>
-                </Field>
+                <Pills
+                  label="Accent colour"
+                  options={ACCENTS}
+                  value={f.accentColor}
+                  onChange={(v) => set("accentColor", v)}
+                  swatches
+                />
               )}
               <Field label="Sign-off (optional)">
                 <input
@@ -290,22 +265,10 @@ export function SignatureBuilder({
           <div className="overflow-x-auto rounded-lg border border-border bg-white p-5">
             <div ref={previewRef} dangerouslySetInnerHTML={{ __html: html }} />
           </div>
-          {msg && (
-            <p
-              role="status"
-              className="mt-3 rounded-lg px-3 py-2 text-[12px] font-medium"
-              style={
-                msg.ok
-                  ? { background: "var(--positive-subtle)", color: "var(--positive-text)" }
-                  : { background: "var(--negative-subtle)", color: "var(--negative-text)" }
-              }
-            >
-              {msg.text}
-            </p>
-          )}
-          {isLocal && (
+          {msg && <div className="mt-3"><FormMessage ok={msg.ok}>{msg.text}</FormMessage></div>}
+          {testEnvironment && (
             <p className="mt-3 text-[12px] text-text-muted">
-              This is a local server, so copied logos point to it and won&apos;t load for recipients. Copy from the live Trackie site instead.
+              This is a test copy of Trackie, so copied logos point to it and may not load for recipients. Copy from the live Trackie site instead.
             </p>
           )}
         </div>
@@ -323,12 +286,40 @@ export function SignatureBuilder({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+// A group, not a <label>: a label wrapping buttons forwards clicks on its text to the first one.
+function Pills({
+  label,
+  options,
+  value,
+  onChange,
+  swatches = false,
+}: {
+  label: string;
+  options: readonly { label: string; value: string }[];
+  value: string;
+  onChange: (value: string) => void;
+  swatches?: boolean;
+}) {
   return (
-    <label className="flex flex-col gap-1.5">
+    <div role="group" aria-label={label} className="flex flex-col gap-1.5">
       <span className="text-[12px] font-medium text-text-secondary">{label}</span>
-      {children}
-    </label>
+      <div className="flex flex-wrap gap-2">
+        {options.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            onClick={() => onChange(o.value)}
+            aria-pressed={value === o.value}
+            className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-medium text-text-secondary ${
+              value === o.value ? "border-[var(--primary)] bg-[var(--primary-subtle)]" : "border-border hover:bg-surface-hover"
+            }`}
+          >
+            {swatches && <span className="h-3 w-3 rounded-full" style={{ background: o.value }} />}
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 

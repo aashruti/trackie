@@ -1,3 +1,5 @@
+import { escapeEmailHtml as esc } from "@/lib/email/escape";
+
 // Pure signature model + renderer — shared by the builder (client), the save
 // action (server) and tests, so it must stay free of DB and Next.js imports.
 
@@ -58,6 +60,17 @@ export type SignatureFields = {
   showEdudron: boolean;
 };
 
+// One or two numbers split by "/" or ",", each with an optional extension:
+// "(022) 2345 6789", "+91 98765 43210 / +91 91234 56789", "+91 22 1234 5678 ext 12".
+const PHONE_SPLIT = /\s*[/,]\s*/;
+const PHONE_EXTENSION = /\s*(?:ext\.?|x)\s*\d{1,6}$/i;
+const PHONE_NUMBER = /^\+?\(?\d[\d\s().-]{5,24}$/;
+
+function isValidPhone(phone: string): boolean {
+  const numbers = phone.split(PHONE_SPLIT);
+  return numbers.length <= 2 && numbers.every((n) => PHONE_NUMBER.test(n.replace(PHONE_EXTENSION, "")));
+}
+
 const inList = (list: readonly { value: string }[], value: string) =>
   list.some((item) => item.value === value);
 
@@ -94,7 +107,7 @@ export function validateSignature(
   if (value.showEmail && !value.email) return { ok: false, error: "Enter a valid email address." };
   if (value.email && (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.email) || value.email.length > 120))
     return { ok: false, error: "Enter a valid email address." };
-  if (value.phone && !/^\+?[\d][\d\s().-]{5,24}$/.test(value.phone))
+  if (value.phone && !isValidPhone(value.phone))
     return { ok: false, error: "Enter a valid phone number, or leave it blank." };
   if (value.address.length > 300) return { ok: false, error: "Address is too long." };
   if (!inList(LAYOUTS, value.layout)) return { ok: false, error: "Choose one of the listed layouts." };
@@ -102,15 +115,6 @@ export function validateSignature(
   if (!inList(ACCENTS, value.accentColor)) return { ok: false, error: "Choose one of the listed colours." };
   if (!inList(BADGES, value.badge)) return { ok: false, error: "Choose one of the listed badges." };
   return { ok: true, value };
-}
-
-function esc(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
 
 const NAVY = "#0F2540";
@@ -121,63 +125,77 @@ const row = (html: string, style: string) => `<div style="${style}">${html}</div
 const lineBreaks = (s: string) => s.split(/\r?\n/).map(esc).join("<br>");
 const mailLink = (email: string, color: string) =>
   `<a href="mailto:${esc(encodeURI(email))}" style="color:${color};text-decoration:none;">${esc(email)}</a>`;
-const telLink = (phone: string, color: string) =>
-  `<a href="tel:${esc(phone.replace(/[^+\d]/g, ""))}" style="color:${color};text-decoration:none;">${esc(phone)}</a>`;
+const telLinks = (phone: string, color: string) =>
+  phone
+    .split(PHONE_SPLIT)
+    .map(
+      (n) =>
+        `<a href="tel:${esc(n.replace(PHONE_EXTENSION, "").replace(/[^+\d]/g, ""))}" style="color:${color};text-decoration:none;white-space:nowrap;">${esc(n)}</a>`,
+    )
+    .join(" / ");
+// Classic Outlook ignores margins here and padding on divs, so gaps are cell padding.
+const spaced = (html: string, side: "top" | "bottom") =>
+  `<table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;"><tr><td style="padding-${side}:8px;">${html}</td></tr></table>`;
 
 function badgeImg(f: SignatureFields, base: string): string {
   const badge = BADGES.find((b) => b.value === f.badge);
   if (!badge || badge.value === "none") return "";
-  return `<img src="${esc(base)}/signature/${badge.file}" width="${badge.width}" height="${badge.height}" alt="${esc(badge.alt)}" style="display:block;border:0;margin-top:8px;">`;
-}
-
-function lmsRow(base: string): string {
-  return (
-    `<table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin-top:8px;border-top:1px solid #E5E7EB;"><tr>` +
-    `<td style="padding:8px 8px 0 0;vertical-align:middle;"><img src="${esc(base)}/signature/edudron-icon.png" width="20" height="28" alt="EduDron" style="display:block;border:0;"></td>` +
-    `<td style="padding:8px 0 0 0;vertical-align:middle;font-size:12px;line-height:18px;color:${GREY};">Our flagship LMS platform&nbsp;&nbsp;&middot;&nbsp;&nbsp;<a href="${LMS.href}" style="color:${LINK};text-decoration:none;font-weight:bold;">${LMS.label}</a></td>` +
-    `</tr></table>`
+  return spaced(
+    `<img src="${esc(base)}/signature/${badge.file}" width="${badge.width}" height="${badge.height}" alt="${esc(badge.alt)}" style="display:block;border:0;">`,
+    "top",
   );
 }
 
-function renderCard(f: SignatureFields, base: string, fontCss: string): string {
+function lmsRow(base: string, font: string): string {
+  return spaced(
+    `<table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;"><tr>` +
+    `<td style="padding:8px 8px 0 0;vertical-align:middle;border-top:1px solid #E5E7EB;"><img src="${esc(base)}/signature/edudron-icon.png" width="20" height="28" alt="EduDron" style="display:block;border:0;"></td>` +
+    `<td style="padding:8px 0 0 0;vertical-align:middle;border-top:1px solid #E5E7EB;${font}font-size:12px;line-height:18px;color:${GREY};">Our flagship LMS platform&nbsp;&nbsp;&middot;&nbsp;&nbsp;<a href="${LMS.href}" style="color:${LINK};text-decoration:none;font-weight:bold;">${LMS.label}</a></td>` +
+    `</tr></table>`,
+    "top",
+  );
+}
+
+// Each text block sets its own font: classic Outlook doesn't reliably inherit it.
+function renderCard(f: SignatureFields, base: string, font: string): string {
   const accent = inList(ACCENTS, f.accentColor) ? f.accentColor : DEFAULT_ACCENT;
   const contact = [
     f.showEmail && f.email && mailLink(f.email, GREY),
-    f.phone && telLink(f.phone, LINK),
+    f.phone && telLinks(f.phone, LINK),
   ]
     .filter(Boolean)
     .join("&nbsp;&nbsp;|&nbsp;&nbsp;");
 
   const lines = [
-    row(esc(f.name), `font-size:20px;line-height:26px;font-weight:bold;color:${NAVY};`),
-    f.title && row(esc(f.title), `font-size:14px;line-height:22px;font-weight:bold;color:${accent};`),
-    f.company && row(esc(f.company), `font-size:14px;line-height:24px;font-weight:bold;color:${NAVY};`),
-    f.extraLine && row(esc(f.extraLine), `font-size:13px;line-height:20px;font-weight:bold;color:${NAVY};`),
-    contact && row(contact, `font-size:13px;line-height:22px;color:${GREY};`),
+    row(esc(f.name), `${font}font-size:20px;line-height:26px;font-weight:bold;color:${NAVY};`),
+    f.title && row(esc(f.title), `${font}font-size:14px;line-height:22px;font-weight:bold;color:${accent};`),
+    f.company && row(esc(f.company), `${font}font-size:14px;line-height:24px;font-weight:bold;color:${NAVY};`),
+    f.extraLine && row(esc(f.extraLine), `${font}font-size:13px;line-height:20px;font-weight:bold;color:${NAVY};`),
+    contact && row(contact, `${font}font-size:13px;line-height:22px;color:${GREY};`),
     f.showWebsite &&
       row(
         `<a href="${WEBSITE.href}" style="color:${LINK};text-decoration:none;font-weight:bold;">${WEBSITE.label}</a>`,
-        "font-size:13px;line-height:22px;",
+        `${font}font-size:13px;line-height:22px;`,
       ),
     f.showAddress && f.address &&
-      row(lineBreaks(f.address), `font-size:12px;line-height:18px;color:${GREY};padding-top:2px;`),
+      row(lineBreaks(f.address), `${font}font-size:12px;line-height:18px;color:${GREY};`),
   ]
     .filter(Boolean)
     .join("");
 
   return (
-    `<table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;font-family:${fontCss};"><tr>` +
+    `<table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;"><tr>` +
     `<td style="padding:0 20px 0 0;vertical-align:middle;"><a href="${WEBSITE.href}"><img src="${esc(base)}/signature/datagami-logo.png" width="140" height="81" alt="Datagami" style="display:block;border:0;"></a></td>` +
     `<td width="3" bgcolor="${accent}" style="width:3px;background-color:${accent};font-size:0;line-height:0;">&nbsp;</td>` +
-    `<td style="padding:0 0 0 20px;vertical-align:top;">${lines}${badgeImg(f, base)}${f.showEdudron ? lmsRow(base) : ""}</td>` +
+    `<td style="padding:0 0 0 20px;vertical-align:top;">${lines}${badgeImg(f, base)}${f.showEdudron ? lmsRow(base, font) : ""}</td>` +
     `</tr></table>`
   );
 }
 
 // Plain stacked bold lines with no logo: "Title | phone" share a line.
-function renderPlain(f: SignatureFields, base: string, fontCss: string): string {
-  const style = "font-size:15px;line-height:24px;font-weight:bold;color:#111111;";
-  const titleLine = [f.title && esc(f.title), f.phone && telLink(f.phone, "#111111")]
+function renderPlain(f: SignatureFields, base: string, font: string): string {
+  const style = `${font}font-size:15px;line-height:24px;font-weight:bold;color:#111111;`;
+  const titleLine = [f.title && esc(f.title), f.phone && telLinks(f.phone, "#111111")]
     .filter(Boolean)
     .join(" | ");
   const lines = [
@@ -192,7 +210,7 @@ function renderPlain(f: SignatureFields, base: string, fontCss: string): string 
   ]
     .filter(Boolean)
     .join("");
-  return `<div style="font-family:${fontCss};">${lines}${badgeImg(f, base)}${f.showEdudron ? lmsRow(base) : ""}</div>`;
+  return `${lines}${badgeImg(f, base)}${f.showEdudron ? lmsRow(base, font) : ""}`;
 }
 
 /**
@@ -202,11 +220,14 @@ function renderPlain(f: SignatureFields, base: string, fontCss: string): string 
  */
 export function renderSignatureHtml(f: SignatureFields, assetBase: string): string {
   const base = assetBase.replace(/\/+$/, "");
-  const fontCss = (FONTS.find((x) => x.value === f.font) ?? FONTS[0]).css;
+  const font = `font-family:${(FONTS.find((x) => x.value === f.font) ?? FONTS[0]).css};`;
   const signOff = f.signOff
-    ? `<div style="font-family:${fontCss};font-size:15px;line-height:24px;font-weight:bold;color:${f.layout === "plain" ? "#111111" : NAVY};padding-bottom:8px;">${esc(f.signOff)}</div>`
+    ? spaced(
+        row(esc(f.signOff), `${font}font-size:15px;line-height:24px;font-weight:bold;color:${f.layout === "plain" ? "#111111" : NAVY};`),
+        "bottom",
+      )
     : "";
-  return signOff + (f.layout === "plain" ? renderPlain(f, base, fontCss) : renderCard(f, base, fontCss));
+  return signOff + (f.layout === "plain" ? renderPlain(f, base, font) : renderCard(f, base, font));
 }
 
 export function renderSignatureText(f: SignatureFields): string {

@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth/config";
 import { Topbar } from "@/components/shell/topbar";
 import { getMySignature } from "@/lib/dal/signature";
 import { getYearContext } from "@/lib/dal/years";
-import { appBaseUrl } from "@/lib/http/base-url";
+import { isPreviewDeployment, signatureAssetBase } from "@/lib/http/base-url";
 import { SignatureBuilder } from "@/components/signature/signature-builder";
 
 export default async function MySignaturePage() {
@@ -12,7 +12,7 @@ export default async function MySignaturePage() {
   const [{ currentYear: YEAR, years }, signature, assetBase] = await Promise.all([
     getYearContext(),
     getMySignature(Number(user.id)),
-    appBaseUrl(),
+    signatureAssetBase(),
   ]);
   if (!signature) redirect("/login");
 
@@ -25,6 +25,7 @@ export default async function MySignaturePage() {
           defaults={signature.defaults}
           saved={signature.saved}
           assetBase={assetBase}
+          testEnvironment={isPreviewDeployment() || /\/\/(localhost|127\.0\.0\.1)/.test(assetBase)}
         />
       </main>
     </>

@@ -92,6 +92,54 @@ describe("renderSignatureHtml", () => {
   });
 });
 
+describe("classic Outlook safety", () => {
+  const all = { ...fields, signOff: "Warm Regards", extraLine: "Partner", badge: "ibm-ice" };
+
+  it.each(["card", "plain"])("sets the font on every text block in the %s layout", (layout) => {
+    const html = renderSignatureHtml({ ...all, layout }, "https://t.example");
+    const blocks = html.match(/<div style="[^"]*"/g) ?? [];
+    expect(blocks.length).toBeGreaterThan(4);
+    for (const block of blocks) expect(block).toContain("font-family:");
+    expect(html).toMatch(/<td style="[^"]*font-family:[^"]*">Our flagship LMS/);
+  });
+
+  it.each(["card", "plain"])("uses no margins or div padding in the %s layout", (layout) => {
+    const html = renderSignatureHtml({ ...all, layout }, "https://t.example");
+    expect(html).not.toContain("margin");
+    expect(html).not.toMatch(/<div style="[^"]*padding/);
+  });
+});
+
+describe("phone numbers", () => {
+  it.each([
+    "(022) 2345 6789",
+    "7738170621",
+    "+91 86901 49598",
+    "+91 98765 43210 / +91 91234 56789",
+    "+91 98765 43210, 022 2345 6789",
+    "+91 22 1234 5678 ext 12",
+    "+91 22 1234 5678 x12",
+  ])("accepts %s", (phone) => {
+    expect(validateSignature({ ...fields, phone }).ok).toBe(true);
+  });
+
+  it.each(["call me", "12", "1 / 2 / 3", "98765 43210 / 91234 56789 / 90000 00000"])("rejects %s", (phone) => {
+    expect(validateSignature({ ...fields, phone }).ok).toBe(false);
+  });
+
+  it("gives each of two numbers its own link", () => {
+    const html = renderSignatureHtml({ ...fields, phone: "+91 98765 43210 / 022 2345 6789" }, "https://t.example");
+    expect(html).toContain('href="tel:+919876543210"');
+    expect(html).toContain('href="tel:02223456789"');
+  });
+
+  it("leaves the extension out of the link but keeps it in the text", () => {
+    const html = renderSignatureHtml({ ...fields, phone: "+91 22 1234 5678 ext 12" }, "https://t.example");
+    expect(html).toContain('href="tel:+912212345678"');
+    expect(html).toContain("+91 22 1234 5678 ext 12</a>");
+  });
+});
+
 describe("plain layout", () => {
   const html = renderSignatureHtml(plain, "https://t.example");
 
