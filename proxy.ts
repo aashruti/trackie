@@ -30,6 +30,8 @@ export default auth((req) => {
   }
 });
 
+// signature/ stays public: email recipients' mail clients fetch those logos with
+// no Trackie session, and a redirect to /login would show as a broken image.
 export const config = {
-  matcher: ["/((?!api/auth|login|_next/static|_next/image|favicon.ico|icon.svg).*)"],
+  matcher: ["/((?!api/auth|login|_next/static|_next/image|favicon.ico|icon.svg|signature/).*)"],
 };
