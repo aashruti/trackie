@@ -45,6 +45,7 @@ const ME: Item[] = [
   { label: "Apply for leave", href: "/me/leave", icon: "M12 5v14M5 12h14" },
   { label: "My attendance", href: "/me/attendance", icon: "M4 6h16v14H4zM4 10h16M8 3v4M16 3v4" },
   { label: "My payslips", href: "/me/payslips", icon: "M6 3h9l3 3v15H6zM9 12h6M9 16h4" },
+  { label: "Email signature", href: "/me/signature", icon: "M3 6h18v12H3zM3 7l9 6 9-6" },
 ];
 
 function LockIcon() {

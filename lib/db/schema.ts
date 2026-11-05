@@ -432,6 +432,34 @@ export const employeeProfiles = pgTable("employee_profiles", {
   status: employeeStatusEnum("status").notNull().default("active"),
 });
 
+// A user's saved email signature (1:1 with users). Deliberately a copy, not a
+// link to employee_profiles: designation and phone only seed the first draft, so
+// an employee styling their signature never edits their HR record.
+export const emailSignatures = pgTable("email_signatures", {
+  id: serial("id").primaryKey(),
+  ...baseColumns,
+  userId: integer("user_id")
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  title: text("title").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone").notNull().default(""),
+  address: text("address").notNull().default(""),
+  accentColor: text("accent_color").notNull(),
+  showAddress: boolean("show_address").notNull().default(true),
+  showEdudron: boolean("show_edudron").notNull().default(true),
+  layout: text("layout").notNull().default("card"), // "card" | "plain"
+  font: text("font").notNull().default("sans"), // "sans" | "serif"
+  signOff: text("sign_off").notNull().default(""),
+  company: text("company").notNull().default("Datagami Technology Services Pvt. Ltd"),
+  extraLine: text("extra_line").notNull().default(""),
+  badge: text("badge").notNull().default("none"), // key into BADGES
+  showEmail: boolean("show_email").notNull().default(true),
+  showWebsite: boolean("show_website").notNull().default(true),
+});
+
 // Company holiday calendar (paid days off, excluded from working days).
 export const holidays = pgTable("holidays", {
   id: serial("id").primaryKey(),
