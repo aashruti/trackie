@@ -8,6 +8,8 @@ import {
   deliveryEvents,
   deliveryMethods,
   oems,
+  programFiles,
+  programPayments,
   programs,
   tasks,
   users,
@@ -21,6 +23,8 @@ import {
 import { assignedIds } from "@/lib/dal/accounts";
 import { assertAccountInScope, assertProgramInScope } from "./scope";
 import { stampedDelete } from "../audit";
+import { computePoTotals, type PoTotals } from "@/lib/delivery/po-status";
+import { loadProgramPo, removeBlobsBestEffort, type ProgramFileRow, type ProgramPayment } from "./po";
 import { UserError } from "@/lib/dal/errors";
 import { PROGRAM_STATUSES, type DeliveryActivityType, type DeliveryEventStatus, type ProgramStatus } from "@/lib/db/enums";
 import { assertDateOrder, assertIsoDate, buildCalendarCells, monthDays, toMoney, type CalendarCell } from "./util";
@@ -52,6 +56,12 @@ export type ProgramListRow = {
   eventCount: number;
   allocated: number;
   spent: number;
+  poNumber: string | null;
+  poDate: string | null;
+  poValue: number | null;
+  gstRate: number;
+  vendor: string | null;
+  po: PoTotals;
 };
 
 export type ProgramActivity = {
@@ -83,6 +93,8 @@ export type ProgramEvent = {
 export type ProgramDetail = Omit<ProgramListRow, "eventCount"> & {
   description: string | null;
   events: ProgramEvent[];
+  payments: ProgramPayment[];
+  documents: ProgramFileRow[];
 };
 
 export type NewProgram = {
@@ -112,13 +124,30 @@ const PROGRAM_SELECT = {
   startDate: programs.startDate,
   endDate: programs.endDate,
   totalBudget: programs.totalBudget,
+  poNumber: programs.poNumber,
+  poDate: programs.poDate,
+  poValue: programs.poValue,
+  gstRate: programs.gstRate,
+  vendor: programs.vendor,
 };
 
-/** Batched money/count rollups for a set of program ids — 2 grouped queries, no N+1. */
-async function loadRollups(programIds: number[]): Promise<Map<number, { eventCount: number; allocated: number; spent: number }>> {
-  const rollups = new Map<number, { eventCount: number; allocated: number; spent: number }>();
+type Rollup = { eventCount: number; allocated: number; spent: number; received: number; tds: number };
+
+function poFields(
+  r: { poValue: string | null; gstRate: string },
+  received: number,
+  tds: number,
+) {
+  const poValue = r.poValue === null ? null : Number(r.poValue);
+  const gstRate = Number(r.gstRate);
+  return { poValue, gstRate, po: computePoTotals({ poValue, gstRate, received, tds }) };
+}
+
+/** Batched money/count rollups for a set of program ids — 3 grouped queries, no N+1. */
+async function loadRollups(programIds: number[]): Promise<Map<number, Rollup>> {
+  const rollups = new Map<number, Rollup>();
   if (!programIds.length) return rollups;
-  const [events, costs] = await Promise.all([
+  const [events, costs, pays] = await Promise.all([
     db
       .select({
         programId: deliveryEvents.programId,
@@ -137,14 +166,28 @@ async function loadRollups(programIds: number[]): Promise<Map<number, { eventCou
       .innerJoin(deliveryEvents, eq(deliveryActivities.eventId, deliveryEvents.id))
       .where(inArray(deliveryEvents.programId, programIds))
       .groupBy(deliveryEvents.programId),
+    db
+      .select({
+        programId: programPayments.programId,
+        received: sql<string>`coalesce(sum(${programPayments.amount}), 0)::text`,
+        tds: sql<string>`coalesce(sum(${programPayments.tds}), 0)::text`,
+      })
+      .from(programPayments)
+      .where(inArray(programPayments.programId, programIds))
+      .groupBy(programPayments.programId),
   ]);
-  for (const id of programIds) rollups.set(id, { eventCount: 0, allocated: 0, spent: 0 });
+  for (const id of programIds) rollups.set(id, { eventCount: 0, allocated: 0, spent: 0, received: 0, tds: 0 });
   for (const e of events) {
     const r = rollups.get(e.programId)!;
     r.eventCount = e.n;
     r.allocated = Number(e.allocated);
   }
   for (const c of costs) rollups.get(c.programId)!.spent = Number(c.spent);
+  for (const p of pays) {
+    const r = rollups.get(p.programId)!;
+    r.received = Number(p.received);
+    r.tds = Number(p.tds);
+  }
   return rollups;
 }
 
@@ -172,11 +215,15 @@ export async function listPrograms(
     .orderBy(asc(accounts.name), asc(programs.name));
 
   const rollups = await loadRollups(rows.map((r) => r.id));
-  return rows.map((r) => ({
-    ...r,
-    totalBudget: r.totalBudget === null ? null : Number(r.totalBudget),
-    ...rollups.get(r.id)!,
-  }));
+  return rows.map((r) => {
+    const { received, tds, ...rest } = rollups.get(r.id)!;
+    return {
+      ...r,
+      totalBudget: r.totalBudget === null ? null : Number(r.totalBudget),
+      ...rest,
+      ...poFields(r, received, tds),
+    };
+  });
 }
 
 /** One program with its events and per-event activity logs (newest activity first). */
@@ -187,7 +234,7 @@ export async function getProgramDetail(user: SessionUser, id: number): Promise<P
   // Header + events both key on `id` alone — fetch them together (house rule).
   // A program outside the caller's scope must read as "not found", not leak
   // another account's data.
-  const [[row], eventRows] = await Promise.all([
+  const [[row], eventRows, poData] = await Promise.all([
     db
       .select({ ...PROGRAM_SELECT, description: programs.description })
       .from(programs)
@@ -217,6 +264,7 @@ export async function getProgramDetail(user: SessionUser, id: number): Promise<P
       .leftJoin(users, eq(deliveryEvents.ownerUserId, users.id))
       .where(eq(deliveryEvents.programId, id))
       .orderBy(asc(deliveryEvents.startDate), asc(deliveryEvents.id)),
+    loadProgramPo(id), // discarded below when the header is out of scope
   ]);
   if (!row) return null;
 
@@ -261,6 +309,13 @@ export async function getProgramDetail(user: SessionUser, id: number): Promise<P
     allocated: events.filter((e) => e.status !== "cancelled").reduce((s, e) => s + e.budget, 0),
     spent: events.reduce((s, e) => s + e.spent, 0),
     events,
+    ...poFields(
+      row,
+      poData.payments.reduce((s, p) => s + p.amount, 0),
+      poData.payments.reduce((s, p) => s + p.tds, 0),
+    ),
+    payments: poData.payments,
+    documents: poData.documents,
   };
 }
 
@@ -353,6 +408,12 @@ export async function setProgramStatus(user: SessionUser, id: number, status: Pr
 export async function deleteProgram(user: SessionUser, id: number): Promise<void> {
   assertDeliveryManage(user);
   await assertProgramInScope(user, id);
+  const [[payment], files] = await Promise.all([
+    db.select({ id: programPayments.id }).from(programPayments).where(eq(programPayments.programId, id)).limit(1),
+    db.select({ pathname: programFiles.pathname }).from(programFiles).where(eq(programFiles.programId, id)),
+  ]);
+  if (payment) throw new UserError("This PO has payments recorded. Remove them first.");
+  await db.update(programFiles).set({ updatedBy: user.id }).where(eq(programFiles.programId, id));
   // Pre-stamp both cascades so the deleter, not a stale editor, ends up as the
   // actor on the rows the DB cascade will touch (mirrors deleteGroup):
   //  - events/activities CASCADE-delete with the program — stamp updated_by
@@ -368,6 +429,7 @@ export async function deleteProgram(user: SessionUser, id: number): Promise<void
   await db.update(tasks).set({ updatedBy: user.id }).where(eq(tasks.programId, id));
   const n = await stampedDelete(programs, id, user.id);
   if (!n) throw new UserError("Program not found.");
+  await removeBlobsBestEffort(files.map((f) => f.pathname));
 }
 
 /** Account picker options — the same assigned-university scope as every Delivery surface. */
