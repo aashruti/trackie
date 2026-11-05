@@ -417,6 +417,26 @@ describe("moveToNewPo", () => {
     expect(upd.some((r) => r.actorId === DEL_A.id)).toBe(true);
   });
 
+  it("two concurrent splits of the same event: exactly one wins, no empty PO is left behind", async () => {
+    for (let round = 0; round < 5; round++) {
+      const src = await mk(`MvRace${round}`);
+      const e1 = await ev(src, "R1", "2026-09-01");
+      const before = (await db.select({ id: programsTable.id }).from(programsTable).where(eq(programsTable.accountId, f.accA))).length;
+      const results = await Promise.allSettled([
+        moveToNewPo(SUPER, src, { name: `RaceA ${RUN}-${round}`, eventIds: [e1] }),
+        moveToNewPo(SUPER, src, { name: `RaceB ${RUN}-${round}`, eventIds: [e1] }),
+      ]);
+      const won = results.filter((r): r is PromiseFulfilledResult<{ id: number }> => r.status === "fulfilled");
+      for (const w of won) programIds.push(w.value.id);
+      expect(won).toHaveLength(1);
+      expect(results.filter((r) => r.status === "rejected")).toHaveLength(1);
+      expect((await stateOf(won[0].value.id)).events).toEqual([e1]);
+      expect((await stateOf(src)).events).toEqual([]);
+      const after = (await db.select({ id: programsTable.id }).from(programsTable).where(eq(programsTable.accountId, f.accA))).length;
+      expect(after).toBe(before + 1);
+    }
+  });
+
   it("runs without db.transaction", async () => {
     const src = await mk("MvTx");
     const e1 = await ev(src, "T1", "2026-09-01");

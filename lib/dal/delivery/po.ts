@@ -2,7 +2,7 @@ import "server-only";
 
 import { and, asc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { accounts, programFiles, programPayments, programs } from "@/lib/db/schema";
+import { programFiles, programPayments, programs } from "@/lib/db/schema";
 import {
   assertDeliveryAccess,
   assertDeliveryManage,
@@ -291,11 +291,13 @@ export async function moveToNewPo(
   const actor = user.id;
   const res = await db.execute(sql`
     WITH src AS (SELECT * FROM programs WHERE id = ${sourceId}::int),
+    locked_ev AS (SELECT id FROM delivery_events
+                  WHERE id = ANY(${ev}) AND program_id = ${sourceId}::int FOR UPDATE),
+    locked_pay AS (SELECT id FROM program_payments
+                   WHERE id = ANY(${pay}) AND program_id = ${sourceId}::int FOR UPDATE),
     ok AS (
-      SELECT 1 WHERE (SELECT count(*) FROM delivery_events
-                      WHERE id = ANY(${ev}) AND program_id = ${sourceId}::int) = ${eventIds.length}::int
-                 AND (SELECT count(*) FROM program_payments
-                      WHERE id = ANY(${pay}) AND program_id = ${sourceId}::int) = ${paymentIds.length}::int
+      SELECT 1 WHERE (SELECT count(*) FROM locked_ev) = ${eventIds.length}::int
+                 AND (SELECT count(*) FROM locked_pay) = ${paymentIds.length}::int
     ),
     new_p AS (
       INSERT INTO programs (account_id, oem_id, delivery_method_id, name, status,
@@ -310,11 +312,14 @@ export async function moveToNewPo(
       RETURNING id
     ),
     ev AS (UPDATE delivery_events SET program_id = (SELECT id FROM new_p), updated_by = ${actor}::int
-           WHERE id = ANY(${ev}) AND EXISTS (SELECT 1 FROM new_p) RETURNING id),
+           WHERE id = ANY(${ev}) AND program_id = ${sourceId}::int
+             AND EXISTS (SELECT 1 FROM new_p) RETURNING id),
     pay AS (UPDATE program_payments SET program_id = (SELECT id FROM new_p), updated_by = ${actor}::int
-            WHERE id = ANY(${pay}) AND EXISTS (SELECT 1 FROM new_p) RETURNING id),
+            WHERE id = ANY(${pay}) AND program_id = ${sourceId}::int
+              AND EXISTS (SELECT 1 FROM new_p) RETURNING id),
     fil AS (UPDATE program_files SET program_id = (SELECT id FROM new_p), updated_by = ${actor}::int
-            WHERE payment_id = ANY(${pay}) AND EXISTS (SELECT 1 FROM new_p) RETURNING id)
+            WHERE payment_id = ANY(${pay}) AND program_id = ${sourceId}::int
+              AND EXISTS (SELECT 1 FROM new_p) RETURNING id)
     SELECT id FROM new_p
   `);
   const rows = (Array.isArray(res) ? res : (res as { rows: unknown[] }).rows) as { id: number }[];
