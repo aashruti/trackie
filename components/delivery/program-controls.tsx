@@ -73,7 +73,7 @@ export function ProgramControls({
         onClick={async () => {
           const confirmed = await confirmAction({
             title: `Delete “${program.name}”?`,
-            description: "All events and activity history will be permanently deleted. This cannot be undone.",
+            description: "All events, activity history and PO documents will be permanently deleted. This cannot be undone.",
             confirmLabel: "Delete PO",
             tone: "danger",
           });

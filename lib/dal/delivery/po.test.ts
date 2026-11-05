@@ -336,6 +336,21 @@ describe("moveToNewPo", () => {
     expect(dl?.bytes.toString()).toBe("proof-bytes");
   });
 
+  it("moves a proof with its payment even when the proof's program_id differs from the payment's", async () => {
+    const src = await mk("MvStray");
+    const other = await mk("MvStrayOther");
+    const e1 = await ev(src, "S1", "2026-09-01");
+    const p1 = await addPayment(SUPER, { programId: src, receivedDate: "2026-09-02", amount: 10 });
+    const [file] = await db
+      .insert(programFiles)
+      .values({ programId: other, paymentId: p1.id, fileName: "stray.pdf", pathname: `t/${RUN}/stray.pdf`, contentType: "application/pdf", sizeBytes: 5, createdBy: 1, updatedBy: 1 })
+      .returning({ id: programFiles.id });
+    const { id } = await moveToNewPo(SUPER, src, { name: `MvStray ${RUN}`, eventIds: [e1], paymentIds: [p1.id] });
+    programIds.push(id);
+    const [moved] = await db.select().from(programFiles).where(eq(programFiles.id, file.id));
+    expect(moved).toMatchObject({ programId: id, paymentId: p1.id });
+  });
+
   it("leaves the source's PO fields, documents, total budget and linked board tasks alone", async () => {
     const src = await mk("MvKeep");
     await db.update(programsTable).set({ totalBudget: "999" }).where(eq(programsTable.id, src));
@@ -429,7 +444,9 @@ describe("moveToNewPo", () => {
       const won = results.filter((r): r is PromiseFulfilledResult<{ id: number }> => r.status === "fulfilled");
       for (const w of won) programIds.push(w.value.id);
       expect(won).toHaveLength(1);
-      expect(results.filter((r) => r.status === "rejected")).toHaveLength(1);
+      const lost = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+      expect(lost).toHaveLength(1);
+      expect(String(lost[0].reason?.message ?? lost[0].reason)).toMatch(/already moved/);
       expect((await stateOf(won[0].value.id)).events).toEqual([e1]);
       expect((await stateOf(src)).events).toEqual([]);
       const after = (await db.select({ id: programsTable.id }).from(programsTable).where(eq(programsTable.accountId, f.accA))).length;

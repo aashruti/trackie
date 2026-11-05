@@ -268,7 +268,8 @@ const intArray = (ids: number[]) =>
  * db.transaction (unavailable on the Neon HTTP driver): the INSERT only runs
  * when every id still belongs to the source, and the moves only run when the
  * INSERT did. The source's own PO fields, documents, budget and board tasks
- * are never touched.
+ * are never touched. The FOR UPDATE locks and the program_id = source
+ * re-checks on the UPDATEs are what keep concurrent splits safe.
  */
 export async function moveToNewPo(
   user: SessionUser,
@@ -318,7 +319,7 @@ export async function moveToNewPo(
             WHERE id = ANY(${pay}) AND program_id = ${sourceId}::int
               AND EXISTS (SELECT 1 FROM new_p) RETURNING id),
     fil AS (UPDATE program_files SET program_id = (SELECT id FROM new_p), updated_by = ${actor}::int
-            WHERE payment_id = ANY(${pay}) AND program_id = ${sourceId}::int
+            WHERE payment_id IN (SELECT id FROM pay)
               AND EXISTS (SELECT 1 FROM new_p) RETURNING id)
     SELECT id FROM new_p
   `);

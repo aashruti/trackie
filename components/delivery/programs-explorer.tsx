@@ -63,7 +63,7 @@ export function ProgramsExplorer({
       if (payStatus !== "all" && p.po.status !== payStatus) return false;
       if (vendor !== "all" && (p.vendor?.trim() ?? "") !== vendor) return false;
       if (q) {
-        const hay = `${p.name} ${p.accountName} ${p.oemName} ${p.methodName} ${p.methodCode}`.toLowerCase();
+        const hay = `${p.name} ${p.poNumber ?? ""} ${p.vendor ?? ""} ${p.accountName} ${p.oemName} ${p.methodName} ${p.methodCode}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -104,12 +104,12 @@ export function ProgramsExplorer({
 
       {/* Stat strip */}
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-[13px]">
-        <span><span className="tabular text-[17px] font-extrabold">{totals.count}</span> <span className="text-text-muted">POs</span></span>
+        <span><span className="tabular text-[17px] font-extrabold">{totals.count}</span> <span className="text-text-muted">{totals.count === 1 ? "PO" : "POs"}</span></span>
         <span><span className="tabular text-[17px] font-extrabold" style={{ color: "var(--positive-text)" }}>{totals.active}</span> <span className="text-text-muted">active</span></span>
         <span className="text-text-muted">Allocated <Money value={totals.allocated} className="text-[15px] font-bold" /></span>
         <span className="text-text-muted">Spent <Money value={totals.spent} className="text-[15px] font-bold" tone={totals.spent > totals.allocated ? "negative" : "default"} /></span>
         <span className="text-text-muted">Amount due <Money value={totals.due} className="text-[15px] font-bold" /></span>
-        <span className="text-text-muted">Received <Money value={totals.received} className="text-[15px] font-bold" /></span>
+        <span className="text-text-muted">Received + TDS <Money value={totals.received} className="text-[15px] font-bold" /></span>
         <span className="text-text-muted">Outstanding <Money value={totals.outstanding} className="text-[15px] font-bold" /></span>
       </div>
 
@@ -147,26 +147,25 @@ export function ProgramsExplorer({
 
       {/* Table */}
       <div className="overflow-x-auto rounded-xl border border-border bg-surface">
-        <table className="w-full min-w-[1400px] text-sm">
+        <table className="w-full min-w-[1100px] text-sm">
           <thead>
             <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-text-muted">
               <th className="px-4 py-2.5 font-semibold">PO</th>
               <th className="px-4 py-2.5 font-semibold">Account</th>
+              <th className="px-4 py-2.5 font-semibold">Payment</th>
+              <th className="px-4 py-2.5 font-semibold">Vendor</th>
               <th className="px-4 py-2.5 font-semibold">Style</th>
               <th className="px-4 py-2.5 font-semibold">Provider</th>
               <th className="px-4 py-2.5 font-semibold">Period</th>
               <th className="px-4 py-2.5 text-right font-semibold">Events</th>
               <th className="px-4 py-2.5 text-right font-semibold">Budget · Spent</th>
-              <th className="px-4 py-2.5 font-semibold">PO number</th>
-              <th className="px-4 py-2.5 font-semibold">Vendor</th>
-              <th className="px-4 py-2.5 font-semibold">Payment</th>
               <th className="px-4 py-2.5 font-semibold">Status</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={11} className="px-4 py-10 text-center text-sm text-text-muted">
+                <td colSpan={10} className="px-4 py-10 text-center text-sm text-text-muted">
                   {programs.length === 0 ? "No POs yet — create the first one." : "No POs match the filters."}
                 </td>
               </tr>
@@ -176,34 +175,16 @@ export function ProgramsExplorer({
                 const over = p.spent > p.allocated;
                 const payMeta = PAYMENT_STATUS_META[p.po.status];
                 const vendorName = p.vendor?.trim() ?? "";
+                const poNumber = p.poNumber?.trim() ?? "";
                 return (
                   <tr key={p.id} className="border-b border-border-subtle last:border-0 hover:bg-surface-hover">
                     <td className="px-4 py-3">
                       <Link href={`/delivery/programs/${p.id}`} className="font-semibold text-text-primary hover:underline">
                         {p.name}
                       </Link>
+                      {poNumber && <div className="text-xs text-text-muted">{poNumber}</div>}
                     </td>
                     <td className="px-4 py-3 text-text-secondary">{p.accountName}</td>
-                    <td className="px-4 py-3">
-                      <span className="rounded-md border border-[var(--primary-border)] bg-[var(--primary-subtle)] px-1.5 py-0.5 text-[11px] font-bold text-[var(--primary-text)]" title={p.methodName}>
-                        {p.methodCode}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-text-secondary">
-                      {p.oemName}
-                      {p.selfSupplied && <span className="ml-1.5 text-[11px] text-text-muted">(own)</span>}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-text-muted">
-                      {p.startDate || p.endDate ? `${fmtShort(p.startDate)} → ${fmtShort(p.endDate)}` : "—"}
-                    </td>
-                    <td className="tabular px-4 py-3 text-right">{p.eventCount}</td>
-                    <td className="px-4 py-3 text-right">
-                      <Money value={p.allocated} />
-                      <span className="mx-1 text-text-muted">·</span>
-                      <Money value={p.spent} tone={over ? "negative" : "default"} />
-                    </td>
-                    <td className="px-4 py-3 text-text-secondary">{p.poNumber?.trim() || "—"}</td>
-                    <td className="px-4 py-3 text-text-secondary">{vendorName || "—"}</td>
                     <td className="px-4 py-3">
                       {p.po.due === null && p.po.settled === 0 ? (
                         <span className="text-text-muted">—</span>
@@ -223,6 +204,25 @@ export function ProgramsExplorer({
                           </span>
                         </div>
                       )}
+                    </td>
+                    <td className="px-4 py-3 text-text-secondary">{vendorName || "—"}</td>
+                    <td className="px-4 py-3">
+                      <span className="rounded-md border border-[var(--primary-border)] bg-[var(--primary-subtle)] px-1.5 py-0.5 text-[11px] font-bold text-[var(--primary-text)]" title={p.methodName}>
+                        {p.methodCode}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-text-secondary">
+                      {p.oemName}
+                      {p.selfSupplied && <span className="ml-1.5 text-[11px] text-text-muted">(own)</span>}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-text-muted">
+                      {p.startDate || p.endDate ? `${fmtShort(p.startDate)} → ${fmtShort(p.endDate)}` : "—"}
+                    </td>
+                    <td className="tabular px-4 py-3 text-right">{p.eventCount}</td>
+                    <td className="px-4 py-3 text-right">
+                      <Money value={p.allocated} />
+                      <span className="mx-1 text-text-muted">·</span>
+                      <Money value={p.spent} tone={over ? "negative" : "default"} />
                     </td>
                     <td className="px-4 py-3">
                       <span className="rounded-full border px-2 py-0.5 text-[11px] font-semibold" style={{ background: meta.bg, color: meta.text, borderColor: meta.border }}>
