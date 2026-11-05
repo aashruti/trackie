@@ -1,13 +1,19 @@
 import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from "vitest";
 
-vi.mock("@/lib/storage/blob", () => ({ deleteBlob: vi.fn(async () => {}) }));
+vi.mock("@/lib/storage/blob", () => ({
+  deleteBlob: vi.fn(async () => {}),
+  downloadBlob: vi.fn(async () => Buffer.from("proof-bytes")),
+}));
 
 import { db } from "@/lib/db/client";
 import {
   accounts,
   auditLog,
+  deliveryActivities,
+  deliveryEvents,
   deliveryMethods,
   oems,
+  tasks,
   programFiles,
   programPayments,
   programs as programsTable,
@@ -17,7 +23,9 @@ import {
 import { and, eq, inArray } from "drizzle-orm";
 import { deleteBlob } from "@/lib/storage/blob";
 import { createProgram, deleteProgram, getProgramDetail, listPrograms, updateProgram } from "./programs";
-import { addPayment, deletePayment, listVendorOptions, loadProgramPo, updatePayment, updateProgramPo } from "./po";
+import { addPayment, deletePayment, listVendorOptions, loadProgramPo, moveToNewPo, updatePayment, updateProgramPo } from "./po";
+import { addActivity, createEvent } from "./events";
+import { getProgramFileForDownload } from "./po-files";
 
 const SUPER = { id: 1, roles: ["super-admin" as const] };
 const SALES = { id: 997, roles: ["sales" as const] };
@@ -256,5 +264,166 @@ describe("vendors, deletes and audit", () => {
     expect(fl[0].actorId).toBe(OTHER.id);
     await db.delete(auditLog).where(and(eq(auditLog.tableName, "program_payments"), eq(auditLog.rowId, String(payId))));
     await db.delete(auditLog).where(and(eq(auditLog.tableName, "program_files"), eq(auditLog.rowId, String(file.id))));
+  });
+});
+
+describe("moveToNewPo", () => {
+  async function ev(programId: number, title: string, startDate: string, endDate?: string, budget = 100) {
+    const { id } = await createEvent(SUPER, { programId, title: `${title} ${RUN}`, startDate, endDate, budget });
+    return id;
+  }
+  const stateOf = async (programId: number) => {
+    const events = await db.select({ id: deliveryEvents.id }).from(deliveryEvents).where(eq(deliveryEvents.programId, programId));
+    const pays = await db.select({ id: programPayments.id }).from(programPayments).where(eq(programPayments.programId, programId));
+    return { events: events.map((e) => e.id).sort(), pays: pays.map((p) => p.id).sort() };
+  };
+
+  it("moves selected events with activities, leaving other events behind, and totals add up to the original", async () => {
+    const src = await mk("MvSrc");
+    const e1 = await ev(src, "E1", "2026-09-01", undefined, 100);
+    const e2 = await ev(src, "E2", "2026-09-10", undefined, 200);
+    const e3 = await ev(src, "E3", "2026-09-20", undefined, 300);
+    await addActivity(SUPER, "T", { eventId: e2, type: "note", title: "a", activityDate: "2026-09-10", cost: 50 });
+    await addActivity(SUPER, "T", { eventId: e3, type: "note", title: "b", activityDate: "2026-09-20", cost: 70 });
+    const before = await getProgramDetail(SUPER, src);
+    const { id } = await moveToNewPo(DEL_A, src, { name: `  Split ${RUN} `, eventIds: [e2, e3, e3] });
+    programIds.push(id);
+    const a = await getProgramDetail(SUPER, src);
+    const b = await getProgramDetail(SUPER, id);
+    expect(a!.events.map((e) => e.id)).toEqual([e1]);
+    expect(b!.events.map((e) => e.id).sort()).toEqual([e2, e3].sort());
+    expect(b!.name).toBe(`Split ${RUN}`);
+    expect(a!.allocated + b!.allocated).toBe(before!.allocated);
+    expect(a!.spent + b!.spent).toBe(before!.spent);
+    expect(b!.spent).toBe(120);
+    const acts = await db.select().from(deliveryActivities).where(inArray(deliveryActivities.eventId, [e2, e3]));
+    expect(acts).toHaveLength(2);
+  });
+
+  it("copies account, provider, teaching style and status; dates span the moved events, treating a blank end as the start date", async () => {
+    const src = await mk("MvCopy", f.accA, f.oem2Id);
+    await db.update(programsTable).set({ status: "on-hold" }).where(eq(programsTable.id, src));
+    const e1 = await ev(src, "C1", "2026-10-05");
+    const e2 = await ev(src, "C2", "2026-10-01", "2026-10-03");
+    const { id } = await moveToNewPo(SUPER, src, { name: `Copy ${RUN}`, eventIds: [e1, e2], poNumber: "NEW-1", poValue: 5000, gstRate: 5, vendor: "V", poDate: "2026-10-02" });
+    programIds.push(id);
+    const [row] = await db.select().from(programsTable).where(eq(programsTable.id, id));
+    expect(row).toMatchObject({
+      accountId: f.accA, oemId: f.oem2Id, deliveryMethodId: f.methodId, status: "on-hold",
+      startDate: "2026-10-01", endDate: "2026-10-05", poNumber: "NEW-1", poDate: "2026-10-02", poValue: "5000", gstRate: "5", vendor: "V",
+      createdBy: SUPER.id, updatedBy: SUPER.id,
+    });
+  });
+
+  it("moves ticked payments and their proofs, and proofs still download", async () => {
+    const src = await mk("MvPay");
+    const e1 = await ev(src, "P1", "2026-09-01");
+    const p1 = await addPayment(SUPER, { programId: src, receivedDate: "2026-09-02", amount: 10 });
+    const p2 = await addPayment(SUPER, { programId: src, receivedDate: "2026-09-03", amount: 20 });
+    const [file] = await db
+      .insert(programFiles)
+      .values({ programId: src, paymentId: p1.id, fileName: "mv.pdf", pathname: `t/${RUN}/mv.pdf`, contentType: "application/pdf", sizeBytes: 5, createdBy: 1, updatedBy: 1 })
+      .returning({ id: programFiles.id });
+    const { id } = await moveToNewPo(SUPER, src, { name: `MvP ${RUN}`, eventIds: [e1], paymentIds: [p1.id] });
+    programIds.push(id);
+    expect((await stateOf(src)).pays).toEqual([p2.id]);
+    expect((await stateOf(id)).pays).toEqual([p1.id]);
+    const [moved] = await db.select().from(programFiles).where(eq(programFiles.id, file.id));
+    expect(moved).toMatchObject({ programId: id, paymentId: p1.id, updatedBy: SUPER.id });
+    expect((await loadProgramPo(id)).payments[0].proofs.map((x) => x.id)).toEqual([file.id]);
+    const dl = await getProgramFileForDownload(DEL_A, file.id);
+    expect(dl?.fileName).toBe("mv.pdf");
+    expect(dl?.bytes.toString()).toBe("proof-bytes");
+  });
+
+  it("leaves the source's PO fields, documents, total budget and linked board tasks alone", async () => {
+    const src = await mk("MvKeep");
+    await db.update(programsTable).set({ totalBudget: "999" }).where(eq(programsTable.id, src));
+    await updateProgramPo(SUPER, src, { poNumber: "KEEP", poDate: "2026-08-01", poValue: 777, gstRate: 12, vendor: "Keep" });
+    const e1 = await ev(src, "K1", "2026-09-01");
+    const [doc] = await db
+      .insert(programFiles)
+      .values({ programId: src, paymentId: null, fileName: "po.pdf", pathname: `t/${RUN}/keep.pdf`, contentType: "application/pdf", sizeBytes: 5, createdBy: 1, updatedBy: 1 })
+      .returning({ id: programFiles.id });
+    const [task] = await db.insert(tasks).values({ title: `KeepTask ${RUN}`, programId: src }).returning({ id: tasks.id });
+    const { id } = await moveToNewPo(SUPER, src, { name: `K ${RUN}`, eventIds: [e1] });
+    programIds.push(id);
+    const [row] = await db.select().from(programsTable).where(eq(programsTable.id, src));
+    expect(row).toMatchObject({ totalBudget: "999", poNumber: "KEEP", poValue: "777", gstRate: "12", vendor: "Keep" });
+    const [d] = await db.select().from(programFiles).where(eq(programFiles.id, doc.id));
+    expect(d.programId).toBe(src);
+    const [t] = await db.select().from(tasks).where(eq(tasks.id, task.id));
+    expect(t.programId).toBe(src);
+    await db.delete(tasks).where(eq(tasks.id, task.id));
+  });
+
+  it("can move every event, leaving the source empty but intact", async () => {
+    const src = await mk("MvAll");
+    const e1 = await ev(src, "A1", "2026-09-01");
+    const { id } = await moveToNewPo(SUPER, src, { name: `All ${RUN}`, eventIds: [e1] });
+    programIds.push(id);
+    expect((await getProgramDetail(SUPER, src))!.events).toHaveLength(0);
+    expect((await getProgramDetail(SUPER, id))!.events).toHaveLength(1);
+  });
+
+  it("fails with no changes when an event belongs to another program, or was already moved", async () => {
+    const src = await mk("MvBad");
+    const other = await mk("MvBadOther");
+    const e1 = await ev(src, "B1", "2026-09-01");
+    const eo = await ev(other, "B2", "2026-09-02");
+    const count = async () => (await db.select({ id: programsTable.id }).from(programsTable).where(eq(programsTable.accountId, f.accA))).length;
+    const n = await count();
+    await expect(moveToNewPo(SUPER, src, { name: `Bad ${RUN}`, eventIds: [e1, eo] })).rejects.toThrow("already moved");
+    expect(await count()).toBe(n);
+    expect((await stateOf(src)).events).toEqual([e1]);
+    expect((await stateOf(other)).events).toEqual([eo]);
+    const { id } = await moveToNewPo(SUPER, src, { name: `Ok ${RUN}`, eventIds: [e1] });
+    programIds.push(id);
+    await expect(moveToNewPo(SUPER, src, { name: `Again ${RUN}`, eventIds: [e1] })).rejects.toThrow("already moved");
+    expect(await count()).toBe(n + 1);
+  });
+
+  it("fails with no changes when a payment belongs to another program", async () => {
+    const src = await mk("MvBadPay");
+    const other = await mk("MvBadPayO");
+    const e1 = await ev(src, "BP", "2026-09-01");
+    const po = await addPayment(SUPER, { programId: other, receivedDate: "2026-09-02", amount: 10 });
+    await expect(moveToNewPo(SUPER, src, { name: `BadPay ${RUN}`, eventIds: [e1], paymentIds: [po.id] })).rejects.toThrow("already moved");
+    expect((await stateOf(src)).events).toEqual([e1]);
+    expect((await stateOf(other)).pays).toEqual([po.id]);
+  });
+
+  it("rejects an empty selection and a blank name", async () => {
+    const src = await mk("MvEmpty");
+    const e1 = await ev(src, "EM", "2026-09-01");
+    await expect(moveToNewPo(SUPER, src, { name: `X ${RUN}`, eventIds: [] })).rejects.toThrow();
+    await expect(moveToNewPo(SUPER, src, { name: "   ", eventIds: [e1] })).rejects.toThrow();
+    await expect(moveToNewPo(SUPER, src, { name: "x".repeat(161), eventIds: [e1] })).rejects.toThrow("too long");
+    expect((await stateOf(src)).events).toEqual([e1]);
+  });
+
+  it("delivery user out of scope can't split, and the audit rows name the mover", async () => {
+    const src = await mk("MvScope");
+    const e1 = await ev(src, "S1", "2026-09-01");
+    await expect(moveToNewPo(DEL_B, src, { name: `Nope ${RUN}`, eventIds: [e1] })).rejects.toThrow();
+    await expect(moveToNewPo(VIEWER, src, { name: `Nope ${RUN}`, eventIds: [e1] })).rejects.toThrow();
+    expect((await stateOf(src)).events).toEqual([e1]);
+    const { id } = await moveToNewPo(DEL_A, src, { name: `Yes ${RUN}`, eventIds: [e1] });
+    programIds.push(id);
+    const ins = await db.select().from(auditLog).where(and(eq(auditLog.tableName, "programs"), eq(auditLog.rowId, String(id)), eq(auditLog.op, "INSERT")));
+    expect(ins).toHaveLength(1);
+    expect(ins[0].actorId).toBe(DEL_A.id);
+    const upd = await db.select().from(auditLog).where(and(eq(auditLog.tableName, "delivery_events"), eq(auditLog.rowId, String(e1)), eq(auditLog.op, "UPDATE")));
+    expect(upd.some((r) => r.actorId === DEL_A.id)).toBe(true);
+  });
+
+  it("runs without db.transaction", async () => {
+    const src = await mk("MvTx");
+    const e1 = await ev(src, "T1", "2026-09-01");
+    const spy = vi.spyOn(db, "transaction");
+    const { id } = await moveToNewPo(SUPER, src, { name: `Tx ${RUN}`, eventIds: [e1] });
+    programIds.push(id);
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
   });
 });

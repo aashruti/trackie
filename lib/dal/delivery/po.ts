@@ -258,3 +258,68 @@ export async function loadProgramPo(
     documents,
   };
 }
+
+const intArray = (ids: number[]) =>
+  ids.length ? sql`ARRAY[${sql.join(ids.map((i) => sql`${i}::int`), sql`, `)}]::int[]` : sql`ARRAY[]::int[]`;
+
+/**
+ * Split events (and optionally payments, with their proofs) off a program into
+ * a brand-new PO. One statement, so it is all-or-nothing without
+ * db.transaction (unavailable on the Neon HTTP driver): the INSERT only runs
+ * when every id still belongs to the source, and the moves only run when the
+ * INSERT did. The source's own PO fields, documents, budget and board tasks
+ * are never touched.
+ */
+export async function moveToNewPo(
+  user: SessionUser,
+  sourceId: number,
+  input: { name: string; eventIds: number[]; paymentIds?: number[] } & PoInput,
+): Promise<{ id: number }> {
+  assertDeliveryManage(user);
+  const name = input.name?.trim();
+  if (!name) throw new UserError("Give the new PO a name.");
+  if (name.length > 160) throw new UserError("Program name is too long.");
+  const po = cleanPoInput(input);
+  const eventIds = [...new Set(input.eventIds ?? [])];
+  const paymentIds = [...new Set(input.paymentIds ?? [])];
+  if (!eventIds.length) throw new UserError("Pick at least one event to move.");
+  if ([...eventIds, ...paymentIds].some((i) => !Number.isInteger(i))) throw new UserError("Pick events from the list.");
+  await assertProgramInScope(user, sourceId);
+
+  const ev = intArray(eventIds);
+  const pay = intArray(paymentIds);
+  const actor = user.id;
+  const res = await db.execute(sql`
+    WITH src AS (SELECT * FROM programs WHERE id = ${sourceId}::int),
+    ok AS (
+      SELECT 1 WHERE (SELECT count(*) FROM delivery_events
+                      WHERE id = ANY(${ev}) AND program_id = ${sourceId}::int) = ${eventIds.length}::int
+                 AND (SELECT count(*) FROM program_payments
+                      WHERE id = ANY(${pay}) AND program_id = ${sourceId}::int) = ${paymentIds.length}::int
+    ),
+    new_p AS (
+      INSERT INTO programs (account_id, oem_id, delivery_method_id, name, status,
+                            start_date, end_date, po_number, po_date, po_value, gst_rate, vendor,
+                            created_by, updated_by)
+      SELECT account_id, oem_id, delivery_method_id, ${name}::text, status,
+             (SELECT min(start_date) FROM delivery_events WHERE id = ANY(${ev})),
+             (SELECT max(coalesce(end_date, start_date)) FROM delivery_events WHERE id = ANY(${ev})),
+             ${po.poNumber}::text, ${po.poDate}::date, ${po.poValue}::numeric, ${po.gstRate}::numeric,
+             ${po.vendor}::text, ${actor}::int, ${actor}::int
+      FROM src WHERE EXISTS (SELECT 1 FROM ok)
+      RETURNING id
+    ),
+    ev AS (UPDATE delivery_events SET program_id = (SELECT id FROM new_p), updated_by = ${actor}::int
+           WHERE id = ANY(${ev}) AND EXISTS (SELECT 1 FROM new_p) RETURNING id),
+    pay AS (UPDATE program_payments SET program_id = (SELECT id FROM new_p), updated_by = ${actor}::int
+            WHERE id = ANY(${pay}) AND EXISTS (SELECT 1 FROM new_p) RETURNING id),
+    fil AS (UPDATE program_files SET program_id = (SELECT id FROM new_p), updated_by = ${actor}::int
+            WHERE payment_id = ANY(${pay}) AND EXISTS (SELECT 1 FROM new_p) RETURNING id)
+    SELECT id FROM new_p
+  `);
+  const rows = (Array.isArray(res) ? res : (res as { rows: unknown[] }).rows) as { id: number }[];
+  if (!rows.length) {
+    throw new UserError("Some of those events or payments have already moved. Refresh and try again.");
+  }
+  return { id: Number(rows[0].id) };
+}

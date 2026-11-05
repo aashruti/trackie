@@ -16,6 +16,7 @@ import {
 import {
   addPayment,
   deletePayment,
+  moveToNewPo,
   updatePayment,
   updateProgramPo,
   type NewPayment,
@@ -197,6 +198,22 @@ export async function deletePaymentAction(programId: number, paymentId: number):
   } catch (e) {
     console.error("[program-payments:delete]", e);
     return { ok: false, error: isUserError(e) ? e.message : "Could not delete the payment." };
+  }
+}
+
+export async function moveToNewPoAction(
+  sourceId: number,
+  input: { name: string; eventIds: number[]; paymentIds?: number[] } & PoInput,
+): Promise<{ ok: true; id: number } | { ok: false; error: string }> {
+  try {
+    const { actor } = await session();
+    const { id } = await moveToNewPo(actor, sourceId, input);
+    revalidateProgram(sourceId);
+    revalidateProgram(id);
+    return { ok: true, id };
+  } catch (e) {
+    console.error("[programs:move-to-new-po]", e);
+    return { ok: false, error: isUserError(e) ? e.message : "Could not split the events into a new PO." };
   }
 }
 
