@@ -321,12 +321,12 @@ export async function getProgramDetail(user: SessionUser, id: number): Promise<P
 
 function cleanProgramInput(input: NewProgram) {
   const name = input.name?.trim();
-  if (!name) throw new UserError("Give the program a name.");
-  if (name.length > 160) throw new UserError("Program name is too long.");
-  if (input.status && !PROGRAM_STATUSES.includes(input.status)) throw new UserError("Unknown program status.");
+  if (!name) throw new UserError("Give the PO a name.");
+  if (name.length > 160) throw new UserError("PO name is too long.");
+  if (input.status && !PROGRAM_STATUSES.includes(input.status)) throw new UserError("Unknown PO status.");
   if (input.startDate) assertIsoDate(input.startDate, "start date");
   if (input.endDate) assertIsoDate(input.endDate, "end date");
-  assertDateOrder(input.startDate, input.endDate, "The program's");
+  assertDateOrder(input.startDate, input.endDate, "The PO's");
   return {
     accountId: input.accountId,
     oemId: input.oemId,
@@ -336,7 +336,7 @@ function cleanProgramInput(input: NewProgram) {
     status: input.status ?? ("active" as const),
     startDate: input.startDate || null,
     endDate: input.endDate || null,
-    totalBudget: input.totalBudget === null || input.totalBudget === undefined ? null : toMoney(input.totalBudget, "Program budget"),
+    totalBudget: input.totalBudget === null || input.totalBudget === undefined ? null : toMoney(input.totalBudget, "PO budget"),
   };
 }
 
@@ -384,7 +384,7 @@ export async function updateProgram(user: SessionUser, id: number, input: NewPro
     .from(programs)
     .where(eq(programs.id, id))
     .limit(1);
-  if (!current) throw new UserError("Program not found.");
+  if (!current) throw new UserError("PO not found.");
   await assertRefsExist(values.accountId, values.oemId, values.deliveryMethodId, {
     allowInactiveMethodId: current.deliveryMethodId,
   });
@@ -395,13 +395,13 @@ export async function updateProgram(user: SessionUser, id: number, input: NewPro
 export async function setProgramStatus(user: SessionUser, id: number, status: ProgramStatus): Promise<void> {
   assertDeliveryManage(user);
   await assertProgramInScope(user, id);
-  if (!PROGRAM_STATUSES.includes(status)) throw new UserError("Unknown program status.");
+  if (!PROGRAM_STATUSES.includes(status)) throw new UserError("Unknown PO status.");
   const updated = await db
     .update(programs)
     .set({ status, updatedBy: user.id })
     .where(eq(programs.id, id))
     .returning({ id: programs.id });
-  if (!updated.length) throw new UserError("Program not found.");
+  if (!updated.length) throw new UserError("PO not found.");
 }
 
 /** Hard delete — events/activities cascade; board tasks keep the account but lose the program link. */
@@ -428,7 +428,7 @@ export async function deleteProgram(user: SessionUser, id: number): Promise<void
   await db.update(deliveryEvents).set({ updatedBy: user.id }).where(eq(deliveryEvents.programId, id));
   await db.update(tasks).set({ updatedBy: user.id }).where(eq(tasks.programId, id));
   const n = await stampedDelete(programs, id, user.id);
-  if (!n) throw new UserError("Program not found.");
+  if (!n) throw new UserError("PO not found.");
   await removeBlobsBestEffort(files.map((f) => f.pathname));
 }
 

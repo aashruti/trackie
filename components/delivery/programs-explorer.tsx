@@ -87,7 +87,7 @@ export function ProgramsExplorer({
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-text-primary">Programs</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-text-primary">POs</h1>
           <p className="mt-0.5 text-sm text-text-secondary">
             What the delivery team is running per account — teaching style, provider, events and budgets.
           </p>
@@ -97,14 +97,14 @@ export function ProgramsExplorer({
             onClick={() => setAdding(true)}
             className="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-fg hover:opacity-90"
           >
-            + New program
+            + New PO
           </button>
         )}
       </div>
 
       {/* Stat strip */}
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-[13px]">
-        <span><span className="tabular text-[17px] font-extrabold">{totals.count}</span> <span className="text-text-muted">programs</span></span>
+        <span><span className="tabular text-[17px] font-extrabold">{totals.count}</span> <span className="text-text-muted">POs</span></span>
         <span><span className="tabular text-[17px] font-extrabold" style={{ color: "var(--positive-text)" }}>{totals.active}</span> <span className="text-text-muted">active</span></span>
         <span className="text-text-muted">Allocated <Money value={totals.allocated} className="text-[15px] font-bold" /></span>
         <span className="text-text-muted">Spent <Money value={totals.spent} className="text-[15px] font-bold" tone={totals.spent > totals.allocated ? "negative" : "default"} /></span>
@@ -115,12 +115,12 @@ export function ProgramsExplorer({
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2">
-        <label className="sr-only" htmlFor="pg-search">Search programs</label>
+        <label className="sr-only" htmlFor="pg-search">Search POs</label>
         <input
           id="pg-search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search programs…"
+          placeholder="Search POs…"
           className="h-9 w-48 rounded-md border border-border-strong bg-surface px-2.5 text-sm text-text-primary outline-none focus:ring-2 focus:ring-[var(--ring)]"
         />
         <select className={selectCls} value={account} onChange={(e) => setAccount(e.target.value)} aria-label="Filter by account">
@@ -150,7 +150,7 @@ export function ProgramsExplorer({
         <table className="w-full min-w-[1400px] text-sm">
           <thead>
             <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-text-muted">
-              <th className="px-4 py-2.5 font-semibold">Program</th>
+              <th className="px-4 py-2.5 font-semibold">PO</th>
               <th className="px-4 py-2.5 font-semibold">Account</th>
               <th className="px-4 py-2.5 font-semibold">Style</th>
               <th className="px-4 py-2.5 font-semibold">Provider</th>

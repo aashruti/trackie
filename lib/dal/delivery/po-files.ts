@@ -42,8 +42,8 @@ export async function storeProgramFile(
           .where(and(eq(programPayments.id, input.paymentId), eq(programPayments.programId, input.programId)))
           .limit(1),
   ]);
-  if (!program) throw new UserError("Program not found.");
-  if (input.paymentId !== null && !payment?.length) throw new UploadError("That payment doesn't belong to this program.");
+  if (!program) throw new UserError("PO not found.");
+  if (input.paymentId !== null && !payment?.length) throw new UploadError("That payment doesn't belong to this PO.");
 
   const fileName = input.fileName.replace(/[\r\n]/g, " ").trim().slice(0, 200) || `file.${checked.ext}`;
   const pathname = `delivery/programs/${input.programId}/${randomUUID()}.${checked.ext}`;

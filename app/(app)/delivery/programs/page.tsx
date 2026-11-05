@@ -15,9 +15,9 @@ export default async function DeliveryProgramsPage() {
   if (!canAccessDelivery(actor)) {
     return (
       <>
-        <Topbar section="Delivery" title="Programs" user={user} years={years} currentYear={YEAR} />
+        <Topbar section="Delivery" title="POs" user={user} years={years} currentYear={YEAR} />
         <main className="mx-auto w-full max-w-[1440px] px-6 py-6">
-          <p className="text-sm text-text-secondary">Delivery programs are available to the Delivery team / Super Admin only.</p>
+          <p className="text-sm text-text-secondary">Delivery POs are available to the Delivery team / Super Admin only.</p>
         </main>
       </>
     );
@@ -32,7 +32,7 @@ export default async function DeliveryProgramsPage() {
 
   return (
     <>
-      <Topbar section="Delivery" title="Programs" user={user} years={years} currentYear={YEAR} />
+      <Topbar section="Delivery" title="POs" user={user} years={years} currentYear={YEAR} />
       <main className="mx-auto w-full max-w-[1440px] space-y-5 px-6 py-6">
         <ProgramsExplorer
           programs={programs}

@@ -86,7 +86,7 @@ export async function updateProgramPo(
     .set({ ...values, updatedBy: user.id })
     .where(eq(programs.id, programId))
     .returning({ accountId: programs.accountId, oemId: programs.oemId });
-  if (!saved) throw new UserError("Program not found.");
+  if (!saved) throw new UserError("PO not found.");
   if (!values.poNumber) return { duplicates: [] };
 
   const scope = await callerScope(user);
@@ -135,7 +135,7 @@ export async function addPayment(user: SessionUser, input: NewPayment): Promise<
   const values = cleanPayment(input);
   await assertProgramInScope(user, input.programId);
   const [exists] = await db.select({ id: programs.id }).from(programs).where(eq(programs.id, input.programId)).limit(1);
-  if (!exists) throw new UserError("Program not found.");
+  if (!exists) throw new UserError("PO not found.");
   const [row] = await db
     .insert(programPayments)
     .values({ ...values, programId: input.programId, createdBy: user.id, updatedBy: user.id })
@@ -278,7 +278,7 @@ export async function moveToNewPo(
   assertDeliveryManage(user);
   const name = input.name?.trim();
   if (!name) throw new UserError("Give the new PO a name.");
-  if (name.length > 160) throw new UserError("Program name is too long.");
+  if (name.length > 160) throw new UserError("PO name is too long.");
   const po = cleanPoInput(input);
   const eventIds = [...new Set(input.eventIds ?? [])];
   const paymentIds = [...new Set(input.paymentIds ?? [])];

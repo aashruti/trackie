@@ -50,7 +50,7 @@ export async function setProgramStatusAction(programId: number, status: ProgramS
     return { ok: true };
   } catch (e) {
     console.error("[programs:set-status]", e);
-    return { ok: false, error: isUserError(e) ? e.message : "Could not change the program status." };
+    return { ok: false, error: isUserError(e) ? e.message : "Could not change the PO status." };
   }
 }
 
@@ -62,7 +62,7 @@ export async function updateProgramAction(programId: number, input: NewProgram):
     return { ok: true };
   } catch (e) {
     console.error("[programs:update]", e);
-    return { ok: false, error: isUserError(e) ? e.message : "Could not update the program." };
+    return { ok: false, error: isUserError(e) ? e.message : "Could not update the PO." };
   }
 }
 

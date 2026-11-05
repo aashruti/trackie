@@ -68,7 +68,7 @@ export default async function DeliveryReportPage({
             {report.account.city ? `${report.account.city} · ` : ""}Sales partner: {report.account.oemName} · Generated {generatedOn}
           </p>
           <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
-            <ReportStat label="Programs" value={String(report.totals.programs)} />
+            <ReportStat label="POs" value={String(report.totals.programs)} />
             <ReportStat label="Events" value={String(report.totals.events)} />
             <ReportStat label="Activities" value={String(report.totals.activities)} />
             <ReportStat label="Budget allocated" money={report.totals.allocated} />
@@ -92,7 +92,7 @@ export default async function DeliveryReportPage({
 
         {report.programs.length === 0 && (
           <p className="rounded-xl border border-dashed border-border px-6 py-10 text-center text-sm text-text-muted">
-            No delivery programs recorded for this account yet.
+            No delivery POs recorded for this account yet.
           </p>
         )}
 
@@ -188,7 +188,7 @@ export default async function DeliveryReportPage({
               })}
               {program.events.length === 0 && (
                 <p className="mt-4 rounded-lg border border-dashed border-border px-4 py-6 text-center text-xs text-text-muted">
-                  No events recorded under this program yet.
+                  No events recorded under this PO yet.
                 </p>
               )}
             </section>
@@ -197,7 +197,7 @@ export default async function DeliveryReportPage({
 
         {report.programs.length > 0 && (
           <footer className="print-card rounded-xl border border-border bg-surface px-6 py-4 text-sm text-text-secondary">
-            Across {report.totals.programs} program{report.totals.programs === 1 ? "" : "s"}: {report.totals.events} event
+            Across {report.totals.programs} PO{report.totals.programs === 1 ? "" : "s"}: {report.totals.events} event
             {report.totals.events === 1 ? "" : "s"}, {report.totals.activities} logged activit{report.totals.activities === 1 ? "y" : "ies"} —{" "}
             <Money value={report.totals.spent} className="font-semibold" /> spent against{" "}
             <Money value={report.totals.allocated} className="font-semibold" /> allocated.

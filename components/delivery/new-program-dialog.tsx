@@ -48,8 +48,8 @@ export function NewProgramDialog({
 
   function submit() {
     setError(null);
-    if (!name.trim()) { setError("Give the program a name."); return; }
-    if (!accountId) { setError("Pick the account this program runs under."); return; }
+    if (!name.trim()) { setError("Give the PO a name."); return; }
+    if (!accountId) { setError("Pick the account this PO runs under."); return; }
     if (!oemId) { setError("Pick the provider (IBM, Datagami, …)."); return; }
     if (!methodId) { setError("Pick a teaching style."); return; }
     startTransition(async () => {
@@ -86,7 +86,7 @@ export function NewProgramDialog({
       >
         <div className="flex items-center justify-between border-b border-border-subtle px-5 py-4">
           <h2 id="new-program-title" className="text-base font-bold tracking-tight text-text-primary">
-            New program
+            New PO
           </h2>
           <button
             onClick={onClose}
@@ -102,7 +102,7 @@ export function NewProgramDialog({
 
         <div className="space-y-3 px-5 py-4">
           <label className="block">
-            <span className="text-[11px] font-medium text-text-muted">Program name</span>
+            <span className="text-[11px] font-medium text-text-muted">PO name</span>
             <input
               autoFocus
               value={name}
@@ -158,7 +158,7 @@ export function NewProgramDialog({
               </select>
             </label>
             <label className="block">
-              <span className="text-[11px] font-medium text-text-muted">Program budget ₹ <span className="font-normal">(optional)</span></span>
+              <span className="text-[11px] font-medium text-text-muted">PO budget ₹ <span className="font-normal">(optional)</span></span>
               <input
                 type="number"
                 min="0"
@@ -200,7 +200,7 @@ export function NewProgramDialog({
             disabled={pending}
             className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-fg hover:opacity-90 disabled:opacity-50"
           >
-            {pending ? "Creating…" : "Create program"}
+            {pending ? "Creating…" : "Create PO"}
           </button>
         </div>
       </div>

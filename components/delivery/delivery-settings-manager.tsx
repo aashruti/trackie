@@ -59,8 +59,8 @@ export function DeliverySettingsManager({
       <section className="rounded-xl border border-border bg-surface p-5">
         <h2 className="text-sm font-semibold text-text-primary">Teaching styles</h2>
         <p className="mt-0.5 text-xs text-text-muted">
-          How a program is delivered — e.g. <strong>D2S</strong> Direct to Students, <strong>T3</strong> Teach the
-          Teacher. Attach one to each program. Styles in use can be deactivated (hidden from new programs) but not
+          How a PO is delivered — e.g. <strong>D2S</strong> Direct to Students, <strong>T3</strong> Teach the
+          Teacher. Attach one to each PO. Styles in use can be deactivated (hidden from new POs) but not
           deleted, so history stays intact.
         </p>
 
@@ -115,8 +115,8 @@ export function DeliverySettingsManager({
                       <div className={`text-sm font-medium ${m.active ? "text-text-primary" : "text-text-muted"}`}>{m.name}</div>
                       {m.description && <div className="truncate text-xs text-text-muted">{m.description}</div>}
                     </div>
-                    <span className="shrink-0 rounded-full bg-[var(--neutral-status-subtle)] px-2 py-0.5 text-xs text-text-muted" title="Programs using this style">
-                      {m.programCount} {m.programCount === 1 ? "program" : "programs"}
+                    <span className="shrink-0 rounded-full bg-[var(--neutral-status-subtle)] px-2 py-0.5 text-xs text-text-muted" title="POs using this style">
+                      {m.programCount} {m.programCount === 1 ? "PO" : "POs"}
                     </span>
                     {!m.active && <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] text-text-muted">Inactive</span>}
                     {canManage && (
@@ -130,7 +130,7 @@ export function DeliverySettingsManager({
                             if (m.active && m.programCount > 0) {
                               const confirmed = await confirmAction({
                                 title: `Deactivate “${m.name}”?`,
-                                description: `${m.programCount} program(s) will keep this teaching style, but new programs will not be able to select it.`,
+                                description: `${m.programCount} PO(s) will keep this teaching style, but new POs will not be able to select it.`,
                                 confirmLabel: "Deactivate",
                                 tone: "danger",
                               });

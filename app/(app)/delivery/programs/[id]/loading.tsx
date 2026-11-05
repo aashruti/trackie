@@ -3,7 +3,7 @@ import { Skeleton, TopbarSkeleton } from "@/components/ui/skeleton";
 export default function ProgramDetailLoading() {
   return (
     <>
-      <TopbarSkeleton section="Delivery" title="Program" />
+      <TopbarSkeleton section="Delivery" title="PO" />
       <main className="mx-auto w-full max-w-[1440px] space-y-5 px-6 py-6">
         <Skeleton className="h-4 w-24" />
         <div className="space-y-2">

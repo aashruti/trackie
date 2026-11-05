@@ -126,12 +126,12 @@ export function NewTaskDialog({
 
           {board === "delivery" && (
             <div>
-              <span className="text-[11px] font-medium text-text-muted">Program</span>
+              <span className="text-[11px] font-medium text-text-muted">PO</span>
               <Combobox
                 options={programs.map((p) => ({ id: p.id, name: p.name }))}
                 value={programId}
                 onChange={pickProgram}
-                emptyLabel="No program"
+                emptyLabel="No PO"
               />
             </div>
           )}

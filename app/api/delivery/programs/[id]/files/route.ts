@@ -18,7 +18,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const programId = Number((await params).id);
   if (!Number.isInteger(programId) || programId <= 0) {
-    return NextResponse.json({ error: "Program not found." }, { status: 404 });
+    return NextResponse.json({ error: "PO not found." }, { status: 404 });
   }
   if (!isStorageConfigured()) {
     return NextResponse.json({ error: "File storage isn't configured. Ask an admin to set it up." }, { status: 503 });
@@ -53,7 +53,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   } catch (e) {
     if (e instanceof UploadError) return NextResponse.json({ error: e.message }, { status: 400 });
     // Scope / role / missing program all read as not found.
-    if (isUserError(e)) return NextResponse.json({ error: "Program not found." }, { status: 404 });
+    if (isUserError(e)) return NextResponse.json({ error: "PO not found." }, { status: 404 });
     console.error("[delivery-files:upload]", e);
     return NextResponse.json({ error: "Could not upload the file." }, { status: 503 });
   }

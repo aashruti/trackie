@@ -36,7 +36,7 @@ const HR: Item[] = [
 
 const DELIVERY: Item[] = [
   { label: "Accounts", href: "/delivery/accounts", icon: "M4 7h16M4 12h16M4 17h10" },
-  { label: "Programs", href: "/delivery/programs", icon: "M4 19.5A2.5 2.5 0 016.5 17H20M4 19.5A2.5 2.5 0 006.5 22H20V2H6.5A2.5 2.5 0 004 4.5z" },
+  { label: "POs", href: "/delivery/programs", icon: "M4 19.5A2.5 2.5 0 016.5 17H20M4 19.5A2.5 2.5 0 006.5 22H20V2H6.5A2.5 2.5 0 004 4.5z" },
   { label: "Delivery board", href: "/delivery/board", icon: "M4 5h16v6H4zM4 13h7v6H4z" },
   { label: "Delivery settings", href: "/delivery/settings", icon: "M12 9a3 3 0 100 6 3 3 0 000-6M4 12h2M18 12h2M12 4v2M12 18v2M6 6l1.5 1.5M16.5 16.5L18 18M18 6l-1.5 1.5M7.5 16.5L6 18" },
 ];

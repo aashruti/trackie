@@ -21,7 +21,7 @@ export async function createProgramAction(input: NewProgram): Promise<CreateResu
     return { ok: true, id };
   } catch (e) {
     console.error("[programs:create]", e);
-    return { ok: false, error: isUserError(e) ? e.message : "Could not create the program." };
+    return { ok: false, error: isUserError(e) ? e.message : "Could not create the PO." };
   }
 }
 
@@ -34,6 +34,6 @@ export async function deleteProgramAction(id: number): Promise<ActionResult> {
     return { ok: true };
   } catch (e) {
     console.error("[programs:delete]", e);
-    return { ok: false, error: isUserError(e) ? e.message : "Could not delete the program." };
+    return { ok: false, error: isUserError(e) ? e.message : "Could not delete the PO." };
   }
 }

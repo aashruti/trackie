@@ -132,7 +132,7 @@ export function DeliveryAccountsExplorer({ accounts }: { accounts: DeliveryAccou
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-text-muted">Programs</dt>
+                    <dt className="text-text-muted">POs</dt>
                     <dd className="mt-1 font-medium text-text-primary">
                       {account.activeProgramCount} active · {account.programCount} total
                     </dd>

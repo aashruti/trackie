@@ -70,14 +70,14 @@ export default async function DeliveryAccountPage({
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Card className="p-4">
-            <p className="text-xs uppercase tracking-wide text-text-muted">Programs</p>
+            <p className="text-xs uppercase tracking-wide text-text-muted">POs</p>
             <p className="mt-1 text-xl font-semibold text-text-primary">{report.totals.programs}</p>
             <p className="text-xs text-text-muted">{activePrograms} active</p>
           </Card>
           <Card className="p-4">
             <p className="text-xs uppercase tracking-wide text-text-muted">Events</p>
             <p className="mt-1 text-xl font-semibold text-text-primary">{report.totals.events}</p>
-            <p className="text-xs text-text-muted">across all programs</p>
+            <p className="text-xs text-text-muted">across all POs</p>
           </Card>
           <Card className="p-4">
             <p className="text-xs uppercase tracking-wide text-text-muted">Activities</p>
@@ -102,14 +102,14 @@ export default async function DeliveryAccountPage({
 
         <section>
           <div className="mb-3">
-            <h2 className="text-base font-semibold text-text-primary">Programs</h2>
+            <h2 className="text-base font-semibold text-text-primary">POs</h2>
             <p className="mt-0.5 text-xs text-text-muted">Delivery work linked to this university.</p>
           </div>
           {report.programs.length === 0 ? (
             <Card className="p-8 text-center">
-              <p className="text-sm font-medium text-text-secondary">No delivery programs yet</p>
+              <p className="text-sm font-medium text-text-secondary">No delivery POs yet</p>
               <p className="mt-1 text-xs text-text-muted">
-                This account remains available here so logistics can be prepared before a program starts.
+                This account remains available here so logistics can be prepared before a PO starts.
               </p>
             </Card>
           ) : (

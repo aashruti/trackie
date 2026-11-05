@@ -36,9 +36,9 @@ export default async function ProgramDetailPage({
   if (!canAccessDelivery(actor)) {
     return (
       <>
-        <Topbar section="Delivery" title="Program" user={user} years={years} currentYear={YEAR} />
+        <Topbar section="Delivery" title="PO" user={user} years={years} currentYear={YEAR} />
         <main className="mx-auto w-full max-w-[1440px] px-6 py-6">
-          <p className="text-sm text-text-secondary">Delivery programs are available to the Delivery team / Admin / Super Admin only.</p>
+          <p className="text-sm text-text-secondary">Delivery POs are available to the Delivery team / Super Admin only.</p>
         </main>
       </>
     );
@@ -75,7 +75,7 @@ export default async function ProgramDetailPage({
       <main className="mx-auto w-full max-w-[1440px] space-y-5 px-6 py-6">
         <div className="no-print">
           <Link href="/delivery/programs" className="text-sm text-text-secondary hover:text-text-primary">
-            ← Programs
+            ← POs
           </Link>
         </div>
 
