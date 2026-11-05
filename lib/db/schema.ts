@@ -708,6 +708,12 @@ export const programs = pgTable("programs", {
   // Optional program-level budget envelope (null = untracked; per-event budgets
   // are the operative limit either way).
   totalBudget: numeric("total_budget"),
+  // Purchase-order tracking.
+  poNumber: text("po_number"),
+  poDate: date("po_date"),
+  poValue: numeric("po_value"),
+  gstRate: numeric("gst_rate").notNull().default("18"),
+  vendor: text("vendor"),
 });
 
 // A budgeted event under a program (workshop, hackathon, guest lecture…).
@@ -749,6 +755,49 @@ export const deliveryActivities = pgTable("delivery_activities", {
   }),
   author: text("author").notNull(),
 });
+
+// Payments received against a program's PO.
+export const programPayments = pgTable(
+  "program_payments",
+  {
+    id: serial("id").primaryKey(),
+    ...baseColumns,
+    programId: integer("program_id")
+      .notNull()
+      .references(() => programs.id, { onDelete: "cascade" }),
+    receivedDate: date("received_date").notNull(),
+    amount: numeric("amount").notNull(),
+    tds: numeric("tds").notNull().default("0"),
+    reference: text("reference"),
+    note: text("note"),
+  },
+  (t) => [
+    index("program_payments_program_idx").on(t.programId),
+    check("program_payments_amount_check", sql`${t.amount} > 0`),
+    check("program_payments_tds_check", sql`${t.tds} >= 0`),
+  ],
+);
+
+// Files attached to a program: PO documents (paymentId null) or payment proofs.
+export const programFiles = pgTable(
+  "program_files",
+  {
+    id: serial("id").primaryKey(),
+    ...baseColumns,
+    programId: integer("program_id")
+      .notNull()
+      .references(() => programs.id, { onDelete: "cascade" }),
+    paymentId: integer("payment_id").references(() => programPayments.id, { onDelete: "cascade" }),
+    fileName: text("file_name").notNull(),
+    pathname: text("pathname").notNull(),
+    contentType: text("content_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+  },
+  (t) => [
+    index("program_files_program_idx").on(t.programId),
+    index("program_files_payment_idx").on(t.paymentId),
+  ],
+);
 
 // Immutable audit trail written by the audit_row() trigger (see the
 // audit-foundation migration). Not itself audited — no ...baseColumns.
