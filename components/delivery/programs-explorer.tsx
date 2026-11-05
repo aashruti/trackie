@@ -167,7 +167,7 @@ export function ProgramsExplorer({
             {filtered.length === 0 ? (
               <tr>
                 <td colSpan={11} className="px-4 py-10 text-center text-sm text-text-muted">
-                  {programs.length === 0 ? "No programs yet — create the first one." : "No programs match the filters."}
+                  {programs.length === 0 ? "No POs yet — create the first one." : "No POs match the filters."}
                 </td>
               </tr>
             ) : (
