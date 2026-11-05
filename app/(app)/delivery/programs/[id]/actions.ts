@@ -21,6 +21,7 @@ import {
   type NewPayment,
   type PoInput,
 } from "@/lib/dal/delivery/po";
+import { deleteProgramFile } from "@/lib/dal/delivery/po-files";
 import { isUserError } from "@/lib/dal/errors";
 import type { DeliveryEventStatus, ProgramStatus } from "@/lib/db/enums";
 
@@ -196,5 +197,17 @@ export async function deletePaymentAction(programId: number, paymentId: number):
   } catch (e) {
     console.error("[program-payments:delete]", e);
     return { ok: false, error: isUserError(e) ? e.message : "Could not delete the payment." };
+  }
+}
+
+export async function deleteProgramFileAction(programId: number, fileId: number): Promise<ActionResult> {
+  try {
+    const { actor } = await session();
+    await deleteProgramFile(actor, fileId);
+    revalidateProgram(programId);
+    return { ok: true };
+  } catch (e) {
+    console.error("[program-files:delete]", e);
+    return { ok: false, error: isUserError(e) ? e.message : "Could not delete the file." };
   }
 }
