@@ -124,7 +124,8 @@ export function PoPanel({
   canManage,
 }: {
   detail: ProgramDetail;
-  vendors: string[];
+  /** Active vendors, plus this PO's current vendor even if it is inactive. */
+  vendors: { id: number; name: string }[];
   storageConfigured: boolean;
   canManage: boolean;
 }) {
@@ -239,7 +240,7 @@ export function PoPanel({
           <dl className="grid grid-cols-2 gap-x-6 gap-y-3 px-4 py-4 text-sm sm:grid-cols-3 lg:grid-cols-5">
             <Field label="PO number" value={detail.poNumber ?? "—"} />
             <Field label="PO date" value={detail.poDate ? fmtDate(detail.poDate) : "—"} />
-            <Field label="Vendor" value={detail.vendor ?? "—"} />
+            <Field label="Vendor" value={detail.vendorName ?? "—"} />
             <div>
               <dt className="text-[11px] font-medium text-text-muted">PO value (before GST)</dt>
               <dd className="mt-0.5 font-semibold text-text-primary">
@@ -451,7 +452,7 @@ type PoValues = {
   poDate: string | null;
   poValue: number | null;
   gstRate: number;
-  vendor: string | null;
+  vendorId: number | null;
 };
 
 function PoForm({
@@ -462,14 +463,14 @@ function PoForm({
   onCancel,
 }: {
   detail: ProgramDetail;
-  vendors: string[];
+  vendors: { id: number; name: string }[];
   pending: boolean;
   onSave: (v: PoValues) => void;
   onCancel: () => void;
 }) {
   const [poNumber, setPoNumber] = useState(detail.poNumber ?? "");
   const [poDate, setPoDate] = useState(detail.poDate ?? "");
-  const [vendor, setVendor] = useState(detail.vendor ?? "");
+  const [vendorId, setVendorId] = useState(detail.vendorId === null ? "" : String(detail.vendorId));
   const [poValue, setPoValue] = useState(detail.poValue === null ? "" : String(detail.poValue));
   const [gstRate, setGstRate] = useState(String(detail.gstRate));
   const [localError, setLocalError] = useState<string | null>(null);
@@ -489,7 +490,7 @@ function PoForm({
       poDate: poDate || null,
       poValue: value,
       gstRate: gst ?? DEFAULT_GST_RATE,
-      vendor: vendor.trim() || null,
+      vendorId: vendorId ? Number(vendorId) : null,
     });
   }
 
@@ -506,10 +507,10 @@ function PoForm({
         </label>
         <label className="block">
           <span className="text-[11px] font-medium text-text-muted">Vendor</span>
-          <input value={vendor} onChange={(e) => setVendor(e.target.value)} list="po-vendor-options" className={fieldCls} />
-          <datalist id="po-vendor-options">
-            {vendors.map((v) => <option key={v} value={v} />)}
-          </datalist>
+          <select value={vendorId} onChange={(e) => setVendorId(e.target.value)} className={fieldCls}>
+            <option value="">No vendor</option>
+            {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+          </select>
         </label>
         <label className="block">
           <span className="text-[11px] font-medium text-text-muted">PO value ₹ before GST</span>

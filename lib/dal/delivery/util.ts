@@ -20,6 +20,16 @@ export function toMoney(value: number | undefined, label: string, fallback = 0):
   return String(n);
 }
 
+/** Drizzle wraps driver errors — walk the cause chain for a 23505 unique violation. */
+export function isUniqueViolation(e: unknown): boolean {
+  let cur = e as { code?: string; message?: string; cause?: unknown } | undefined;
+  for (let depth = 0; cur && depth < 5; depth++) {
+    if (cur.code === "23505" || (cur.message && /unique|duplicate/i.test(cur.message))) return true;
+    cur = cur.cause as typeof cur;
+  }
+  return false;
+}
+
 export function assertDateOrder(start: string | undefined, end: string | undefined, what: string): void {
   if (start && end && end < start) throw new UserError(`${what} end date can't be before its start date.`);
 }

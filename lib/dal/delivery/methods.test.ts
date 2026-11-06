@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { listMethods, createMethod, updateMethod, setMethodActive } from "./methods";
 import { db } from "@/lib/db/client";
-import { deliveryMethods, users } from "@/lib/db/schema";
+import { accounts, deliveryMethods, oems, programs, users } from "@/lib/db/schema";
 import { eq, inArray } from "drizzle-orm";
 
 const SUPER = { id: 1, roles: ["super-admin" as const] };
@@ -44,6 +44,22 @@ describe("delivery methods catalogue", () => {
     const [row] = await db.select().from(deliveryMethods).where(eq(deliveryMethods.id, id));
     expect(row.createdBy).toBe(DELIVERY.id);
     expect(row.updatedBy).toBe(DELIVERY.id);
+  });
+
+  it("programCount counts the programs using each method", async () => {
+    const id = created[0];
+    const [o] = await db.insert(oems).values({ name: `MethodsOEM-${RUN}` }).returning({ id: oems.id });
+    const [a] = await db.insert(accounts).values({ name: `MethodsAcc-${RUN}`, type: "university", city: "Pune", oemId: o.id }).returning({ id: accounts.id });
+    try {
+      await db.insert(programs).values([
+        { accountId: a.id, oemId: o.id, deliveryMethodId: id, name: `M1 ${RUN}` },
+        { accountId: a.id, oemId: o.id, deliveryMethodId: id, name: `M2 ${RUN}` },
+      ]);
+      expect((await listMethods(SUPER)).find((r) => r.id === id)!.programCount).toBe(2);
+    } finally {
+      await db.delete(accounts).where(eq(accounts.id, a.id)); // programs cascade
+      await db.delete(oems).where(eq(oems.id, o.id));
+    }
   });
 
   it("duplicate code is a user-safe error", async () => {

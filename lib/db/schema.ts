@@ -15,6 +15,7 @@ import {
   jsonb,
   unique,
   index,
+  uniqueIndex,
   check,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
@@ -683,6 +684,21 @@ export const deliveryMethods = pgTable("delivery_methods", {
   active: boolean("active").notNull().default(true),
 });
 
+// Managed list of PO vendors: who issued the PO and is billed (e.g. a
+// reseller). Independent of the provider (oems). Managed in Delivery settings;
+// deactivated, never deleted. Names are unique case-insensitively. Separate
+// from any future SME/PI vendor list.
+export const poVendors = pgTable(
+  "po_vendors",
+  {
+    id: serial("id").primaryKey(),
+    ...baseColumns,
+    name: text("name").notNull(),
+    active: boolean("active").notNull().default(true),
+  },
+  (t) => [uniqueIndex("po_vendors_name_lower_idx").on(sql`lower(${t.name})`)],
+);
+
 // A sold program being delivered under an account.
 export const programs = pgTable("programs", {
   id: serial("id").primaryKey(),
@@ -713,8 +729,11 @@ export const programs = pgTable("programs", {
   poDate: date("po_date"),
   poValue: numeric("po_value"),
   gstRate: numeric("gst_rate").notNull().default("18"),
+  // Deprecated: superseded by vendor_id; kept for one release, drop in a later migration.
+  // The app no longer reads or writes it.
   vendor: text("vendor"),
-});
+  vendorId: integer("vendor_id").references(() => poVendors.id),
+}, (t) => [index("programs_vendor_idx").on(t.vendorId)]);
 
 // A budgeted event under a program (workshop, hackathon, guest lecture…).
 export const deliveryEvents = pgTable("delivery_events", {

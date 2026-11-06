@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth/config";
-import { createProgram, deleteProgram, type NewProgram } from "@/lib/dal/delivery/programs";
+import { createProgram, deleteProgram, type NewProgramWithPo } from "@/lib/dal/delivery/programs";
 import { isUserError } from "@/lib/dal/errors";
 
 async function actor() {
@@ -14,7 +14,7 @@ async function actor() {
 export type ActionResult = { ok: true } | { ok: false; error: string };
 export type CreateResult = { ok: true; id: number } | { ok: false; error: string };
 
-export async function createProgramAction(input: NewProgram): Promise<CreateResult> {
+export async function createProgramAction(input: NewProgramWithPo): Promise<CreateResult> {
   try {
     const { id } = await createProgram(await actor(), input);
     revalidatePath("/delivery/programs");
