@@ -16,7 +16,7 @@ export default async function DeliverySettingsPage() {
       <>
         <Topbar section="Delivery" title="Delivery settings" user={user} years={years} currentYear={YEAR} />
         <main className="mx-auto w-full max-w-[1440px] px-6 py-6">
-          <p className="text-sm text-text-secondary">Delivery settings are available to the Delivery team / Admin / Super Admin only.</p>
+          <p className="text-sm text-text-secondary">Delivery settings are available to the Delivery team / Super Admin only.</p>
         </main>
       </>
     );
@@ -30,7 +30,7 @@ export default async function DeliverySettingsPage() {
       <main className="mx-auto w-full max-w-[1440px] space-y-5 px-6 py-6">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-text-primary">Delivery settings</h1>
-          <p className="mt-0.5 text-sm text-text-secondary">Teaching styles that can be attached to programs.</p>
+          <p className="mt-0.5 text-sm text-text-secondary">Teaching styles that can be attached to POs.</p>
         </div>
         <DeliverySettingsManager methods={methods} canManage={canManageDelivery(actor)} />
       </main>

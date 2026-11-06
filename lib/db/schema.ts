@@ -432,6 +432,34 @@ export const employeeProfiles = pgTable("employee_profiles", {
   status: employeeStatusEnum("status").notNull().default("active"),
 });
 
+// A user's saved email signature (1:1 with users). Deliberately a copy, not a
+// link to employee_profiles: designation and phone only seed the first draft, so
+// an employee styling their signature never edits their HR record.
+export const emailSignatures = pgTable("email_signatures", {
+  id: serial("id").primaryKey(),
+  ...baseColumns,
+  userId: integer("user_id")
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  title: text("title").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone").notNull().default(""),
+  address: text("address").notNull().default(""),
+  accentColor: text("accent_color").notNull(),
+  showAddress: boolean("show_address").notNull().default(true),
+  showEdudron: boolean("show_edudron").notNull().default(true),
+  layout: text("layout").notNull().default("card"), // "card" | "plain"
+  font: text("font").notNull().default("sans"), // "sans" | "serif"
+  signOff: text("sign_off").notNull().default(""),
+  company: text("company").notNull().default("Datagami Technology Services Pvt. Ltd"),
+  extraLine: text("extra_line").notNull().default(""),
+  badge: text("badge").notNull().default("none"), // key into BADGES
+  showEmail: boolean("show_email").notNull().default(true),
+  showWebsite: boolean("show_website").notNull().default(true),
+});
+
 // Company holiday calendar (paid days off, excluded from working days).
 export const holidays = pgTable("holidays", {
   id: serial("id").primaryKey(),
@@ -680,6 +708,12 @@ export const programs = pgTable("programs", {
   // Optional program-level budget envelope (null = untracked; per-event budgets
   // are the operative limit either way).
   totalBudget: numeric("total_budget"),
+  // Purchase-order tracking.
+  poNumber: text("po_number"),
+  poDate: date("po_date"),
+  poValue: numeric("po_value"),
+  gstRate: numeric("gst_rate").notNull().default("18"),
+  vendor: text("vendor"),
 });
 
 // A budgeted event under a program (workshop, hackathon, guest lecture…).
@@ -721,6 +755,49 @@ export const deliveryActivities = pgTable("delivery_activities", {
   }),
   author: text("author").notNull(),
 });
+
+// Payments received against a program's PO.
+export const programPayments = pgTable(
+  "program_payments",
+  {
+    id: serial("id").primaryKey(),
+    ...baseColumns,
+    programId: integer("program_id")
+      .notNull()
+      .references(() => programs.id, { onDelete: "cascade" }),
+    receivedDate: date("received_date").notNull(),
+    amount: numeric("amount").notNull(),
+    tds: numeric("tds").notNull().default("0"),
+    reference: text("reference"),
+    note: text("note"),
+  },
+  (t) => [
+    index("program_payments_program_idx").on(t.programId),
+    check("program_payments_amount_check", sql`${t.amount} > 0`),
+    check("program_payments_tds_check", sql`${t.tds} >= 0`),
+  ],
+);
+
+// Files attached to a program: PO documents (paymentId null) or payment proofs.
+export const programFiles = pgTable(
+  "program_files",
+  {
+    id: serial("id").primaryKey(),
+    ...baseColumns,
+    programId: integer("program_id")
+      .notNull()
+      .references(() => programs.id, { onDelete: "cascade" }),
+    paymentId: integer("payment_id").references(() => programPayments.id, { onDelete: "cascade" }),
+    fileName: text("file_name").notNull(),
+    pathname: text("pathname").notNull(),
+    contentType: text("content_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+  },
+  (t) => [
+    index("program_files_program_idx").on(t.programId),
+    index("program_files_payment_idx").on(t.paymentId),
+  ],
+);
 
 // Immutable audit trail written by the audit_row() trigger (see the
 // audit-foundation migration). Not itself audited — no ...baseColumns.

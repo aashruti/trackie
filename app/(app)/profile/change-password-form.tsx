@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Field, FormMessage, INPUT_CLASS } from "@/components/ui/form";
 import { changePasswordAction } from "./actions";
 
 export function ChangePasswordForm() {
@@ -37,7 +38,7 @@ export function ChangePasswordForm() {
           value={current}
           onChange={(e) => setCurrent(e.target.value)}
           autoComplete="current-password"
-          className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-[13px] text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+          className={INPUT_CLASS}
         />
       </Field>
       <Field label="New password">
@@ -48,7 +49,7 @@ export function ChangePasswordForm() {
           value={next}
           onChange={(e) => setNext(e.target.value)}
           autoComplete="new-password"
-          className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-[13px] text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+          className={INPUT_CLASS}
         />
       </Field>
       <Field label="Confirm new password">
@@ -59,22 +60,11 @@ export function ChangePasswordForm() {
           value={confirm}
           onChange={(e) => setConfirm(e.target.value)}
           autoComplete="new-password"
-          className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-[13px] text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+          className={INPUT_CLASS}
         />
       </Field>
 
-      {msg && (
-        <p
-          className="rounded-lg px-3 py-2 text-[12px] font-medium"
-          style={
-            msg.ok
-              ? { background: "var(--positive-subtle)", color: "var(--positive-text)" }
-              : { background: "var(--negative-subtle)", color: "var(--negative-text)" }
-          }
-        >
-          {msg.text}
-        </p>
-      )}
+      {msg && <FormMessage ok={msg.ok}>{msg.text}</FormMessage>}
 
       <button
         type="submit"
@@ -84,14 +74,5 @@ export function ChangePasswordForm() {
         {isPending ? "Saving…" : "Change password"}
       </button>
     </form>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <label className="text-[12px] font-medium text-text-secondary">{label}</label>
-      {children}
-    </div>
   );
 }

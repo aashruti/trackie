@@ -13,11 +13,16 @@ export default auth((req) => {
   const roles = (req.auth?.user as { roles?: string[] } | undefined)?.roles;
 
   // Unauthenticated → sign in (preserves the previous middleware behaviour).
+  const path = nextUrl.pathname;
+  // Delivery file endpoints are called with fetch(): a redirect would re-POST
+  // the upload to an HTML page, so answer with JSON (still denied here).
+  const isDeliveryApi = path.startsWith("/api/delivery/");
+
   if (!roles) {
+    if (isDeliveryApi) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     return NextResponse.redirect(new URL("/login", nextUrl));
   }
 
-  const path = nextUrl.pathname;
   const hasArea = roles.some((r) => AREA_ROLES.includes(r));
   // Self-service floor — universal (spec §2): the team board plus each user's
   // own leave / payslips / attendance. Available even to a role-less/viewer
@@ -25,11 +30,16 @@ export default auth((req) => {
   const selfServe =
     path === "/team" || path.startsWith("/team/") ||
     path === "/me" || path.startsWith("/me/");
+  if (!hasArea && isDeliveryApi) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
   if (!hasArea && !selfServe) {
     return NextResponse.redirect(new URL("/team", nextUrl));
   }
 });
 
+// signature/ stays public: email recipients' mail clients fetch those logos with
+// no Trackie session, and a redirect to /login would show as a broken image.
 export const config = {
-  matcher: ["/((?!api/auth|login|_next/static|_next/image|favicon.ico|icon.svg).*)"],
+  matcher: ["/((?!api/auth|login|_next/static|_next/image|favicon.ico|icon.svg|signature/).*)"],
 };

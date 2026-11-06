@@ -3,7 +3,7 @@ import { Skeleton, TopbarSkeleton } from "@/components/ui/skeleton";
 export default function ProgramsLoading() {
   return (
     <>
-      <TopbarSkeleton section="Delivery" title="Programs" />
+      <TopbarSkeleton section="Delivery" title="POs" />
       <main className="mx-auto w-full max-w-[1440px] space-y-5 px-6 py-6">
         <div className="flex items-end justify-between">
           <div className="space-y-2">

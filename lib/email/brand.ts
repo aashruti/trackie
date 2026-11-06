@@ -1,4 +1,5 @@
 import "server-only";
+import { escapeEmailHtml } from "./escape";
 
 const GOLD = "#E5A50A";
 const INK = "#0F172A";
@@ -6,14 +7,7 @@ const MUTED = "#64748B";
 const CANVAS = "#F8FAFC";
 const BORDER = "#E2E8F0";
 
-export function escapeEmailHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+export { escapeEmailHtml };
 
 export function emailButton(href: string, label: string): string {
   return `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:24px 0 8px">

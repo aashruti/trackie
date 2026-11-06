@@ -22,7 +22,7 @@ export default async function DeliveryBoardPage({
       <>
         <Topbar section="Delivery" title="Delivery board" user={user} />
         <main className="mx-auto w-full max-w-[1440px] px-6 py-6">
-          <p className="text-sm text-text-secondary">The delivery board is available to the Delivery team / Admin / Super Admin only.</p>
+          <p className="text-sm text-text-secondary">The delivery board is available to the Delivery team / Super Admin only.</p>
         </main>
       </>
     );

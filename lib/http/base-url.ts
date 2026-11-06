@@ -23,3 +23,17 @@ export async function appBaseUrl(): Promise<string> {
   const proto = h.get("x-forwarded-proto") ?? (host.includes("localhost") ? "http" : "https");
   return `${proto}://${host}`;
 }
+
+/**
+ * The origin signature images load from. A preview deployment uses its own host,
+ * because images added on a branch aren't on production until it merges. Vercel
+ * sets VERCEL_ENV and VERCEL_URL, so neither is client-controllable.
+ */
+export async function signatureAssetBase(): Promise<string> {
+  const previewHost = isPreviewDeployment() ? process.env.VERCEL_URL?.trim() : "";
+  return previewHost ? `https://${previewHost.replace(/\/+$/, "")}` : appBaseUrl();
+}
+
+export function isPreviewDeployment(): boolean {
+  return process.env.VERCEL_ENV === "preview";
+}

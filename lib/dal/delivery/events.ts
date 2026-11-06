@@ -74,7 +74,7 @@ export async function createEvent(user: SessionUser, input: NewEvent): Promise<{
     db.select({ id: programs.id }).from(programs).where(eq(programs.id, input.programId)).limit(1),
     assertEventRefs(values.ownerUserId),
   ]);
-  if (!programRows.length) throw new UserError("Program not found.");
+  if (!programRows.length) throw new UserError("PO not found.");
   const [row] = await db
     .insert(deliveryEvents)
     .values({ ...values, programId: input.programId, createdBy: user.id, updatedBy: user.id })

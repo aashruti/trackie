@@ -14,8 +14,8 @@ export function DeliveryDashboardPanel({ data }: { data: DeliveryDashboard }) {
     <div className="space-y-6">
       {/* KPI cards */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Programs" value={String(data.programs.total)} href="/delivery/programs" />
-        <StatCard label="Active programs" value={String(data.programs.active)} href="/delivery/programs" tone="positive" />
+        <StatCard label="POs" value={String(data.programs.total)} href="/delivery/programs" />
+        <StatCard label="Active POs" value={String(data.programs.active)} href="/delivery/programs" tone="positive" />
         <StatCard label="Events next 14 days" value={String(data.upcomingCount)} href="/delivery/programs" tone="info" />
         <StatCard label="Over budget" value={String(data.overBudgetCount)} href="/delivery/programs" tone={data.overBudgetCount > 0 ? "negative" : "default"} />
       </div>
@@ -83,7 +83,7 @@ export function DeliveryDashboardPanel({ data }: { data: DeliveryDashboard }) {
       <section className="rounded-xl border border-border bg-surface p-4">
         <h2 className="text-sm font-semibold text-text-primary">Recent activity</h2>
         {data.recent.length === 0 ? (
-          <p className="py-8 text-center text-sm text-text-muted">No activity logged yet — open a program and start the log.</p>
+          <p className="py-8 text-center text-sm text-text-muted">No activity logged yet — open a PO and start the log.</p>
         ) : (
           <ul className="mt-3 divide-y divide-border-subtle">
             {data.recent.map((a) => {
@@ -107,7 +107,7 @@ export function DeliveryDashboardPanel({ data }: { data: DeliveryDashboard }) {
       </section>
 
       <div className="flex flex-wrap gap-2">
-        <QuickLink href="/delivery/programs" label="Programs" />
+        <QuickLink href="/delivery/programs" label="POs" />
         <QuickLink href="/delivery/board" label="Delivery board" />
         <QuickLink href="/delivery/settings" label="Teaching styles" />
       </div>

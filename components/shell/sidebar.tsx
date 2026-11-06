@@ -36,7 +36,7 @@ const HR: Item[] = [
 
 const DELIVERY: Item[] = [
   { label: "Accounts", href: "/delivery/accounts", icon: "M4 7h16M4 12h16M4 17h10" },
-  { label: "Programs", href: "/delivery/programs", icon: "M4 19.5A2.5 2.5 0 016.5 17H20M4 19.5A2.5 2.5 0 006.5 22H20V2H6.5A2.5 2.5 0 004 4.5z" },
+  { label: "POs", href: "/delivery/programs", icon: "M4 19.5A2.5 2.5 0 016.5 17H20M4 19.5A2.5 2.5 0 006.5 22H20V2H6.5A2.5 2.5 0 004 4.5z" },
   { label: "Delivery board", href: "/delivery/board", icon: "M4 5h16v6H4zM4 13h7v6H4z" },
   { label: "Delivery settings", href: "/delivery/settings", icon: "M12 9a3 3 0 100 6 3 3 0 000-6M4 12h2M18 12h2M12 4v2M12 18v2M6 6l1.5 1.5M16.5 16.5L18 18M18 6l-1.5 1.5M7.5 16.5L6 18" },
 ];
@@ -45,6 +45,7 @@ const ME: Item[] = [
   { label: "Apply for leave", href: "/me/leave", icon: "M12 5v14M5 12h14" },
   { label: "My attendance", href: "/me/attendance", icon: "M4 6h16v14H4zM4 10h16M8 3v4M16 3v4" },
   { label: "My payslips", href: "/me/payslips", icon: "M6 3h9l3 3v15H6zM9 12h6M9 16h4" },
+  { label: "Email signature", href: "/me/signature", icon: "M3 6h18v12H3zM3 7l9 6 9-6" },
 ];
 
 function LockIcon() {

@@ -3,6 +3,7 @@
  * Colours are design-system CSS variables so light/dark both work.
  */
 import type { DeliveryActivityType, DeliveryEventStatus, ProgramStatus } from "@/lib/db/enums";
+import type { PaymentStatus } from "@/lib/delivery/po-status";
 
 export type ChipMeta = { label: string; text: string; bg: string; border: string };
 
@@ -11,6 +12,15 @@ export const PROGRAM_STATUS_META: Record<ProgramStatus, ChipMeta> = {
   active: { label: "Active", text: "var(--positive-text)", bg: "var(--positive-subtle)", border: "var(--positive-border)" },
   completed: { label: "Completed", text: "var(--info-text)", bg: "var(--info-subtle)", border: "var(--info-border)" },
   "on-hold": { label: "On hold", text: "var(--pending-text)", bg: "var(--pending-subtle)", border: "var(--pending-border)" },
+};
+
+export const PAYMENT_STATUS_META: Record<PaymentStatus, ChipMeta> = {
+  no_value: { label: "No PO value", text: "var(--neutral-status-text)", bg: "var(--neutral-status-subtle)", border: "var(--neutral-status-border)" },
+  value_missing: { label: "Value missing", text: "var(--pending-text)", bg: "var(--pending-subtle)", border: "var(--pending-border)" },
+  not_received: { label: "Not received", text: "var(--negative-text)", bg: "var(--negative-subtle)", border: "var(--negative-border)" },
+  part_received: { label: "Part received", text: "var(--pending-text)", bg: "var(--pending-subtle)", border: "var(--pending-border)" },
+  fully_received: { label: "Fully received", text: "var(--positive-text)", bg: "var(--positive-subtle)", border: "var(--positive-border)" },
+  over_received: { label: "Over received", text: "var(--info-text)", bg: "var(--info-subtle)", border: "var(--info-border)" },
 };
 
 export const EVENT_STATUS_META: Record<DeliveryEventStatus, ChipMeta> = {

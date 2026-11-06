@@ -50,13 +50,13 @@ export function ProgramControls({
   return (
     <>
       <select
-        aria-label="Program status"
+        aria-label="PO status"
         value={program.status}
         disabled={pending}
         onChange={(e) => run(() => setProgramStatusAction(program.id, e.target.value as ProgramStatus))}
         className="cursor-pointer rounded-full border px-2 py-0.5 text-[11px] font-semibold outline-none focus:ring-2 focus:ring-[var(--ring)]"
         style={{ background: meta.bg, color: meta.text, borderColor: meta.border }}
-        title="Change program status"
+        title="Change PO status"
       >
         {PROGRAM_STATUSES.map((s) => (
           <option key={s} value={s}>{PROGRAM_STATUS_META[s].label}</option>
@@ -73,8 +73,8 @@ export function ProgramControls({
         onClick={async () => {
           const confirmed = await confirmAction({
             title: `Delete “${program.name}”?`,
-            description: "All events and activity history will be permanently deleted. This cannot be undone.",
-            confirmLabel: "Delete program",
+            description: "All events, activity history and PO documents will be permanently deleted. This cannot be undone.",
+            confirmLabel: "Delete PO",
             tone: "danger",
           });
           if (confirmed) run(() => deleteProgramAction(program.id), () => router.push("/delivery/programs"));
@@ -152,7 +152,7 @@ function EditProgramDialog({
 
   function submit() {
     setLocalError(null);
-    if (!name.trim()) { setLocalError("Give the program a name."); return; }
+    if (!name.trim()) { setLocalError("Give the PO a name."); return; }
     onSave({
       accountId: program.accountId,
       oemId: Number(oemId),
@@ -182,7 +182,7 @@ function EditProgramDialog({
       >
         <div className="flex items-center justify-between border-b border-border-subtle px-5 py-4">
           <h2 id="edit-program-title" className="text-base font-bold tracking-tight text-text-primary">
-            Edit program
+            Edit PO
           </h2>
           <button
             onClick={onClose}
@@ -198,7 +198,7 @@ function EditProgramDialog({
 
         <div className="space-y-3 px-5 py-4">
           <label className="block">
-            <span className="text-[11px] font-medium text-text-muted">Program name</span>
+            <span className="text-[11px] font-medium text-text-muted">PO name</span>
             <input autoFocus value={name} onChange={(e) => setName(e.target.value)} className={fieldCls} />
           </label>
 
@@ -230,7 +230,7 @@ function EditProgramDialog({
           </div>
 
           <label className="block">
-            <span className="text-[11px] font-medium text-text-muted">Program budget ₹ <span className="font-normal">(optional)</span></span>
+            <span className="text-[11px] font-medium text-text-muted">PO budget ₹ <span className="font-normal">(optional)</span></span>
             <input type="number" min="0" value={totalBudget} onChange={(e) => setTotalBudget(e.target.value)} className={fieldCls} />
           </label>
 
