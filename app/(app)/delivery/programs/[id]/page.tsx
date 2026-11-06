@@ -10,7 +10,7 @@ import { listUserOptions } from "@/lib/dal/tasks";
 import { ProgramDetailView } from "@/components/delivery/program-detail";
 import { PoPanel } from "@/components/delivery/po-panel";
 import { isStorageConfigured } from "@/lib/storage/blob";
-import { listVendorOptions } from "@/lib/dal/delivery/po";
+import { listPoVendors } from "@/lib/dal/delivery/po-vendors";
 import { ProgramControls } from "@/components/delivery/program-controls";
 import { Money } from "@/components/ui/money";
 import { PROGRAM_STATUS_META } from "@/components/delivery/meta";
@@ -57,7 +57,7 @@ export default async function ProgramDetailPage({
     listUserOptions(),
     canManage ? listMethods(actor) : Promise.resolve([]),
     canManage ? listOemOptions(actor) : Promise.resolve([]),
-    listVendorOptions(actor),
+    canManage ? listPoVendors(actor, { includeInactive: false }) : Promise.resolve([]),
   ]);
   if (!detail || !calendar) notFound();
 
@@ -68,6 +68,13 @@ export default async function ProgramDetailPage({
   const editMethods = methods
     .filter((m) => m.active || m.id === detail.deliveryMethodId)
     .map((m) => ({ id: m.id, name: m.name, code: m.code }));
+  // Same rule for vendors: "Move to new PO" gets active vendors only; editing
+  // this PO's details also offers its current vendor if it was deactivated.
+  const activeVendors = vendors.map((v) => ({ id: v.id, name: v.name }));
+  const editVendors =
+    detail.vendorId !== null && !activeVendors.some((v) => v.id === detail.vendorId)
+      ? [...activeVendors, { id: detail.vendorId, name: `${detail.vendorName ?? "Vendor"} (inactive)` }]
+      : activeVendors;
 
   return (
     <>
@@ -133,7 +140,7 @@ export default async function ProgramDetailPage({
 
         <PoPanel
           detail={detail}
-          vendors={vendors}
+          vendors={editVendors}
           storageConfigured={isStorageConfigured()}
           canManage={canManage}
         />
@@ -145,7 +152,7 @@ export default async function ProgramDetailPage({
           calMonth={calMonth}
           tab={tab}
           users={users}
-          vendors={vendors}
+          vendors={activeVendors}
           canManage={canManage}
         />
       </main>

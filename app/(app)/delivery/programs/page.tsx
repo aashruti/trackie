@@ -3,6 +3,7 @@ import { Topbar } from "@/components/shell/topbar";
 import { getYearContext } from "@/lib/dal/years";
 import { canAccessDelivery, canManageDelivery } from "@/lib/dal/authz";
 import { listMethods } from "@/lib/dal/delivery/methods";
+import { listPoVendors } from "@/lib/dal/delivery/po-vendors";
 import { listAccountOptions, listOemOptions, listPrograms } from "@/lib/dal/delivery/programs";
 import { ProgramsExplorer } from "@/components/delivery/programs-explorer";
 
@@ -23,11 +24,13 @@ export default async function DeliveryProgramsPage() {
     );
   }
 
-  const [programs, methods, accounts, oems] = await Promise.all([
+  const [programs, methods, accounts, oems, vendors] = await Promise.all([
     listPrograms(actor),
     listMethods(actor, { includeInactive: false }),
     listAccountOptions(actor),
     listOemOptions(actor),
+    // New POs may only pick an active vendor.
+    listPoVendors(actor, { includeInactive: false }),
   ]);
 
   return (
@@ -39,6 +42,7 @@ export default async function DeliveryProgramsPage() {
           methods={methods.map((m) => ({ id: m.id, name: m.name, code: m.code }))}
           accounts={accounts}
           oems={oems}
+          vendors={vendors.map((v) => ({ id: v.id, name: v.name }))}
           canManage={canManageDelivery(actor)}
         />
       </main>

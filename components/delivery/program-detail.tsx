@@ -55,7 +55,7 @@ export function ProgramDetailView({
   calMonth: number;
   tab: "events" | "calendar";
   users: Option[];
-  vendors: string[];
+  vendors: { id: number; name: string }[];
   canManage: boolean;
 }) {
   const router = useRouter();
@@ -136,7 +136,7 @@ function EventsPanel({
 }: {
   detail: ProgramDetail;
   users: Option[];
-  vendors: string[];
+  vendors: { id: number; name: string }[];
   canManage: boolean;
   pending: boolean;
   run: (fn: () => Promise<{ ok: boolean; error?: string }>, onOk?: () => void) => void;
