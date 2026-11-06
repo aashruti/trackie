@@ -1,20 +1,16 @@
 import "server-only";
 
-import { and, asc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { programFiles, programPayments, programs } from "@/lib/db/schema";
-import {
-  assertDeliveryAccess,
-  assertDeliveryManage,
-  scopeAccountIds,
-  type SessionUser,
-} from "@/lib/dal/authz";
+import { assertDeliveryManage, scopeAccountIds, type SessionUser } from "@/lib/dal/authz";
 import { assignedIds } from "@/lib/dal/accounts";
 import { UserError } from "@/lib/dal/errors";
 import { DEFAULT_GST_RATE } from "@/lib/delivery/po-status";
 import { deleteBlob } from "@/lib/storage/blob";
 import { stampedDelete, stampedDeleteWhere } from "../audit";
 import { assertPaymentInScope, assertProgramInScope } from "./scope";
+import { assertPoVendorUsable } from "./po-vendors";
 import { assertIsoDate } from "./util";
 
 /**
@@ -28,7 +24,8 @@ export type PoInput = {
   poDate?: string | null;
   poValue?: number | null;
   gstRate?: number | null;
-  vendor?: string | null;
+  /** A po_vendors id; null/undefined = no vendor. */
+  vendorId?: number | null;
 };
 
 const text = (v: string | null | undefined, max: number, label: string): string | null => {
@@ -51,12 +48,16 @@ export function cleanPoInput(input: PoInput) {
   // Only null/undefined fall back to the default — 0% GST is a real rate.
   const gst = input.gstRate ?? DEFAULT_GST_RATE;
   if (!Number.isFinite(gst) || gst < 0 || gst > 100) throw new UserError("GST rate must be between 0 and 100.");
+  const vendorId = input.vendorId ?? null;
+  if (vendorId !== null && (!Number.isInteger(vendorId) || vendorId <= 0)) {
+    throw new UserError("Pick a vendor from the list.");
+  }
   return {
     poNumber: text(input.poNumber, 80, "PO number"),
     poDate,
     poValue,
     gstRate: String(gst),
-    vendor: text(input.vendor, 160, "Vendor"),
+    vendorId,
   };
 }
 
@@ -80,7 +81,13 @@ export async function updateProgramPo(
 ): Promise<{ duplicates: { id: number; name: string }[] }> {
   assertDeliveryManage(user);
   const values = cleanPoInput(input);
-  await assertProgramInScope(user, programId);
+  const [, [current]] = await Promise.all([
+    assertProgramInScope(user, programId),
+    db.select({ vendorId: programs.vendorId }).from(programs).where(eq(programs.id, programId)).limit(1),
+  ]);
+  if (!current) throw new UserError("PO not found.");
+  // A PO may keep its current vendor even after that vendor is deactivated.
+  await assertPoVendorUsable(values.vendorId, { allowInactiveId: current.vendorId });
   const [saved] = await db
     .update(programs)
     .set({ ...values, updatedBy: user.id })
@@ -171,23 +178,6 @@ export async function deletePayment(user: SessionUser, id: number): Promise<void
   const n = await stampedDelete(programPayments, id, user.id);
   if (!n) throw new UserError("Payment not found.");
   await removeBlobsBestEffort(files.map((f) => f.pathname));
-}
-
-/** Distinct vendor names across the caller's scope, for the picker. */
-export async function listVendorOptions(user: SessionUser): Promise<string[]> {
-  assertDeliveryAccess(user);
-  const scope = await callerScope(user);
-  const rows = await db
-    .selectDistinct({ vendor: programs.vendor })
-    .from(programs)
-    .where(
-      and(
-        isNotNull(programs.vendor),
-        scope ? inArray(programs.accountId, scope.length ? scope : [-1]) : undefined,
-      ),
-    )
-    .orderBy(asc(programs.vendor));
-  return rows.map((r) => r.vendor!).filter(Boolean);
 }
 
 export type ProgramFileRow = {
@@ -286,6 +276,8 @@ export async function moveToNewPo(
   if (!eventIds.length) throw new UserError("Pick at least one event to move.");
   if ([...eventIds, ...paymentIds].some((i) => !Number.isInteger(i))) throw new UserError("Pick events from the list.");
   await assertProgramInScope(user, sourceId);
+  // Checked before the statement, so an inactive vendor changes nothing.
+  await assertPoVendorUsable(po.vendorId);
 
   const ev = intArray(eventIds);
   const pay = intArray(paymentIds);
@@ -302,13 +294,13 @@ export async function moveToNewPo(
     ),
     new_p AS (
       INSERT INTO programs (account_id, oem_id, delivery_method_id, name, status,
-                            start_date, end_date, po_number, po_date, po_value, gst_rate, vendor,
+                            start_date, end_date, po_number, po_date, po_value, gst_rate, vendor_id,
                             created_by, updated_by)
       SELECT account_id, oem_id, delivery_method_id, ${name}::text, status,
              (SELECT min(start_date) FROM delivery_events WHERE id = ANY(${ev})),
              (SELECT max(coalesce(end_date, start_date)) FROM delivery_events WHERE id = ANY(${ev})),
              ${po.poNumber}::text, ${po.poDate}::date, ${po.poValue}::numeric, ${po.gstRate}::numeric,
-             ${po.vendor}::text, ${actor}::int, ${actor}::int
+             ${po.vendorId}::int, ${actor}::int, ${actor}::int
       FROM src WHERE EXISTS (SELECT 1 FROM ok)
       RETURNING id
     ),

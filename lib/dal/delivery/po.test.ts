@@ -13,6 +13,7 @@ import {
   deliveryEvents,
   deliveryMethods,
   oems,
+  poVendors,
   tasks,
   programFiles,
   programPayments,
@@ -23,7 +24,7 @@ import {
 import { and, eq, inArray } from "drizzle-orm";
 import { deleteBlob } from "@/lib/storage/blob";
 import { createProgram, deleteProgram, getProgramDetail, listPrograms, updateProgram } from "./programs";
-import { addPayment, deletePayment, listVendorOptions, loadProgramPo, moveToNewPo, updatePayment, updateProgramPo } from "./po";
+import { addPayment, deletePayment, loadProgramPo, moveToNewPo, updatePayment, updateProgramPo } from "./po";
 import { addActivity, createEvent } from "./events";
 import { getProgramFileForDownload } from "./po-files";
 
@@ -35,7 +36,7 @@ let DEL_A: { id: number; roles: ["delivery"] }; // in scope of account A only
 let DEL_B: { id: number; roles: ["delivery"] }; // in scope of account B only
 
 const RUN = String(Date.now()).slice(-6);
-const f = { oemId: 0, oem2Id: 0, accA: 0, accB: 0, methodId: 0, userIds: [] as number[] };
+const f = { oemId: 0, oem2Id: 0, accA: 0, accB: 0, methodId: 0, userIds: [] as number[], vendorA: 0, vendorB: 0, vendorOff: 0, vendorOff2: 0 };
 const programIds: number[] = [];
 
 async function mk(name: string, accountId = f.accA, oemId = f.oemId) {
@@ -55,6 +56,16 @@ beforeAll(async () => {
   f.accB = b.id;
   const [m] = await db.insert(deliveryMethods).values({ name: `PoStyle-${RUN}`, code: `P${RUN}` }).returning({ id: deliveryMethods.id });
   f.methodId = m.id;
+  const vendors = await db
+    .insert(poVendors)
+    .values([
+      { name: `PoVendorA-${RUN}` },
+      { name: `PoVendorB-${RUN}` },
+      { name: `PoVendorOff-${RUN}`, active: false },
+      { name: `PoVendorOff2-${RUN}`, active: false },
+    ])
+    .returning({ id: poVendors.id });
+  [f.vendorA, f.vendorB, f.vendorOff, f.vendorOff2] = vendors.map((v) => v.id);
   const mkUser = async (label: string, role: "delivery" | "super-admin") => {
     const [u] = await db
       .insert(users)
@@ -78,6 +89,7 @@ afterAll(async () => {
   await db.delete(users).where(inArray(users.id, f.userIds));
   await db.delete(accounts).where(inArray(accounts.id, [f.accA, f.accB]));
   await db.delete(deliveryMethods).where(eq(deliveryMethods.id, f.methodId));
+  await db.delete(poVendors).where(inArray(poVendors.id, [f.vendorA, f.vendorB, f.vendorOff, f.vendorOff2]));
   await db.delete(oems).where(inArray(oems.id, [f.oemId, f.oem2Id]));
 });
 
@@ -86,13 +98,43 @@ beforeEach(() => {
   vi.mocked(deleteBlob).mockResolvedValue(undefined);
 });
 
+describe("creating a PO with its details", () => {
+  it("saves every PO field in one call with an active vendor", async () => {
+    const { id } = await createProgram(DEL_A, {
+      accountId: f.accA, oemId: f.oemId, deliveryMethodId: f.methodId, name: `NewPo ${RUN}`,
+      poNumber: " NP-1 ", poDate: "2026-08-15", poValue: 250000, gstRate: 0, vendorId: f.vendorA,
+    });
+    programIds.push(id);
+    expect(await getProgramDetail(DEL_A, id)).toMatchObject({
+      poNumber: "NP-1", poDate: "2026-08-15", poValue: 250000, gstRate: 0, vendorId: f.vendorA, vendorName: `PoVendorA-${RUN}`,
+    });
+    const [row] = await db.select({ vendor: programsTable.vendor }).from(programsTable).where(eq(programsTable.id, id));
+    expect(row.vendor).toBeNull(); // the deprecated text column is no longer written
+  });
+
+  it("defaults GST to 18 and leaves the rest blank when no PO details are given", async () => {
+    const id = await mk("NewPoBlank");
+    expect(await getProgramDetail(DEL_A, id)).toMatchObject({ poNumber: null, poDate: null, poValue: null, gstRate: 18, vendorId: null, vendorName: null });
+  });
+
+  it("rejects an inactive or unknown vendor, and a bad PO value, creating nothing", async () => {
+    const base = { accountId: f.accA, oemId: f.oemId, deliveryMethodId: f.methodId };
+    const count = async () => (await db.select({ id: programsTable.id }).from(programsTable).where(eq(programsTable.accountId, f.accA))).length;
+    const n = await count();
+    await expect(createProgram(DEL_A, { ...base, name: `NewPoOff ${RUN}`, vendorId: f.vendorOff })).rejects.toThrow(/deactivated/);
+    await expect(createProgram(DEL_A, { ...base, name: `NewPoGone ${RUN}`, vendorId: -1 })).rejects.toThrow(/vendor/i);
+    await expect(createProgram(DEL_A, { ...base, name: `NewPoNaN ${RUN}`, poValue: NaN })).rejects.toThrow(/PO value/);
+    expect(await count()).toBe(n);
+  });
+});
+
 describe("PO details", () => {
   it("saves PO fields, and updateProgram leaves them untouched", async () => {
     const id = await mk("PoSave");
-    await updateProgramPo(DEL_A, id, { poNumber: " PO-77 ", poDate: "2026-08-01", poValue: 100000, gstRate: 12, vendor: " Acme Ltd " });
+    await updateProgramPo(DEL_A, id, { poNumber: " PO-77 ", poDate: "2026-08-01", poValue: 100000, gstRate: 12, vendorId: f.vendorA });
     await updateProgram(DEL_A, id, { accountId: f.accA, oemId: f.oemId, deliveryMethodId: f.methodId, name: `Renamed ${RUN}` });
     const d = await getProgramDetail(DEL_A, id);
-    expect(d).toMatchObject({ name: `Renamed ${RUN}`, poNumber: "PO-77", poDate: "2026-08-01", poValue: 100000, gstRate: 12, vendor: "Acme Ltd" });
+    expect(d).toMatchObject({ name: `Renamed ${RUN}`, poNumber: "PO-77", poDate: "2026-08-01", poValue: 100000, gstRate: 12, vendorId: f.vendorA, vendorName: `PoVendorA-${RUN}` });
   });
 
   it("keeps a GST rate of 0", async () => {
@@ -200,7 +242,6 @@ describe("payments", () => {
     for (const u of [VIEWER, SALES]) {
       await expect(getProgramDetail(u, id)).rejects.toThrow();
       await expect(listPrograms(u)).rejects.toThrow();
-      await expect(listVendorOptions(u)).rejects.toThrow();
       await expect(updateProgramPo(u, id, { poNumber: "x" })).rejects.toThrow();
       await expect(addPayment(u, { programId: id, receivedDate: "2026-09-01", amount: 1 })).rejects.toThrow();
       await expect(updatePayment(u, payId, { receivedDate: "2026-09-01", amount: 1 })).rejects.toThrow();
@@ -210,17 +251,38 @@ describe("payments", () => {
 });
 
 describe("vendors, deletes and audit", () => {
-  it("listVendorOptions returns only names from the caller's scope", async () => {
-    const a = await mk("VenA");
-    const b = await mk("VenB", f.accB);
-    await updateProgramPo(SUPER, a, { vendor: `VendorA-${RUN}` });
-    await updateProgramPo(SUPER, b, { vendor: `VendorB-${RUN}` });
-    const mine = await listVendorOptions(DEL_A);
-    expect(mine).toContain(`VendorA-${RUN}`);
-    expect(mine).not.toContain(`VendorB-${RUN}`);
-    expect(new Set(mine).size).toBe(mine.length);
-    const all = await listVendorOptions(SUPER);
-    expect(all).toEqual(expect.arrayContaining([`VendorA-${RUN}`, `VendorB-${RUN}`]));
+  it("updating a PO keeps its inactive current vendor, but can't switch to a different inactive one", async () => {
+    const id = await mk("VenKeep");
+    await db.update(programsTable).set({ vendorId: f.vendorOff }).where(eq(programsTable.id, id));
+    await updateProgramPo(DEL_A, id, { poNumber: "KEEP-OFF", vendorId: f.vendorOff });
+    expect((await getProgramDetail(DEL_A, id))!).toMatchObject({ poNumber: "KEEP-OFF", vendorId: f.vendorOff, vendorName: `PoVendorOff-${RUN}` });
+    await expect(updateProgramPo(DEL_A, id, { poNumber: "SWITCH", vendorId: f.vendorOff2 })).rejects.toThrow(/deactivated/);
+    expect((await getProgramDetail(DEL_A, id))!).toMatchObject({ poNumber: "KEEP-OFF", vendorId: f.vendorOff });
+    // Switching to an active vendor, or clearing it, is fine.
+    await updateProgramPo(DEL_A, id, { vendorId: f.vendorB });
+    expect((await getProgramDetail(DEL_A, id))!.vendorId).toBe(f.vendorB);
+    await updateProgramPo(DEL_A, id, { vendorId: null });
+    expect((await getProgramDetail(DEL_A, id))!).toMatchObject({ vendorId: null, vendorName: null });
+    // Once cleared, the inactive vendor can't come back.
+    await expect(updateProgramPo(DEL_A, id, { vendorId: f.vendorOff })).rejects.toThrow(/deactivated/);
+  });
+
+  it("rejects a vendor id that doesn't exist or isn't a whole number", async () => {
+    const id = await mk("VenBad");
+    await expect(updateProgramPo(DEL_A, id, { vendorId: -1 })).rejects.toThrow(/vendor/i);
+    await expect(updateProgramPo(DEL_A, id, { vendorId: 1.5 })).rejects.toThrow(/vendor/i);
+  });
+
+  it("list rows expose the vendor name, including for inactive vendors", async () => {
+    const a = await mk("VenList");
+    const b = await mk("VenListOff");
+    await updateProgramPo(SUPER, a, { vendorId: f.vendorA });
+    await db.update(programsTable).set({ vendorId: f.vendorOff }).where(eq(programsTable.id, b));
+    const rows = await listPrograms(DEL_A, { accountId: f.accA });
+    expect(rows.find((p) => p.id === a)).toMatchObject({ vendorId: f.vendorA, vendorName: `PoVendorA-${RUN}` });
+    expect(rows.find((p) => p.id === b)).toMatchObject({ vendorId: f.vendorOff, vendorName: `PoVendorOff-${RUN}` });
+    const none = rows.find((p) => p.vendorId === null);
+    if (none) expect(none.vendorName).toBeNull();
   });
 
   it("deleteProgram refuses while payments exist, then succeeds once they're removed", async () => {
@@ -305,12 +367,12 @@ describe("moveToNewPo", () => {
     await db.update(programsTable).set({ status: "on-hold" }).where(eq(programsTable.id, src));
     const e1 = await ev(src, "C1", "2026-10-05");
     const e2 = await ev(src, "C2", "2026-10-01", "2026-10-03");
-    const { id } = await moveToNewPo(SUPER, src, { name: `Copy ${RUN}`, eventIds: [e1, e2], poNumber: "NEW-1", poValue: 5000, gstRate: 5, vendor: "V", poDate: "2026-10-02" });
+    const { id } = await moveToNewPo(SUPER, src, { name: `Copy ${RUN}`, eventIds: [e1, e2], poNumber: "NEW-1", poValue: 5000, gstRate: 5, vendorId: f.vendorA, poDate: "2026-10-02" });
     programIds.push(id);
     const [row] = await db.select().from(programsTable).where(eq(programsTable.id, id));
     expect(row).toMatchObject({
       accountId: f.accA, oemId: f.oem2Id, deliveryMethodId: f.methodId, status: "on-hold",
-      startDate: "2026-10-01", endDate: "2026-10-05", poNumber: "NEW-1", poDate: "2026-10-02", poValue: "5000", gstRate: "5", vendor: "V",
+      startDate: "2026-10-01", endDate: "2026-10-05", poNumber: "NEW-1", poDate: "2026-10-02", poValue: "5000", gstRate: "5", vendorId: f.vendorA, vendor: null,
       createdBy: SUPER.id, updatedBy: SUPER.id,
     });
   });
@@ -354,7 +416,7 @@ describe("moveToNewPo", () => {
   it("leaves the source's PO fields, documents, total budget and linked board tasks alone", async () => {
     const src = await mk("MvKeep");
     await db.update(programsTable).set({ totalBudget: "999" }).where(eq(programsTable.id, src));
-    await updateProgramPo(SUPER, src, { poNumber: "KEEP", poDate: "2026-08-01", poValue: 777, gstRate: 12, vendor: "Keep" });
+    await updateProgramPo(SUPER, src, { poNumber: "KEEP", poDate: "2026-08-01", poValue: 777, gstRate: 12, vendorId: f.vendorB });
     const e1 = await ev(src, "K1", "2026-09-01");
     const [doc] = await db
       .insert(programFiles)
@@ -364,7 +426,7 @@ describe("moveToNewPo", () => {
     const { id } = await moveToNewPo(SUPER, src, { name: `K ${RUN}`, eventIds: [e1] });
     programIds.push(id);
     const [row] = await db.select().from(programsTable).where(eq(programsTable.id, src));
-    expect(row).toMatchObject({ totalBudget: "999", poNumber: "KEEP", poValue: "777", gstRate: "12", vendor: "Keep" });
+    expect(row).toMatchObject({ totalBudget: "999", poNumber: "KEEP", poValue: "777", gstRate: "12", vendorId: f.vendorB });
     const [d] = await db.select().from(programFiles).where(eq(programFiles.id, doc.id));
     expect(d.programId).toBe(src);
     const [t] = await db.select().from(tasks).where(eq(tasks.id, task.id));
@@ -406,6 +468,17 @@ describe("moveToNewPo", () => {
     await expect(moveToNewPo(SUPER, src, { name: `BadPay ${RUN}`, eventIds: [e1], paymentIds: [po.id] })).rejects.toThrow("already moved");
     expect((await stateOf(src)).events).toEqual([e1]);
     expect((await stateOf(other)).pays).toEqual([po.id]);
+  });
+
+  it("fails with no changes when the vendor is inactive", async () => {
+    const src = await mk("MvVenOff");
+    const e1 = await ev(src, "VO", "2026-09-01");
+    const count = async () => (await db.select({ id: programsTable.id }).from(programsTable).where(eq(programsTable.accountId, f.accA))).length;
+    const n = await count();
+    await expect(moveToNewPo(SUPER, src, { name: `VenOff ${RUN}`, eventIds: [e1], vendorId: f.vendorOff })).rejects.toThrow(/deactivated/);
+    await expect(moveToNewPo(SUPER, src, { name: `VenGone ${RUN}`, eventIds: [e1], vendorId: -1 })).rejects.toThrow(/vendor/i);
+    expect(await count()).toBe(n);
+    expect((await stateOf(src)).events).toEqual([e1]);
   });
 
   it("rejects an empty selection and a blank name", async () => {

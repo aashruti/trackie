@@ -5,6 +5,7 @@ import { db } from "@/lib/db/client";
 import { deliveryMethods, programs } from "@/lib/db/schema";
 import { assertDeliveryAccess, assertDeliveryManage, type SessionUser } from "@/lib/dal/authz";
 import { UserError } from "@/lib/dal/errors";
+import { isUniqueViolation } from "./util";
 
 /**
  * Delivery methods = the teaching-style catalogue ("Direct to Students" D2S,
@@ -24,16 +25,6 @@ export type DeliveryMethodRow = {
 };
 
 export type MethodInput = { name: string; code: string; description?: string };
-
-/** Drizzle wraps driver errors — walk the cause chain for a 23505 unique violation. */
-function isUniqueViolation(e: unknown): boolean {
-  let cur = e as { code?: string; message?: string; cause?: unknown } | undefined;
-  for (let depth = 0; cur && depth < 5; depth++) {
-    if (cur.code === "23505" || (cur.message && /unique|duplicate/i.test(cur.message))) return true;
-    cur = cur.cause as typeof cur;
-  }
-  return false;
-}
 
 function cleanInput(input: MethodInput): { name: string; code: string; description: string | null } {
   const name = input.name.trim();
@@ -60,7 +51,9 @@ export async function listMethods(
       code: deliveryMethods.code,
       description: deliveryMethods.description,
       active: deliveryMethods.active,
-      programCount: sql<number>`(SELECT count(*)::int FROM ${programs} WHERE ${programs.deliveryMethodId} = ${deliveryMethods.id})`,
+      // Qualify explicitly: drizzle renders single-table columns unqualified,
+      // so a bare "id" here would bind to programs.id.
+      programCount: sql<number>`(SELECT count(*)::int FROM ${programs} p WHERE p.delivery_method_id = "delivery_methods"."id")`,
     })
     .from(deliveryMethods)
     .orderBy(asc(deliveryMethods.code));
