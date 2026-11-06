@@ -20,7 +20,7 @@ async function assertDeliveryBoardWrite() {
   if (!session?.user) throw new Error("Not authenticated");
   const actor = { id: Number(session.user.id), roles: session.user.roles };
   if (!canAccessDelivery(actor)) {
-    throw new Error("The delivery board is available to the Delivery team / Admin / Super Admin only");
+    throw new Error("The delivery board is available to the Delivery team / Super Admin only");
   }
 }
 

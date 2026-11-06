@@ -3,7 +3,9 @@ import "server-only";
 import { BlobServiceClient } from "@azure/storage-blob";
 
 /**
- * Azure Blob Storage for HR file uploads (fingerprint scanner exports).
+ * Azure Blob Storage for file uploads: HR fingerprint scanner exports and
+ * delivery PO documents / payment proofs (private; served only through
+ * authorised route handlers, never by raw blob URL).
  *
  * Resources (RG datagami-trackie): storage account `datagamitrackie`, container
  * `attendance-files`. Configured via AZURE_STORAGE_CONNECTION_STRING +

@@ -16,6 +16,7 @@ import {
 } from "@/lib/db/enums";
 import { ACTIVITY_TYPE_META, EVENT_STATUS_META } from "./meta";
 import { ProgramCalendarView } from "./program-calendar";
+import { MoveToNewPoDialog } from "./move-to-new-po-dialog";
 import {
   addActivityAction,
   createEventAction,
@@ -45,6 +46,7 @@ export function ProgramDetailView({
   calMonth,
   tab,
   users,
+  vendors,
   canManage,
 }: {
   detail: ProgramDetail;
@@ -53,6 +55,7 @@ export function ProgramDetailView({
   calMonth: number;
   tab: "events" | "calendar";
   users: Option[];
+  vendors: string[];
   canManage: boolean;
 }) {
   const router = useRouter();
@@ -115,7 +118,7 @@ export function ProgramDetailView({
           <ProgramCalendarView days={calendar.days} cells={calendar.cells} />
         </div>
       ) : (
-        <EventsPanel detail={detail} users={users} canManage={canManage} pending={pending} run={run} />
+        <EventsPanel detail={detail} users={users} vendors={vendors} canManage={canManage} pending={pending} run={run} />
       )}
     </div>
   );
@@ -126,22 +129,28 @@ export function ProgramDetailView({
 function EventsPanel({
   detail,
   users,
+  vendors,
   canManage,
   pending,
   run,
 }: {
   detail: ProgramDetail;
   users: Option[];
+  vendors: string[];
   canManage: boolean;
   pending: boolean;
   run: (fn: () => Promise<{ ok: boolean; error?: string }>, onOk?: () => void) => void;
 }) {
   const [addingEvent, setAddingEvent] = useState(false);
+  const [selected, setSelected] = useState<number[]>([]);
+  const [moving, setMoving] = useState(false);
+  // Drop ids of events that no longer exist (moved away, deleted) after a refresh.
+  const liveSelected = selected.filter((id) => detail.events.some((e) => e.id === id));
 
   return (
     <div className="space-y-4">
       {canManage && (
-        <div>
+        <div className="flex flex-wrap items-center gap-2">
           {addingEvent ? (
             <EventForm
               users={users}
@@ -159,7 +168,25 @@ function EventsPanel({
               + Add event
             </button>
           )}
+          {!addingEvent && (
+            <button
+              onClick={() => setMoving(true)}
+              disabled={liveSelected.length === 0 || pending}
+              className="inline-flex h-9 items-center rounded-md border border-border-strong px-3 text-sm font-medium text-text-secondary hover:bg-surface-hover disabled:opacity-40"
+            >
+              Move to new PO{liveSelected.length > 0 ? ` (${liveSelected.length})` : ""}
+            </button>
+          )}
         </div>
+      )}
+      {moving && (
+        <MoveToNewPoDialog
+          sourceId={detail.id}
+          eventIds={liveSelected}
+          payments={detail.payments}
+          vendors={vendors}
+          onClose={() => setMoving(false)}
+        />
       )}
 
       {detail.events.length === 0 && !addingEvent ? (
@@ -168,7 +195,19 @@ function EventsPanel({
         </div>
       ) : (
         detail.events.map((event) => (
-          <EventCard key={event.id} programId={detail.id} event={event} users={users} canManage={canManage} pending={pending} run={run} />
+          <EventCard
+            key={event.id}
+            programId={detail.id}
+            event={event}
+            users={users}
+            canManage={canManage}
+            pending={pending}
+            run={run}
+            selected={liveSelected.includes(event.id)}
+            onToggleSelected={() =>
+              setSelected((ids) => (ids.includes(event.id) ? ids.filter((i) => i !== event.id) : [...ids, event.id]))
+            }
+          />
         ))
       )}
     </div>
@@ -182,6 +221,8 @@ function EventCard({
   canManage,
   pending,
   run,
+  selected,
+  onToggleSelected,
 }: {
   programId: number;
   event: ProgramEvent;
@@ -189,6 +230,8 @@ function EventCard({
   canManage: boolean;
   pending: boolean;
   run: (fn: () => Promise<{ ok: boolean; error?: string }>, onOk?: () => void) => void;
+  selected: boolean;
+  onToggleSelected: () => void;
 }) {
   const { confirmAction } = useAppDialog();
   const [expanded, setExpanded] = useState(false);
@@ -212,7 +255,17 @@ function EventCard({
   return (
     <article className="rounded-xl border border-border bg-surface">
       <div className="flex flex-wrap items-start justify-between gap-3 p-4">
-        <div className="min-w-0">
+        <div className="flex min-w-0 items-start gap-3">
+          {canManage && (
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={onToggleSelected}
+              aria-label={`Select ${event.title} to move to a new PO`}
+              className="mt-1 h-4 w-4 shrink-0 cursor-pointer"
+            />
+          )}
+          <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="text-[15px] font-semibold text-text-primary">{event.title}</h3>
             {canManage ? (
@@ -241,6 +294,7 @@ function EventCard({
             {event.ownerName ? ` · ${event.ownerName}` : ""}
           </p>
           {event.description && <p className="mt-1.5 max-w-3xl text-sm text-text-secondary">{event.description}</p>}
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {canManage && (

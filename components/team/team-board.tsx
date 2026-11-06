@@ -161,7 +161,7 @@ export function TeamBoard({
               {isBacklog ? "Backlog" : isDelivery ? "Delivery board" : "Team board"}
             </h2>
             <span className="rounded-full border border-[var(--primary-border)] bg-[var(--primary-subtle)] px-2 py-0.5 text-[11px] font-semibold text-[var(--primary-text)]">
-              {isBacklog ? "Triage" : isDelivery ? "Program delivery" : "Internal delivery"}
+              {isBacklog ? "Triage" : isDelivery ? "PO delivery" : "Internal delivery"}
             </span>
             {!isDelivery &&
               (!isBacklog ? (
@@ -186,7 +186,7 @@ export function TeamBoard({
             {isBacklog
               ? "Untriaged work · open items onto the board when ready"
               : isDelivery
-                ? "Event and program work · drag a card, click to open it, or use its status menu"
+                ? "Event and PO work · drag a card, click to open it, or use its status menu"
                 : "Active delivery · drag a card, click to open it, or use its status menu"}
           </p>
         </div>
@@ -211,9 +211,9 @@ export function TeamBoard({
           </select>
           {isDelivery && (
             <>
-              <label className="sr-only" htmlFor="tb-program">Filter by program</label>
+              <label className="sr-only" htmlFor="tb-program">Filter by PO</label>
               <select id="tb-program" className={selectCls} value={programFilter} onChange={(e) => setProgramFilter(e.target.value)}>
-                <option value="all">All programs</option>
+                <option value="all">All POs</option>
                 {boardPrograms.map((p) => <option key={p} value={p}>{p}</option>)}
               </select>
             </>

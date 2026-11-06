@@ -2,7 +2,7 @@ import "server-only";
 
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { programs, deliveryEvents, deliveryActivities } from "@/lib/db/schema";
+import { programs, deliveryEvents, deliveryActivities, programPayments, programFiles } from "@/lib/db/schema";
 import { scopeAccountIds, type SessionUser } from "@/lib/dal/authz";
 import { assignedIds } from "@/lib/dal/accounts";
 import { UserError } from "@/lib/dal/errors";
@@ -70,6 +70,32 @@ export async function assertActivityInScope(user: SessionUser, activityId: numbe
     .innerJoin(deliveryEvents, eq(deliveryActivities.eventId, deliveryEvents.id))
     .innerJoin(programs, eq(deliveryEvents.programId, programs.id))
     .where(eq(deliveryActivities.id, activityId))
+    .limit(1);
+  if (!row || !scope.includes(row.accountId)) throw new UserError(OUT_OF_SCOPE);
+}
+
+/** Throw unless the payment's program's account is in the caller's scope. */
+export async function assertPaymentInScope(user: SessionUser, paymentId: number): Promise<void> {
+  const scope = await callerScope(user);
+  if (scope === null) return;
+  const [row] = await db
+    .select({ accountId: programs.accountId })
+    .from(programPayments)
+    .innerJoin(programs, eq(programPayments.programId, programs.id))
+    .where(eq(programPayments.id, paymentId))
+    .limit(1);
+  if (!row || !scope.includes(row.accountId)) throw new UserError(OUT_OF_SCOPE);
+}
+
+/** Throw unless the file's program's account is in the caller's scope. */
+export async function assertFileInScope(user: SessionUser, fileId: number): Promise<void> {
+  const scope = await callerScope(user);
+  if (scope === null) return;
+  const [row] = await db
+    .select({ accountId: programs.accountId })
+    .from(programFiles)
+    .innerJoin(programs, eq(programFiles.programId, programs.id))
+    .where(eq(programFiles.id, fileId))
     .limit(1);
   if (!row || !scope.includes(row.accountId)) throw new UserError(OUT_OF_SCOPE);
 }

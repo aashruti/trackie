@@ -301,7 +301,7 @@ export async function createTask(actorId: number, input: NewTaskInput): Promise<
   // Program context is a delivery-board concept. Rejecting it elsewhere also
   // keeps program names (delivery-gated data) off the all-roles team board.
   if (programId != null && board !== "delivery") {
-    throw new Error("Programs can only be linked to delivery-board tasks");
+    throw new Error("POs can only be linked to delivery-board tasks");
   }
 
   if (programId != null) {
@@ -310,9 +310,9 @@ export async function createTask(actorId: number, input: NewTaskInput): Promise<
       .from(programs)
       .where(eq(programs.id, programId))
       .limit(1);
-    if (!program) throw new Error("Program not found");
+    if (!program) throw new Error("PO not found");
     if (accountId != null && accountId !== program.accountId) {
-      throw new Error("That program belongs to a different account");
+      throw new Error("That PO belongs to a different account");
     }
     accountId = program.accountId; // program implies its account
   }

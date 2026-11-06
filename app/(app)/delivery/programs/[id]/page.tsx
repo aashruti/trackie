@@ -8,6 +8,9 @@ import { getProgramCalendar, getProgramDetail, listOemOptions } from "@/lib/dal/
 import { listMethods } from "@/lib/dal/delivery/methods";
 import { listUserOptions } from "@/lib/dal/tasks";
 import { ProgramDetailView } from "@/components/delivery/program-detail";
+import { PoPanel } from "@/components/delivery/po-panel";
+import { isStorageConfigured } from "@/lib/storage/blob";
+import { listVendorOptions } from "@/lib/dal/delivery/po";
 import { ProgramControls } from "@/components/delivery/program-controls";
 import { Money } from "@/components/ui/money";
 import { PROGRAM_STATUS_META } from "@/components/delivery/meta";
@@ -33,9 +36,9 @@ export default async function ProgramDetailPage({
   if (!canAccessDelivery(actor)) {
     return (
       <>
-        <Topbar section="Delivery" title="Program" user={user} years={years} currentYear={YEAR} />
+        <Topbar section="Delivery" title="PO" user={user} years={years} currentYear={YEAR} />
         <main className="mx-auto w-full max-w-[1440px] px-6 py-6">
-          <p className="text-sm text-text-secondary">Delivery programs are available to the Delivery team / Admin / Super Admin only.</p>
+          <p className="text-sm text-text-secondary">Delivery POs are available to the Delivery team / Super Admin only.</p>
         </main>
       </>
     );
@@ -48,12 +51,13 @@ export default async function ProgramDetailPage({
   const tab = sp.tab === "calendar" ? "calendar" : "events";
 
   const canManage = canManageDelivery(actor);
-  const [detail, calendar, users, methods, oems] = await Promise.all([
+  const [detail, calendar, users, methods, oems, vendors] = await Promise.all([
     getProgramDetail(actor, id),
     getProgramCalendar(actor, id, calYear, calMonth),
     listUserOptions(),
     canManage ? listMethods(actor) : Promise.resolve([]),
     canManage ? listOemOptions(actor) : Promise.resolve([]),
+    listVendorOptions(actor),
   ]);
   if (!detail || !calendar) notFound();
 
@@ -71,7 +75,7 @@ export default async function ProgramDetailPage({
       <main className="mx-auto w-full max-w-[1440px] space-y-5 px-6 py-6">
         <div className="no-print">
           <Link href="/delivery/programs" className="text-sm text-text-secondary hover:text-text-primary">
-            ← Programs
+            ← POs
           </Link>
         </div>
 
@@ -127,6 +131,13 @@ export default async function ProgramDetailPage({
           />
         </div>
 
+        <PoPanel
+          detail={detail}
+          vendors={vendors}
+          storageConfigured={isStorageConfigured()}
+          canManage={canManage}
+        />
+
         <ProgramDetailView
           detail={detail}
           calendar={calendar}
@@ -134,6 +145,7 @@ export default async function ProgramDetailPage({
           calMonth={calMonth}
           tab={tab}
           users={users}
+          vendors={vendors}
           canManage={canManage}
         />
       </main>
