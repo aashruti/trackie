@@ -31,6 +31,7 @@ export function ProgramsExplorer({
   const [search, setSearch] = useState("");
   const [account, setAccount] = useState("all");
   const [method, setMethod] = useState("all");
+  const [provider, setProvider] = useState("all");
   const [status, setStatus] = useState<"all" | ProgramStatus>("all");
   const [payStatus, setPayStatus] = useState<"all" | PaymentStatus>("all");
   const [vendor, setVendor] = useState("all");
@@ -42,6 +43,10 @@ export function ProgramsExplorer({
   );
   const methodCodes = useMemo(
     () => Array.from(new Set(programs.map((p) => p.methodCode))).sort(),
+    [programs],
+  );
+  const providerNames = useMemo(
+    () => Array.from(new Set(programs.map((p) => p.oemName))).sort(),
     [programs],
   );
 
@@ -61,6 +66,7 @@ export function ProgramsExplorer({
     return programs.filter((p) => {
       if (account !== "all" && p.accountName !== account) return false;
       if (method !== "all" && p.methodCode !== method) return false;
+      if (provider !== "all" && p.oemName !== provider) return false;
       if (status !== "all" && p.status !== status) return false;
       if (payStatus !== "all" && p.po.status !== payStatus) return false;
       if (vendor !== "all" && String(p.vendorId) !== vendor) return false;
@@ -70,7 +76,7 @@ export function ProgramsExplorer({
       }
       return true;
     });
-  }, [programs, search, account, method, status, payStatus, vendor]);
+  }, [programs, search, account, method, provider, status, payStatus, vendor]);
 
   const totals = useMemo(
     () => ({
@@ -132,6 +138,10 @@ export function ProgramsExplorer({
         <select className={selectCls} value={method} onChange={(e) => setMethod(e.target.value)} aria-label="Filter by teaching style">
           <option value="all">All styles</option>
           {methodCodes.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <select className={selectCls} value={provider} onChange={(e) => setProvider(e.target.value)} aria-label="Filter by provider">
+          <option value="all">All providers</option>
+          {providerNames.map((o) => <option key={o} value={o}>{o}</option>)}
         </select>
         <select className={selectCls} value={status} onChange={(e) => setStatus(e.target.value as "all" | ProgramStatus)} aria-label="Filter by status">
           <option value="all">All statuses</option>
