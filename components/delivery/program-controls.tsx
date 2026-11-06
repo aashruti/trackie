@@ -230,7 +230,7 @@ function EditProgramDialog({
           </div>
 
           <label className="block">
-            <span className="text-[11px] font-medium text-text-muted">PO budget ₹ <span className="font-normal">(optional)</span></span>
+            <span className="text-[11px] font-medium text-text-muted">Budget envelope ₹ <span className="font-normal">(optional)</span></span>
             <input type="number" min="0" value={totalBudget} onChange={(e) => setTotalBudget(e.target.value)} className={fieldCls} />
           </label>
 

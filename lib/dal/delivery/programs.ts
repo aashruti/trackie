@@ -8,6 +8,7 @@ import {
   deliveryEvents,
   deliveryMethods,
   oems,
+  poVendors,
   programFiles,
   programPayments,
   programs,
@@ -24,7 +25,8 @@ import { assignedIds } from "@/lib/dal/accounts";
 import { assertAccountInScope, assertProgramInScope } from "./scope";
 import { stampedDelete } from "../audit";
 import { computePoTotals, type PoTotals } from "@/lib/delivery/po-status";
-import { loadProgramPo, removeBlobsBestEffort, type ProgramFileRow, type ProgramPayment } from "./po";
+import { cleanPoInput, loadProgramPo, removeBlobsBestEffort, type PoInput, type ProgramFileRow, type ProgramPayment } from "./po";
+import { assertPoVendorUsable } from "./po-vendors";
 import { UserError } from "@/lib/dal/errors";
 import { PROGRAM_STATUSES, type DeliveryActivityType, type DeliveryEventStatus, type ProgramStatus } from "@/lib/db/enums";
 import { assertDateOrder, assertIsoDate, buildCalendarCells, monthDays, toMoney, type CalendarCell } from "./util";
@@ -60,7 +62,9 @@ export type ProgramListRow = {
   poDate: string | null;
   poValue: number | null;
   gstRate: number;
-  vendor: string | null;
+  vendorId: number | null;
+  /** Vendor name, active or not (null = no vendor). */
+  vendorName: string | null;
   po: PoTotals;
 };
 
@@ -109,6 +113,9 @@ export type NewProgram = {
   totalBudget?: number | null;
 };
 
+/** createProgram also takes the optional PO details (the New PO screen). */
+export type NewProgramWithPo = NewProgram & PoInput;
+
 const PROGRAM_SELECT = {
   id: programs.id,
   name: programs.name,
@@ -128,7 +135,8 @@ const PROGRAM_SELECT = {
   poDate: programs.poDate,
   poValue: programs.poValue,
   gstRate: programs.gstRate,
-  vendor: programs.vendor,
+  vendorId: programs.vendorId,
+  vendorName: poVendors.name,
 };
 
 type Rollup = { eventCount: number; allocated: number; spent: number; received: number; tds: number };
@@ -211,6 +219,7 @@ export async function listPrograms(
     .innerJoin(accounts, eq(programs.accountId, accounts.id))
     .innerJoin(oems, eq(programs.oemId, oems.id))
     .innerJoin(deliveryMethods, eq(programs.deliveryMethodId, deliveryMethods.id))
+    .leftJoin(poVendors, eq(programs.vendorId, poVendors.id))
     .where(conds.length ? and(...conds) : undefined)
     .orderBy(asc(accounts.name), asc(programs.name));
 
@@ -241,6 +250,7 @@ export async function getProgramDetail(user: SessionUser, id: number): Promise<P
       .innerJoin(accounts, eq(programs.accountId, accounts.id))
       .innerJoin(oems, eq(programs.oemId, oems.id))
       .innerJoin(deliveryMethods, eq(programs.deliveryMethodId, deliveryMethods.id))
+      .leftJoin(poVendors, eq(programs.vendorId, poVendors.id))
       .where(
         scope
           ? and(eq(programs.id, id), inArray(programs.accountId, scope.length ? scope : [-1]))
@@ -336,7 +346,7 @@ function cleanProgramInput(input: NewProgram) {
     status: input.status ?? ("active" as const),
     startDate: input.startDate || null,
     endDate: input.endDate || null,
-    totalBudget: input.totalBudget === null || input.totalBudget === undefined ? null : toMoney(input.totalBudget, "PO budget"),
+    totalBudget: input.totalBudget === null || input.totalBudget === undefined ? null : toMoney(input.totalBudget, "Budget envelope"),
   };
 }
 
@@ -362,14 +372,18 @@ async function assertRefsExist(
   }
 }
 
-export async function createProgram(user: SessionUser, input: NewProgram): Promise<{ id: number }> {
+export async function createProgram(user: SessionUser, input: NewProgramWithPo): Promise<{ id: number }> {
   assertDeliveryManage(user);
   const values = cleanProgramInput(input);
+  const po = cleanPoInput(input);
   await assertAccountInScope(user, values.accountId); // can't create under an account you can't reach
-  await assertRefsExist(values.accountId, values.oemId, values.deliveryMethodId);
+  await Promise.all([
+    assertRefsExist(values.accountId, values.oemId, values.deliveryMethodId),
+    assertPoVendorUsable(po.vendorId), // a new PO may only use an active vendor
+  ]);
   const [row] = await db
     .insert(programs)
-    .values({ ...values, createdBy: user.id, updatedBy: user.id })
+    .values({ ...values, ...po, createdBy: user.id, updatedBy: user.id })
     .returning({ id: programs.id });
   return { id: row.id };
 }

@@ -17,12 +17,15 @@ export function ProgramsExplorer({
   methods,
   accounts,
   oems,
+  vendors,
   canManage,
 }: {
   programs: ProgramListRow[];
   methods: { id: number; name: string; code: string }[];
   accounts: PickerOption[];
   oems: { id: number; name: string; isSelf: boolean }[];
+  /** Active vendors only: the New PO picker. */
+  vendors: PickerOption[];
   canManage: boolean;
 }) {
   const [search, setSearch] = useState("");
@@ -47,13 +50,12 @@ export function ProgramsExplorer({
     [programs],
   );
 
-  const vendorNames = useMemo(
-    () =>
-      Array.from(
-        new Set(programs.map((p) => p.vendor?.trim() ?? "").filter((v) => v !== "")),
-      ).sort(),
-    [programs],
-  );
+  // Built from the rows, so inactive vendors that still have POs appear too.
+  const vendorOptions = useMemo(() => {
+    const byId = new Map<number, string>();
+    for (const p of programs) if (p.vendorId !== null && p.vendorName) byId.set(p.vendorId, p.vendorName);
+    return Array.from(byId, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [programs]);
   const payStatuses = useMemo(() => {
     const present = new Set(programs.map((p) => p.po.status));
     return (Object.keys(PAYMENT_STATUS_META) as PaymentStatus[]).filter((s) => present.has(s));
@@ -67,9 +69,9 @@ export function ProgramsExplorer({
       if (provider !== "all" && p.oemName !== provider) return false;
       if (status !== "all" && p.status !== status) return false;
       if (payStatus !== "all" && p.po.status !== payStatus) return false;
-      if (vendor !== "all" && (p.vendor?.trim() ?? "") !== vendor) return false;
+      if (vendor !== "all" && String(p.vendorId) !== vendor) return false;
       if (q) {
-        const hay = `${p.name} ${p.poNumber ?? ""} ${p.vendor ?? ""} ${p.accountName} ${p.oemName} ${p.methodName} ${p.methodCode}`.toLowerCase();
+        const hay = `${p.name} ${p.poNumber ?? ""} ${p.vendorName ?? ""} ${p.accountName} ${p.oemName} ${p.methodName} ${p.methodCode}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -151,7 +153,7 @@ export function ProgramsExplorer({
         </select>
         <select className={selectCls} value={vendor} onChange={(e) => setVendor(e.target.value)} aria-label="Filter by vendor">
           <option value="all">All vendors</option>
-          {vendorNames.map((v) => <option key={v} value={v}>{v}</option>)}
+          {vendorOptions.map((v) => <option key={v.id} value={String(v.id)}>{v.name}</option>)}
         </select>
       </div>
 
@@ -184,7 +186,6 @@ export function ProgramsExplorer({
                 const meta = PROGRAM_STATUS_META[p.status];
                 const over = p.spent > p.allocated;
                 const payMeta = PAYMENT_STATUS_META[p.po.status];
-                const vendorName = p.vendor?.trim() ?? "";
                 const poNumber = p.poNumber?.trim() ?? "";
                 return (
                   <tr key={p.id} className="border-b border-border-subtle last:border-0 hover:bg-surface-hover">
@@ -215,7 +216,7 @@ export function ProgramsExplorer({
                         </div>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-text-secondary">{vendorName || "—"}</td>
+                    <td className="px-4 py-3 text-text-secondary">{p.vendorName ?? "—"}</td>
                     <td className="px-4 py-3">
                       <span className="rounded-md border border-[var(--primary-border)] bg-[var(--primary-subtle)] px-1.5 py-0.5 text-[11px] font-bold text-[var(--primary-text)]" title={p.methodName}>
                         {p.methodCode}
@@ -252,6 +253,7 @@ export function ProgramsExplorer({
           accounts={accounts}
           oems={oems}
           methods={methods}
+          vendors={vendors}
           onClose={() => setAdding(false)}
         />
       )}

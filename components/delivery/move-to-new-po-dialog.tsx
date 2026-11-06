@@ -25,7 +25,8 @@ export function MoveToNewPoDialog({
   sourceId: number;
   eventIds: number[];
   payments: ProgramPayment[];
-  vendors: string[];
+  /** Active vendors only: a new PO can't use a deactivated one. */
+  vendors: { id: number; name: string }[];
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -33,7 +34,7 @@ export function MoveToNewPoDialog({
   const [name, setName] = useState("");
   const [poNumber, setPoNumber] = useState("");
   const [poDate, setPoDate] = useState("");
-  const [vendor, setVendor] = useState("");
+  const [vendorId, setVendorId] = useState("");
   const [poValue, setPoValue] = useState("");
   const [gstRate, setGstRate] = useState(String(DEFAULT_GST_RATE));
   const [paymentIds, setPaymentIds] = useState<number[]>([]);
@@ -67,7 +68,7 @@ export function MoveToNewPoDialog({
         poDate: poDate || null,
         poValue: value,
         gstRate: gst ?? DEFAULT_GST_RATE,
-        vendor: vendor.trim() || null,
+        vendorId: vendorId ? Number(vendorId) : null,
       });
       if (!res.ok) { setError(res.error); return; }
       router.push(`/delivery/programs/${res.id}`);
@@ -136,10 +137,10 @@ export function MoveToNewPoDialog({
 
           <label className="block">
             <span className="text-[11px] font-medium text-text-muted">Vendor <span className="font-normal">(optional)</span></span>
-            <input value={vendor} onChange={(e) => setVendor(e.target.value)} list="move-po-vendor-options" className={fieldCls} />
-            <datalist id="move-po-vendor-options">
-              {vendors.map((v) => <option key={v} value={v} />)}
-            </datalist>
+            <select value={vendorId} onChange={(e) => setVendorId(e.target.value)} className={fieldCls}>
+              <option value="">No vendor</option>
+              {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+            </select>
           </label>
 
           {payments.length > 0 && (
