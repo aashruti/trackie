@@ -3,7 +3,6 @@ import { Topbar } from "@/components/shell/topbar";
 import { getYearContext } from "@/lib/dal/years";
 import { canAccessDelivery, canManageDelivery } from "@/lib/dal/authz";
 import { listMethods } from "@/lib/dal/delivery/methods";
-import { listPoVendors } from "@/lib/dal/delivery/po-vendors";
 import { DeliverySettingsManager } from "@/components/delivery/delivery-settings-manager";
 
 export default async function DeliverySettingsPage() {
@@ -23,7 +22,7 @@ export default async function DeliverySettingsPage() {
     );
   }
 
-  const [methods, vendors] = await Promise.all([listMethods(actor), listPoVendors(actor)]);
+  const methods = await listMethods(actor);
 
   return (
     <>
@@ -31,9 +30,9 @@ export default async function DeliverySettingsPage() {
       <main className="mx-auto w-full max-w-[1440px] space-y-5 px-6 py-6">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-text-primary">Delivery settings</h1>
-          <p className="mt-0.5 text-sm text-text-secondary">Teaching styles and vendors that can be attached to POs.</p>
+          <p className="mt-0.5 text-sm text-text-secondary">Teaching styles that can be attached to POs. PO vendors have their own page.</p>
         </div>
-        <DeliverySettingsManager methods={methods} vendors={vendors} canManage={canManageDelivery(actor)} />
+        <DeliverySettingsManager methods={methods} canManage={canManageDelivery(actor)} />
       </main>
     </>
   );
